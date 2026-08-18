@@ -1,0 +1,111 @@
+# electron-builder config — docs/MIGRATION-PLAN.md Phase 10.
+#
+# STATUS: sketched only, per docs/DELTAS.md D-D ("P10 packaging SKIPPED... write the
+# electron-builder config + `dist` script... but do not build or verify installers").
+# This file has never been run through `electron-builder`. Nothing here has produced
+# an installer, let alone one that launched on a clean machine. Risks R6 (PGlite wasm
+# sealed inside asar) and R7 (migration-on-upgrade data loss) are OPEN — see
+# docs/receipts/PHASE-10.md.
+
+appId: app.finlens.devsummary
+productName: DevSummary
+copyright: Copyright DevSummary
+
+# electron-builder defaults its own output directory to "dist", which collides with
+# this package's tsc output (apps/desktop/dist/main.js — the `main` entry point, and
+# the file main.ts's own relative paths to backend/dist and frontend/dist are resolved
+# from). Keep packaged artifacts out of that directory entirely.
+directories:
+  output: release
+  buildResources: build
+
+# No auto-update for v1 (plan §Phase 10). Do not let electron-builder infer a
+# publish target from repo metadata either.
+publish: null
+
+# ---------------------------------------------------------------------------------
+# What ships inside the app.
+#
+# main.ts resolves its two children by relative path from its own compiled location
+# (apps/desktop/dist/main.js):
+#   backend:  __dirname/../../backend/dist/main.js     -> <app root>/backend/dist/main.js
+#   frontend: __dirname/../../frontend/dist/index.html -> <app root>/frontend/dist/index.html
+# so the packaged app root must reproduce that layout exactly: this package's own
+# dist/ at the root, plus backend/ and frontend/ copied in as siblings.
+#
+# Backend's node_modules is pnpm-managed (symlink forest into a shared content
+# store), which electron-builder's own dependency walker does not prune correctly.
+# `build/beforePack.js` runs `pnpm --filter backend deploy --prod` first, which
+# materializes a real, non-symlinked, production-only node_modules for the backend
+# (workspace deps like @launchstack/core get inlined, not left as symlinks) into
+# .backend-deploy/. That output — dist + node_modules + package.json, per backend's
+# own `"files": ["dist"]"` allowlist — is what actually gets copied below.
+beforePack: build/beforePack.js
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+  - from: .backend-deploy/dist
+    to: backend/dist
+  - from: .backend-deploy/node_modules
+    to: backend/node_modules
+  - from: .backend-deploy/package.json
+    to: backend/package.json
+  - from: ../frontend/dist
+    to: frontend/dist
+
+# The single most likely packaging failure (plan Phase 10 / risk R6): Postgres
+# (PGlite) mmaps its wasm and opens its data file directly off the native
+# filesystem. Both fail silently or loudly inside asar's read-only virtual FS.
+# `**/` covers both the pnpm-deploy layout above (backend/node_modules/...) and a
+# plain-npm-style layout, in case the packaging strategy changes before this is
+# ever actually run.
+asarUnpack:
+  - "**/node_modules/@electric-sql/pglite/dist/*.wasm"
+  - "**/node_modules/@electric-sql/pglite/dist/*.data"
+
+# Data lives in the OS-managed per-user app-data directory, never inside the
+# (read-only, wiped-on-update) app bundle. main.ts already passes
+# `DATA_DIR: app.getPath('userData')` to the backend at fork time — nothing for
+# electron-builder itself to configure here, noted for whoever debugs this next.
+
+# ---------------------------------------------------------------------------------
+# FUTURE WORK — vN -> vN+1 migration backup (plan Phase 10, risk R7).
+#
+# Skipped entirely for this pass (D-D: config sketched, never built or verified).
+# The plan requires: before the backend applies migrations on boot, copy the PGlite
+# data directory to `data.bak` inside userData; if migration throws, restore
+# `data.bak` over the live data dir and refuse to start dirty. This belongs in the
+# backend's MigrationRunner (apps/backend/src/databases/kysely/*), not here — it is
+# runtime behavior, not a packaging concern — but it is packaging's acceptance gate:
+# Phase 10 is not done until an explicit vN -> vN+1 test (install vN, generate data,
+# install vN+1 with a new migration, confirm data survives, including the
+# failure-restore path) passes. Nobody has written that backup/restore code yet.
+# Do not check this box from the packaging side alone.
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.developer-tools
+  # No code-signing identity configured (no Apple Developer ID in this environment).
+  # An unsigned dmg will trigger Gatekeeper on any machine but the one that built it.
+  identity: null
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # No code-signing certificate configured. Unsigned nsis installers trigger
+  # SmartScreen warnings — acceptable for an unverified v1 sketch, not for release.
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Development
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

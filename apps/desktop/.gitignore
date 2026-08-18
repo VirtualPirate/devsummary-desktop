@@ -1,0 +1,5 @@
+# electron-builder output (directories.output in electron-builder.yml)
+release/
+
+# scratch node_modules materialized by build/beforePack.js at package time
+.backend-deploy/
