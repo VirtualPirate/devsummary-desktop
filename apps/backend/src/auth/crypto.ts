@@ -7,9 +7,11 @@ import {
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
-const SALT = 'better-auth-token-encryption';
+// scrypt domain separator, not a secret. Any change here makes every value
+// already encrypted with the old one undecryptable — safe to have renamed
+// during the desktop port only because nothing had been encrypted yet.
+const SALT = 'devsummary-token-encryption';
 
 /**
  * Derives a 32-byte encryption key from the provided secret using scrypt.

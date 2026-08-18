@@ -1,5 +1,4 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
-import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import type { Response } from 'express';
 import type {
   ApiResponse,
@@ -21,7 +20,6 @@ export class HealthController {
    * choose the status code, which a plain return value cannot express.
    */
   @Get()
-  @AllowAnonymous()
   async readiness(
     @Res({ passthrough: true }) res: Response,
   ): Promise<ApiResponse<HealthResponse>> {
@@ -38,12 +36,15 @@ export class HealthController {
   }
 
   /**
-   * Liveness. Always 200 while the process can serve HTTP. Point container
-   * restart policies here, never at readiness — otherwise a brief Postgres
-   * outage restarts a perfectly healthy API.
+   * Liveness. Always 200 while the process can serve HTTP. Point the Electron
+   * main process's restart logic here, never at readiness — otherwise a brief
+   * database stall restarts a perfectly healthy backend.
+   *
+   * Both routes are reachable without the per-boot token: `LocalTokenGuard`
+   * allow-lists `/api/health` by path, which is what the `@AllowAnonymous()`
+   * decorator from the deleted auth wrapper used to do.
    */
   @Get('live')
-  @AllowAnonymous()
   liveness(): ApiResponse<LivenessResponse> {
     return {
       data: this.health.liveness(),

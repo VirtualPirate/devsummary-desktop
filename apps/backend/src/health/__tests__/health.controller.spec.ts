@@ -11,7 +11,6 @@ const OK_REPORT: HealthResponse = {
   uptimeSeconds: 12,
   checks: {
     database: { status: 'ok', latencyMs: 1 },
-    temporal: { status: 'ok', latencyMs: 2 },
   },
 };
 
@@ -20,8 +19,11 @@ const DEGRADED_REPORT: HealthResponse = {
   version: 'v1',
   uptimeSeconds: 12,
   checks: {
-    database: { status: 'ok', latencyMs: 1 },
-    temporal: { status: 'error', latencyMs: 2000, error: '14 UNAVAILABLE' },
+    database: {
+      status: 'error',
+      latencyMs: 2000,
+      error: 'database probe timed out after 2000ms',
+    },
   },
 };
 
@@ -73,7 +75,7 @@ describe('HealthController', () => {
     expect(body.success).toBe(false);
     expect(body.message).toBe('Degraded');
     // The failure detail must survive into the body, not just the status code.
-    expect(body.data.checks.temporal.error).toContain('UNAVAILABLE');
+    expect(body.data.checks.database.error).toContain('timed out');
   });
 
   it('liveness never sets a failure status and never consults readiness', async () => {

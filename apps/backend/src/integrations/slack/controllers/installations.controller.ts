@@ -1,23 +1,17 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   HttpCode,
   Param,
   Post,
-  Query,
-  Req,
-  Res,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
-  AllowAnonymous,
-  OptionalAuth,
-  Session,
-} from '@thallesp/nestjs-better-auth';
-import type { ApiResponse } from '@launchstack/api-interfaces';
-import type { Request, Response } from 'express';
-import { ApiException } from '../../../common/errors';
+  SLACK_BOT_SCOPES,
+  type ApiResponse,
+} from '@launchstack/api-interfaces';
+import { LOCAL_USER_ID } from '../../../local/local-identity';
 import {
   OrgMembership,
   type OrgMembershipContext,
@@ -25,25 +19,18 @@ import {
 import { RequireOrgRole } from '../../../organizations/decorators/require-org-role.decorator';
 import { ZodValidationPipe } from '../../../organizations/dto/zod-validation.pipe';
 import {
-  CallbackQuerySchema,
+  ConnectTokenBodySchema,
   InstallationIdParamSchema,
-  type CallbackQuery,
+  type ConnectTokenBody,
 } from '../dto/installations.dto';
 import {
   SlackInstallationsService,
   type SlackInstallationView,
 } from '../services/installations.service';
 
-type SessionPayload = {
-  user: { id: string; email: string; emailVerified: boolean };
-};
-
 @Controller('api/integrations/slack/installations')
 export class SlackInstallationsController {
-  constructor(
-    private readonly svc: SlackInstallationsService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly svc: SlackInstallationsService) {}
 
   @Get()
   @RequireOrgRole('admin')
@@ -54,55 +41,29 @@ export class SlackInstallationsController {
     return { data, message: 'OK', success: true };
   }
 
-  @Post('start')
+  /** The scopes the pasted token's app must hold, for the settings screen. */
+  @Get('scopes')
   @RequireOrgRole('admin')
-  start(
-    @OrgMembership() membership: OrgMembershipContext,
-    @Session() session: SessionPayload,
-  ): ApiResponse<{ installUrl: string }> {
-    const installUrl = this.svc.buildInstallUrl({
-      orgId: membership.organizationId,
-      userId: session.user.id,
-    });
-    return { data: { installUrl }, message: 'OK', success: true };
+  scopes(): ApiResponse<{ scopes: string[] }> {
+    return {
+      data: { scopes: [...SLACK_BOT_SCOPES] },
+      message: 'OK',
+      success: true,
+    };
   }
 
-  @Get('callback')
-  @AllowAnonymous()
-  @OptionalAuth()
-  async callback(
-    @Query(new ZodValidationPipe(CallbackQuerySchema)) query: CallbackQuery,
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
-    const frontendUrl = this.config.getOrThrow<string>('FRONTEND_URL');
-    const successUrl = `${frontendUrl}/integrations/slack`;
-
-    if (query.error) {
-      res.redirect(
-        302,
-        `${successUrl}?error=${encodeURIComponent(query.error)}`,
-      );
-      return;
-    }
-
-    try {
-      const sessionUserId =
-        (req as unknown as { session?: { user?: { id?: string } } }).session
-          ?.user?.id ?? null;
-
-      await this.svc.handleCallback({
-        state: query.state,
-        code: query.code,
-        sessionUserId,
-      });
-
-      res.redirect(302, `${successUrl}?connected=1`);
-    } catch (err) {
-      const code =
-        err instanceof ApiException ? err.code : 'SLACK_CALLBACK_FAILED';
-      res.redirect(302, `${successUrl}?error=${encodeURIComponent(code)}`);
-    }
+  @Post('token')
+  @RequireOrgRole('admin')
+  async connect(
+    @OrgMembership() membership: OrgMembershipContext,
+    @Body(new ZodValidationPipe(ConnectTokenBodySchema)) body: ConnectTokenBody,
+  ): Promise<ApiResponse<SlackInstallationView>> {
+    const data = await this.svc.connectToken({
+      orgId: membership.organizationId,
+      token: body.token,
+      userId: LOCAL_USER_ID,
+    });
+    return { data, message: 'OK', success: true };
   }
 
   @Delete(':id')

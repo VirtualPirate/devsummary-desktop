@@ -1,7 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import type { Client } from '@temporalio/client';
-import { SA_ORG, TEMPORAL_CLIENT } from '../../temporal';
+import { JobQueueService } from '../../jobs';
 import { GithubInstallationsService } from '../../integrations/github/services/installations.service';
 import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
 
@@ -12,8 +11,8 @@ import { SlackInstallationsService } from '../../integrations/slack/services/ins
  * `organizations` is hard-deleted and every child cascades, so by the time the
  * DELETE returns there is nothing left that names the Slack bot token or the
  * GitHub installation — the tokens stay live on the third party with no row to
- * find them from, and Temporal keeps retrying workflows against rows that no
- * longer exist. This has to run while those rows are still there.
+ * find them from, and the job runner keeps retrying handlers against rows that
+ * no longer exist. This has to run while those rows are still there.
  *
  * Every step is best-effort: a Slack or GitHub outage must not make an
  * organization undeletable. A failed step logs at `error` with the org id and
@@ -24,17 +23,17 @@ export class OrganizationTeardownService {
   private readonly logger = new Logger(OrganizationTeardownService.name);
 
   constructor(
-    @Inject(TEMPORAL_CLIENT) private readonly temporal: Client,
+    private readonly queue: JobQueueService,
     private readonly moduleRef: ModuleRef,
   ) {}
 
   async run(organizationId: string): Promise<void> {
     await this.revokeSlack(organizationId);
     await this.uninstallGithub(organizationId);
-    // Last, not first: the GitHub disconnect above starts a collaborator-sync
-    // workflow per repository it drops, and those would outlive the org just
-    // like the ones already running.
-    await this.terminateWorkflows(organizationId);
+    // Last, not first: the GitHub disconnect above enqueues a collaborator-sync
+    // job per repository it drops, and those would outlive the org just like the
+    // ones already queued.
+    await this.cancelJobs(organizationId);
   }
 
   private async revokeSlack(organizationId: string): Promise<void> {
@@ -61,38 +60,35 @@ export class OrganizationTeardownService {
       const github = this.moduleRef.get(GithubInstallationsService, {
         strict: false,
       });
-      for (const installation of await github.listForOrg(organizationId)) {
-        await github.disconnect(organizationId, installation.id);
+      // `disconnect` takes the org alone (one stored credential per workspace)
+      // and throws when there is nothing to disconnect, so ask first rather than
+      // logging a scary teardown failure for an org that never connected.
+      if ((await github.listForOrg(organizationId)).length > 0) {
+        await github.disconnect(organizationId);
       }
     } catch (err) {
       this.logger.error(
-        `GitHub teardown failed for org=${organizationId}; the GitHub App is still INSTALLED with repository read access and must be uninstalled by hand: ${describe(err)}`,
+        `GitHub teardown failed for org=${organizationId}; its stored GitHub token is still LIVE and must be revoked by hand: ${describe(err)}`,
       );
     }
   }
 
-  private async terminateWorkflows(organizationId: string): Promise<void> {
-    const reason = `organization ${organizationId} deleted`;
+  /**
+   * There is nothing to terminate: a job is a row plus, at most, one in-flight
+   * handler call. Everything not started is deleted outright, and the org is
+   * flagged so the handler that *is* running stops at its next checkpoint (and
+   * so the runner drops anything claimed in the race). Deleting the running row
+   * would only make the runner re-claim it — the flag is what stops it.
+   */
+  private async cancelJobs(organizationId: string): Promise<void> {
     try {
-      // Visibility queries are assembled by interpolation; the org id comes
-      // from OrgContextGuard, but escape anyway so a stray quote cannot extend
-      // the query.
-      const query = `${SA_ORG} = '${organizationId.replace(/'/g, "''")}' AND ExecutionStatus = 'Running'`;
-      for await (const wf of this.temporal.workflow.list({ query })) {
-        try {
-          await this.temporal.workflow
-            .getHandle(wf.workflowId, wf.runId)
-            .terminate(reason);
-        } catch (err) {
-          // Most likely it just finished on its own between list and terminate.
-          this.logger.error(
-            `Failed to terminate workflow ${wf.workflowId} for deleted org=${organizationId}: ${describe(err)}`,
-          );
-        }
-      }
+      const deleted = await this.queue.abortOrganization(organizationId);
+      this.logger.log(
+        `dropped ${deleted} queued job(s) for deleted org=${organizationId}`,
+      );
     } catch (err) {
       this.logger.error(
-        `Could not list workflows for org=${organizationId}; any running ones will keep retrying against deleted rows: ${describe(err)}`,
+        `Could not drop jobs for org=${organizationId}; queued ones will keep retrying against deleted rows: ${describe(err)}`,
       );
     }
   }

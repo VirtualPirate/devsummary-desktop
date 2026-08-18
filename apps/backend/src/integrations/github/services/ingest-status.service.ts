@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Client } from '@temporalio/client';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import type {
   IngestAnalyzingState,
@@ -7,7 +7,8 @@ import type {
   RepositoryIngestStatus,
   RepositoryIngestStatusResponse,
 } from '@launchstack/api-interfaces';
-import { SA_ORG, TEMPORAL_CLIENT, WORKFLOW } from '../../../temporal';
+import { KYSELY_DB, type AppDatabase } from '../../../databases/kysely';
+import { JOB } from '../../../jobs';
 import {
   IngestStatusRepository,
   type RepositoryCountsRow,
@@ -16,38 +17,41 @@ import {
 
 /**
  * How long after a branch is chosen a repository with no commits still counts as
- * `pending` rather than finished. Temporal Visibility is eventually consistent, so
- * for a few seconds after `setBranches` the scan workflow is running but invisible
- * to a list query — without this window the onboarding CTA unlocks over an empty
- * history. Bounded because a genuinely empty repository must not lock it forever.
+ * `pending` rather than finished. A job is enqueued by `setBranches` and claimed
+ * a poll later, and its first GitHub page takes seconds more — without this
+ * window the onboarding CTA unlocks over an empty history. Bounded because a
+ * genuinely empty repository must not lock it forever.
  */
 const PENDING_GRACE_MS = 2 * 60_000;
 
 const ORGANIZATION_ID_SCHEMA = z.uuid();
 
-/** Which phase a running workflow type belongs to, for this screen only. */
-const FETCHING_TYPES = new Set<string>([
-  WORKFLOW.scanRepository,
-  WORKFLOW.backfillCommits,
-  WORKFLOW.ingestNewCommits,
-]);
-const ANALYZING_TYPES = new Set<string>([WORKFLOW.analyzeRepo]);
+/** Which phase a running job type belongs to, for this screen only. */
+const FETCHING_TYPES: string[] = [
+  JOB.scanRepository,
+  JOB.backfillCommits,
+  JOB.ingestNewCommits,
+];
+const ANALYZING_TYPES: string[] = [JOB.analyzeRepo];
 
 interface RunningPhase {
   startedAt: Date;
 }
 
+type RunningByRepository = Map<
+  string,
+  { fetching?: RunningPhase; analyzing?: RunningPhase }
+>;
+
 /**
  * Per-repository ingest progress for the post-connect onboarding console.
  *
- * `jobs/activity` already counts running workflows per phase, but only org-wide —
- * which cannot say *which* repository is slow. Rather than add a `RepositoryId`
- * search attribute, this reads the repository out of the workflow id, which
- * already encodes it: `scan:<repoId>:<branch>`,
- * `backfill:<repoId>:<branch>:<since>`, `analyze:<repoId>:<key>:<force>`.
- * Collaborator sync carries `Phase = fetching` too but is not commit ingestion,
- * so filtering by workflow *type* also makes the CTA gate more faithful to its
- * rule than the org-wide counts would be.
+ * `jobs/activity` already counts running jobs per phase, but only org-wide —
+ * which cannot say *which* repository is slow. This reads `args->>'repositoryId'`
+ * off the running rows instead, and filters by job *type* rather than by the
+ * `phase` column: collaborator sync is `fetching` too but is not commit
+ * ingestion, so filtering by type makes the CTA gate more faithful to its rule
+ * than the org-wide counts would be.
  */
 @Injectable()
 export class IngestStatusService {
@@ -55,7 +59,7 @@ export class IngestStatusService {
 
   constructor(
     private readonly repo: IngestStatusRepository,
-    @Inject(TEMPORAL_CLIENT) private readonly client: Client,
+    @Inject(KYSELY_DB) private readonly db: AppDatabase,
   ) {}
 
   async forOrganization(
@@ -86,20 +90,15 @@ export class IngestStatusService {
   }
 
   /**
-   * One visibility query for the whole org, bucketed by repository. Degrades to
-   * "nothing running" on failure — the DB counts still render, and the CTA then
-   * unlocks, which is the safe direction: a takeover that can never be dismissed
-   * is worse than one dismissed slightly early.
+   * One query for the whole org, bucketed by repository. Degrades to "nothing
+   * running" on failure — the DB counts still render, and the CTA then unlocks,
+   * which is the safe direction: a takeover that can never be dismissed is worse
+   * than one dismissed slightly early.
    */
   private async runningByRepository(
     organizationId: string,
-  ): Promise<
-    Map<string, { fetching?: RunningPhase; analyzing?: RunningPhase }>
-  > {
-    const byRepo = new Map<
-      string,
-      { fetching?: RunningPhase; analyzing?: RunningPhase }
-    >();
+  ): Promise<RunningByRepository> {
+    const byRepo: RunningByRepository = new Map();
 
     if (!ORGANIZATION_ID_SCHEMA.safeParse(organizationId).success) {
       this.logger.warn(
@@ -109,31 +108,41 @@ export class IngestStatusService {
     }
 
     try {
-      const query = `${SA_ORG} = '${escapeSa(organizationId)}' AND ExecutionStatus = 'Running'`;
-      for await (const execution of this.client.workflow.list({ query })) {
-        const type = execution.type;
-        const phase = FETCHING_TYPES.has(type)
-          ? 'fetching'
-          : ANALYZING_TYPES.has(type)
-            ? 'analyzing'
-            : null;
-        if (!phase) continue;
+      const rows = await this.db
+        .selectFrom('jobs')
+        .select([
+          'type',
+          // There is no `started_at` column: a claimed job runs within one poll
+          // of being enqueued, so creation is the start for a progress readout.
+          'createdAt',
+          sql<string | null>`args ->> 'repositoryId'`.as('repositoryId'),
+        ])
+        .where('state', '=', 'running')
+        .where('organizationId', '=', organizationId)
+        .where('type', 'in', [...FETCHING_TYPES, ...ANALYZING_TYPES])
+        .execute();
 
-        const repositoryId = repositoryIdFromWorkflowId(execution.workflowId);
-        if (!repositoryId) continue;
+      for (const row of rows) {
+        const repositoryId = row.repositoryId;
+        if (!repositoryId || !UUID_SCHEMA.safeParse(repositoryId).success) {
+          continue;
+        }
+        const phase = FETCHING_TYPES.includes(row.type)
+          ? 'fetching'
+          : 'analyzing';
 
         const entry = byRepo.get(repositoryId) ?? {};
         const existing = entry[phase];
         // Earliest start wins: with a scan and a manual backfill both running,
         // the elapsed time the user cares about is the older one.
-        if (!existing || execution.startTime < existing.startedAt) {
-          entry[phase] = { startedAt: execution.startTime };
+        if (!existing || row.createdAt < existing.startedAt) {
+          entry[phase] = { startedAt: row.createdAt };
         }
         byRepo.set(repositoryId, entry);
       }
     } catch (err) {
       this.logger.warn(
-        `ingest-status visibility query failed; reporting nothing running: ${
+        `ingest-status jobs query failed; reporting nothing running: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
@@ -142,6 +151,8 @@ export class IngestStatusService {
     return byRepo;
   }
 }
+
+const UUID_SCHEMA = z.uuid();
 
 const ZERO_COUNTS = {
   commitCount: 0,
@@ -154,7 +165,7 @@ const ZERO_COUNTS = {
 export function buildStatus(
   row: TrackedRepositoryRow,
   counts: RepositoryCountsRow[],
-  running: Map<string, { fetching?: RunningPhase; analyzing?: RunningPhase }>,
+  running: RunningByRepository,
   now: Date,
 ): RepositoryIngestStatus {
   const count =
@@ -200,26 +211,4 @@ export function buildStatus(
     skippedCount: count.skippedCount,
     failedCount: count.failedCount,
   };
-}
-
-/**
- * `scan:<repoId>:<branch>` / `backfill:<repoId>:<branch>:<since>` /
- * `push:<repoId>:<branch>:<headSha>` / `sweep:<repoId>:<branch>:<runDate>` /
- * `analyze:<repoId>:<key>:<force>`. Only the second segment is read, and only
- * when it is a UUID — an unrecognised id shape yields `null` rather than a bogus
- * repository key.
- */
-const WORKFLOW_ID_PREFIXES = ['scan', 'backfill', 'push', 'sweep', 'analyze'];
-const UUID_SCHEMA = z.uuid();
-
-export function repositoryIdFromWorkflowId(workflowId: string): string | null {
-  const parts = workflowId.split(':');
-  if (parts.length < 2) return null;
-  if (!WORKFLOW_ID_PREFIXES.includes(parts[0])) return null;
-  return UUID_SCHEMA.safeParse(parts[1]).success ? parts[1] : null;
-}
-
-// orgId is a UUID from our own guard, but escape single quotes defensively.
-function escapeSa(v: string): string {
-  return v.replace(/'/g, "''");
 }

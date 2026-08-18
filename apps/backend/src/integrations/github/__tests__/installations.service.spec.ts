@@ -1,14 +1,85 @@
+import { Octokit } from '@octokit/core';
+import { openGithubToken } from '../credentials';
 import { GithubInstallationsService } from '../services/installations.service';
-import { WORKFLOW } from '../../../temporal';
+
+/**
+ * `@temporalio/*` is already uninstalled while `src/temporal/` waits for the
+ * job-runner phase, so the real barrel cannot load. Delete this once the
+ * service enqueues through `JobQueueService` instead.
+ */
+jest.mock('../../../temporal', () => ({
+  TemporalProducerService: class {},
+  WORKFLOW: { syncRepoCollaborators: 'SyncRepoCollaboratorsWorkflow' },
+  buildSearchAttributes: (input: unknown) => input,
+}));
+
+const WORKFLOW = { syncRepoCollaborators: 'SyncRepoCollaboratorsWorkflow' };
+
+const USER = {
+  id: 4242,
+  login: 'acme',
+  type: 'User',
+  avatar_url: 'https://avatars.example/acme',
+};
+
+const kit = () =>
+  Octokit as unknown as { request: jest.Mock; iterator: jest.Mock };
+
+function repoPage(...repos: Array<{ id: number; full_name: string }>) {
+  return () => ({
+    async *[Symbol.asyncIterator]() {
+      yield {
+        data: repos.map((r) => ({
+          id: r.id,
+          name: r.full_name.split('/')[1],
+          full_name: r.full_name,
+          private: false,
+        })),
+      };
+    },
+  });
+}
+
+function repoRow(id = 'repo-1') {
+  return {
+    id,
+    installationId: 'inst-1',
+    githubRepoId: 10n,
+    name: 'api',
+    fullName: 'acme/api',
+    private: false,
+  } as any;
+}
+
+function installationRow(over: Record<string, unknown> = {}) {
+  return {
+    id: 'inst-1',
+    organizationId: 'org-1',
+    githubInstallationId: BigInt(USER.id),
+    githubAccountId: BigInt(USER.id),
+    githubAccountLogin: USER.login,
+    githubAccountType: 'User',
+    githubAccountAvatarUrl: USER.avatar_url,
+    targetType: 'User',
+    suspendedAt: null,
+    connectedByUserId: null,
+    raw: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    deletedAt: null,
+    ...over,
+  } as any;
+}
 
 function makeMocks() {
   const installsRepo = {
-    findById: jest.fn(),
-    findActiveByGithubInstallationId: jest.fn(),
-    findRevivableByGithubInstallationId: jest.fn(),
-    findByIdScopedToOrg: jest.fn(),
-    listByOrganization: jest.fn(),
-    create: jest.fn(),
+    findById: jest.fn(async () => installationRow()),
+    findActiveByGithubInstallationId: jest.fn(async () => null),
+    findRevivableByGithubInstallationId: jest.fn(async () => null),
+    findByIdScopedToOrg: jest.fn(async () => installationRow()),
+    listByOrganization: jest.fn(async () => [] as any[]),
+    create: jest.fn(async (input: any) => installationRow(input)),
+    updateCredential: jest.fn(),
     softDelete: jest.fn(),
     undelete: jest.fn(),
   } as any;
@@ -20,28 +91,12 @@ function makeMocks() {
   } as any;
 
   const trackedBranches = {
-    listByRepository: jest.fn(async () => [] as string[]),
     listByRepositories: jest.fn(async () => new Map<string, string[]>()),
-    replaceForRepository: jest.fn(),
-  } as any;
-
-  const stateToken = {
-    sign: jest.fn(() => 'signed-token'),
-    verify: jest.fn(),
   } as any;
 
   const client = {
-    getInstallation: jest.fn(),
-    listInstallationRepos: jest.fn(),
-    deleteInstallation: jest.fn(),
+    listInstallationRepos: jest.fn(async () => []),
   } as any;
-
-  const config = {
-    appId: '1',
-    slug: 'gitbrief',
-    privateKey: 'pk',
-    webhookSecret: 'w',
-  };
 
   const db = {
     transaction: jest.fn(() => ({
@@ -55,16 +110,7 @@ function makeMocks() {
     startDeduped: jest.fn(async () => 'wf-id'),
   } as any;
 
-  return {
-    installsRepo,
-    reposRepo,
-    trackedBranches,
-    stateToken,
-    client,
-    config,
-    db,
-    temporal,
-  };
+  return { installsRepo, reposRepo, trackedBranches, client, db, temporal };
 }
 
 function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
@@ -74,9 +120,7 @@ function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
       m.installsRepo,
       m.reposRepo,
       m.trackedBranches,
-      m.stateToken,
       m.client,
-      m.config,
       m.db,
       m.temporal,
     ),
@@ -84,749 +128,224 @@ function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
   };
 }
 
-function makeRawRepo(id: number, fullName: string, isPrivate: boolean) {
-  return {
-    githubRepoId: id.toString(),
-    name: fullName.split('/').pop()!,
-    fullName,
-    private: isPrivate,
-    raw: {
-      id,
-      full_name: fullName,
-      html_url: `https://github.com/${fullName}`,
-    },
-  };
-}
-
 describe('GithubInstallationsService', () => {
-  describe('buildInstallUrl', () => {
-    it('throws when config is null', () => {
-      const { svc } = makeService({ config: null as any });
-      expect(() => svc.buildInstallUrl({ orgId: 'o', userId: 'u' })).toThrow(
-        /not configured/i,
-      );
-    });
-
-    it('returns github install url with signed state', () => {
-      const { svc, mocks } = makeService();
-      const url = svc.buildInstallUrl({ orgId: 'o1', userId: 'u1' });
-
-      expect(mocks.stateToken.sign).toHaveBeenCalledWith({
-        orgId: 'o1',
-        userId: 'u1',
-      });
-      expect(url).toBe(
-        'https://github.com/apps/gitbrief/installations/new?state=signed-token',
-      );
-    });
+  beforeEach(() => {
+    (Octokit as unknown as { __reset: () => void }).__reset();
+    kit().request.mockResolvedValue({ data: USER });
+    kit().iterator.mockImplementation(repoPage({ id: 10, full_name: 'acme/api' }));
   });
 
-  describe('handleCallback', () => {
-    it('rejects when state user does not match session user', async () => {
+  describe('connect', () => {
+    it('validates the token, stores it encrypted, and reconciles repos', async () => {
       const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o1',
-        userId: 'other',
+      mocks.reposRepo.listByInstallation.mockResolvedValue([repoRow()]);
+
+      const result = await svc.connect({
+        orgId: 'org-1',
+        token: '  github_pat_secret  ',
       });
 
-      await expect(
-        svc.handleCallback({
-          state: 't',
-          installationId: 1n,
-          setupAction: 'install',
-          sessionUserId: 'u1',
-        }),
-      ).rejects.toMatchObject({ status: 403 });
-    });
-
-    it('upserts installation + repos on install', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o1',
-        userId: 'u1',
-      });
-      // Neither a live row nor a revivable one for this org: fresh install.
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue(
-        null,
+      expect(kit().request).toHaveBeenCalledWith('GET /user');
+      expect(kit().iterator).toHaveBeenCalledWith(
+        'GET /user/repos',
+        expect.objectContaining({ per_page: 100 }),
       );
-      mocks.installsRepo.findRevivableByGithubInstallationId.mockResolvedValue(
-        null,
-      );
-      mocks.client.getInstallation.mockResolvedValue({
-        githubInstallationId: '42',
-        githubAccountId: '7',
-        accountLogin: 'acme',
-        accountType: 'Organization',
-        accountAvatarUrl: null,
-        targetType: 'Organization',
-        suspendedAt: null,
-        raw: { id: 42, account: { login: 'acme' } },
-      });
-      mocks.client.listInstallationRepos.mockResolvedValue([
-        makeRawRepo(10, 'acme/a', true),
-      ]);
-      mocks.installsRepo.create.mockResolvedValue({
-        id: 'inst-uuid',
-        organizationId: 'o1',
-      });
 
-      await svc.handleCallback({
-        state: 't',
-        installationId: 42n,
-        setupAction: 'install',
-        sessionUserId: 'u1',
+      const created = mocks.installsRepo.create.mock.calls[0][0];
+      expect(created).toMatchObject({
+        organizationId: 'org-1',
+        githubInstallationId: BigInt(USER.id),
+        githubAccountId: BigInt(USER.id),
+        githubAccountLogin: 'acme',
+        githubAccountType: 'User',
       });
+      // Encrypted at rest, and whitespace-trimmed on the way in.
+      expect(created.raw.token).not.toContain('github_pat_secret');
+      expect(openGithubToken(created.raw)).toBe('github_pat_secret');
 
-      expect(mocks.installsRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organizationId: 'o1',
-          githubInstallationId: 42n,
-          githubAccountLogin: 'acme',
-          githubAccountType: 'Organization',
-          connectedByUserId: 'u1',
-        }),
-        expect.anything(),
-      );
       expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'inst-uuid',
+        'inst-1',
         [
           expect.objectContaining({
             githubRepoId: 10n,
-            fullName: 'acme/a',
-            raw: expect.anything(),
+            fullName: 'acme/api',
           }),
         ],
         expect.anything(),
       );
-    });
-
-    it('on setup_action=update re-syncs repos for existing installation', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o1',
-        userId: 'u1',
-      });
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o1',
-      });
-      mocks.client.listInstallationRepos.mockResolvedValue([]);
-
-      await svc.handleCallback({
-        state: 't',
-        installationId: 42n,
-        setupAction: 'update',
-        sessionUserId: 'u1',
-      });
-
-      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'existing-uuid',
-        [],
-        expect.anything(),
-      );
-    });
-
-    it('on setup_action=update without state re-syncs existing installation', async () => {
-      const { svc, mocks } = makeService();
-      // Stateless Configure derives the org from the live row.
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o1',
-      });
-      mocks.client.listInstallationRepos.mockResolvedValue([
-        makeRawRepo(10, 'acme/a', true),
-      ]);
-
-      const result = await svc.handleCallback({
-        state: undefined,
-        installationId: 42n,
-        setupAction: 'update',
-        sessionUserId: null,
-      });
-
-      expect(mocks.stateToken.verify).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'existing-uuid',
-        [
-          expect.objectContaining({
-            githubRepoId: 10n,
-            fullName: 'acme/a',
-            raw: expect.anything(),
-          }),
-        ],
-        expect.anything(),
-      );
-      expect(result).toEqual({ orgId: 'o1' });
-    });
-
-    it('rejects stateless callback when no installation exists', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue(
-        undefined,
-      );
-
-      await expect(
-        svc.handleCallback({
-          state: undefined,
-          installationId: 42n,
-          setupAction: 'update',
-          sessionUserId: null,
-        }),
-      ).rejects.toMatchObject({ code: 'GITHUB_STATE_INVALID' });
-    });
-
-    it('rejects stateless callback for setup_action=install', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o1',
-      });
-
-      await expect(
-        svc.handleCallback({
-          state: undefined,
-          installationId: 42n,
-          setupAction: 'install',
-          sessionUserId: null,
-        }),
-      ).rejects.toMatchObject({ code: 'GITHUB_STATE_INVALID' });
-    });
-
-    it('rejects the stateless Configure path when only a soft-deleted row exists', async () => {
-      const { svc, mocks } = makeService();
-      // No live row to derive the org from — the only row is disconnected, and a
-      // stateless callback carries no state token to fall back on.
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue(
-        null,
-      );
-      mocks.installsRepo.findRevivableByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o1',
-        deletedAt: new Date('2026-05-10T00:00:00Z'),
-      });
-
-      await expect(
-        svc.handleCallback({
-          state: undefined,
-          installationId: 42n,
-          setupAction: 'update',
-          sessionUserId: null,
-        }),
-      ).rejects.toMatchObject({ code: 'GITHUB_STATE_INVALID' });
-
-      // Bails before it could ever pick an org to revive the row into.
-      expect(
-        mocks.installsRepo.findRevivableByGithubInstallationId,
-      ).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.undelete).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-      expect(mocks.reposRepo.reconcileForInstallation).not.toHaveBeenCalled();
-    });
-
-    it('409s when the GitHub account is already connected to another org', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o2',
-        userId: 'u2',
-      });
-      // Live row, owned by a different DevSummary org.
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o1',
-        githubInstallationId: 42n,
-        deletedAt: null,
-      });
-
-      await expect(
-        svc.handleCallback({
-          state: 't',
-          installationId: 42n,
-          setupAction: 'install',
-          sessionUserId: 'u2',
-        }),
-      ).rejects.toMatchObject({
-        code: 'GITHUB_INSTALLATION_ALREADY_CONNECTED',
-        status: 409,
-      });
-
-      // Nothing may be written for either org...
-      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.undelete).not.toHaveBeenCalled();
-      expect(mocks.reposRepo.reconcileForInstallation).not.toHaveBeenCalled();
-      // ...and no workflow may be started under either org id.
-      expect(mocks.temporal.start).not.toHaveBeenCalled();
-      expect(mocks.temporal.startDeduped).not.toHaveBeenCalled();
-      // The 409 is decided on the live row alone; no revive is even considered.
-      expect(
-        mocks.installsRepo.findRevivableByGithubInstallationId,
-      ).not.toHaveBeenCalled();
-      // The App stays installed on the GitHub account: the installation belongs
-      // to org o1, and GitHub issues one per (app, account), so uninstalling to
-      // "clean up" o2's failed connect would break o1's ingestion.
-      expect(mocks.client.deleteInstallation).not.toHaveBeenCalled();
-    });
-
-    it('connects for a new org when another org only holds a soft-deleted row', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o2',
-        userId: 'u2',
-      });
-      // Org A disconnected, so its row is soft-deleted and holds no claim on the
-      // installation id — the partial unique index exists precisely so org B can
-      // take it over. No live row, and nothing revivable *for org B*.
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue(
-        null,
-      );
-      mocks.installsRepo.findRevivableByGithubInstallationId.mockResolvedValue(
-        null,
-      );
-      mocks.client.getInstallation.mockResolvedValue({
-        githubInstallationId: '42',
-        githubAccountId: '7',
+      expect(result).toMatchObject({
         accountLogin: 'acme',
-        accountType: 'Organization',
-        accountAvatarUrl: null,
-        targetType: 'Organization',
-        suspendedAt: null,
-        raw: { id: 42, account: { login: 'acme' } },
+        githubInstallationId: String(USER.id),
       });
-      mocks.client.listInstallationRepos.mockResolvedValue([
-        makeRawRepo(10, 'acme/a', true),
-      ]);
-      mocks.installsRepo.create.mockResolvedValue({
-        id: 'new-uuid',
-        organizationId: 'o2',
-      });
+    });
 
-      const result = await svc.handleCallback({
-        state: 't',
-        installationId: 42n,
-        setupAction: 'install',
-        sessionUserId: 'u2',
-      });
+    it('starts collaborator sync for newly connected repos and nothing else', async () => {
+      const { svc, mocks } = makeService();
+      mocks.reposRepo.listByInstallation.mockResolvedValue([repoRow()]);
 
-      expect(result).toEqual({ orgId: 'o2' });
-      // The revive lookup is scoped to the connecting org, which is what keeps
-      // org A's disconnected row out of reach.
-      expect(
-        mocks.installsRepo.findRevivableByGithubInstallationId,
-      ).toHaveBeenCalledWith(42n, 'o2');
-      // A brand-new row for org B, not a resurrection of org A's.
-      expect(mocks.installsRepo.create).toHaveBeenCalledWith(
+      await svc.connect({ orgId: 'org-1', token: 't' });
+
+      // Invariant: a repository with no tracked branch is inert — connecting
+      // must not fetch commits or spend OpenAI tokens.
+      expect(mocks.temporal.start).toHaveBeenCalledTimes(1);
+      expect(mocks.temporal.start).toHaveBeenCalledWith(
+        WORKFLOW.syncRepoCollaborators,
         expect.objectContaining({
-          organizationId: 'o2',
-          githubInstallationId: 42n,
-          connectedByUserId: 'u2',
+          args: [
+            {
+              repositoryId: 'repo-1',
+              trigger: 'connected',
+              organizationId: 'org-1',
+            },
+          ],
         }),
-        expect.anything(),
-      );
-      expect(mocks.installsRepo.undelete).not.toHaveBeenCalled();
-      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'new-uuid',
-        [expect.objectContaining({ githubRepoId: 10n, fullName: 'acme/a' })],
-        expect.anything(),
       );
     });
 
-    it('leaves the stateless Configure path alone whichever org owns the row', async () => {
+    it('rejects an invalid token as a 400 and stores nothing', async () => {
       const { svc, mocks } = makeService();
-      // No state token, so orgId comes from the live row itself — never a
-      // mismatch.
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o2',
-        deletedAt: null,
-      });
-      mocks.client.listInstallationRepos.mockResolvedValue([]);
-
-      const result = await svc.handleCallback({
-        state: undefined,
-        installationId: 42n,
-        setupAction: 'update',
-        sessionUserId: null,
-      });
-
-      expect(result).toEqual({ orgId: 'o2' });
-      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'existing-uuid',
-        [],
-        expect.anything(),
+      kit().request.mockRejectedValue(
+        Object.assign(new Error('Bad credentials'), { status: 401 }),
       );
+
+      await expect(
+        svc.connect({ orgId: 'org-1', token: 'nope' }),
+      ).rejects.toMatchObject({ status: 400 });
+
+      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
+      expect(mocks.reposRepo.reconcileForInstallation).not.toHaveBeenCalled();
     });
 
-    it('un-deletes a previously-disconnected installation on re-install', async () => {
+    it('rejects a token that cannot list repositories', async () => {
       const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o1',
-        userId: 'u1',
-      });
-      // No live row — this org's own row is soft-deleted, so it is reachable
-      // only through the org-scoped revive lookup.
+      kit().iterator.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          throw Object.assign(new Error('Resource not accessible'), {
+            status: 403,
+          });
+        },
+      }));
+
+      await expect(
+        svc.connect({ orgId: 'org-1', token: 'ro' }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('updates the existing row when the token is re-pasted', async () => {
+      const { svc, mocks } = makeService();
       mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue(
-        null,
+        installationRow(),
       );
-      mocks.installsRepo.findRevivableByGithubInstallationId.mockResolvedValue({
-        id: 'existing-uuid',
-        organizationId: 'o1',
-        deletedAt: new Date('2026-05-10T00:00:00Z'),
-      });
-      mocks.client.listInstallationRepos.mockResolvedValue([
-        makeRawRepo(10, 'acme/a', true),
-      ]);
 
-      await svc.handleCallback({
-        state: 't',
-        installationId: 42n,
-        setupAction: 'install',
-        sessionUserId: 'u1',
-      });
+      await svc.connect({ orgId: 'org-1', token: 'rotated' });
 
-      expect(
-        mocks.installsRepo.findRevivableByGithubInstallationId,
-      ).toHaveBeenCalledWith(42n, 'o1');
+      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
+      const [id, update] = mocks.installsRepo.updateCredential.mock.calls[0];
+      expect(id).toBe('inst-1');
+      expect(openGithubToken(update.raw)).toBe('rotated');
+    });
+
+    it('revives a soft-deleted row for the same workspace', async () => {
+      const { svc, mocks } = makeService();
+      mocks.installsRepo.findRevivableByGithubInstallationId.mockResolvedValue(
+        installationRow({ deletedAt: new Date('2026-02-01T00:00:00Z') }),
+      );
+
+      await svc.connect({ orgId: 'org-1', token: 't' });
+
       expect(mocks.installsRepo.undelete).toHaveBeenCalledWith(
-        'existing-uuid',
+        'inst-1',
         expect.anything(),
       );
-      // Must NOT create a duplicate row.
       expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-      // Must still reconcile repos against the existing row id.
-      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'existing-uuid',
-        [
-          expect.objectContaining({
-            githubRepoId: 10n,
-            raw: expect.anything(),
-          }),
-        ],
-        expect.anything(),
-      );
     });
-  });
 
-  describe('listForOrg', () => {
-    it('returns installations with their repos', async () => {
+    it('refuses an account already connected to another workspace', async () => {
       const { svc, mocks } = makeService();
-      mocks.installsRepo.listByOrganization.mockResolvedValue([
-        {
-          id: 'i1',
-          githubInstallationId: 1n,
-          githubAccountLogin: 'acme',
-          githubAccountType: 'Organization',
-          githubAccountAvatarUrl: null,
-          suspendedAt: null,
-          connectedByUserId: 'u1',
-          createdAt: new Date('2026-01-01'),
-        },
-      ]);
-      mocks.reposRepo.listByInstallation.mockResolvedValue([
-        {
-          id: 'r1',
-          installationId: 'i1',
-          githubRepoId: 9n,
-          name: 'a',
-          fullName: 'acme/a',
-          private: true,
-        },
-      ]);
+      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValue(
+        installationRow({ organizationId: 'other-org' }),
+      );
 
-      const result = await svc.listForOrg('o1');
-      expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('i1');
-      expect(result[0].repositories).toHaveLength(1);
-      expect(result[0].githubInstallationId).toBe('1');
-      expect(result[0].repositories[0].githubRepoId).toBe('9');
+      await expect(
+        svc.connect({ orgId: 'org-1', token: 't' }),
+      ).rejects.toMatchObject({ code: 'GITHUB_INSTALLATION_ALREADY_CONNECTED' });
+      expect(mocks.reposRepo.reconcileForInstallation).not.toHaveBeenCalled();
     });
   });
 
   describe('disconnect', () => {
-    it('soft-deletes repos then the installation inside a single tx', async () => {
+    it('soft-deletes the credential and its repositories', async () => {
       const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        githubInstallationId: 42n,
-      });
+      mocks.installsRepo.listByOrganization.mockResolvedValue([
+        installationRow(),
+      ]);
+      mocks.reposRepo.listByInstallation.mockResolvedValue([repoRow()]);
 
-      await svc.disconnect('o1', 'inst-uuid');
+      await svc.disconnect('org-1');
 
-      expect(mocks.client.deleteInstallation).toHaveBeenCalledWith(42n);
       expect(mocks.reposRepo.softDeleteAllForInstallation).toHaveBeenCalledWith(
-        'inst-uuid',
+        'inst-1',
         expect.anything(),
       );
       expect(mocks.installsRepo.softDelete).toHaveBeenCalledWith(
-        'inst-uuid',
+        'inst-1',
         expect.anything(),
       );
-      // Same tx for both DB writes
-      const reposTx =
-        mocks.reposRepo.softDeleteAllForInstallation.mock.calls[0][1];
-      const installsTx = mocks.installsRepo.softDelete.mock.calls[0][1];
-      expect(reposTx).toBe(installsTx);
+      expect(mocks.temporal.start).toHaveBeenCalledWith(
+        WORKFLOW.syncRepoCollaborators,
+        expect.objectContaining({
+          args: [
+            {
+              repositoryId: 'repo-1',
+              trigger: 'disconnected',
+              organizationId: 'org-1',
+            },
+          ],
+        }),
+      );
     });
 
-    it('still soft-deletes locally when GitHub-side delete fails', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        githubInstallationId: 42n,
-      });
-      mocks.client.deleteInstallation.mockRejectedValue(new Error('boom'));
+    it('404s when nothing is connected', async () => {
+      const { svc } = makeService();
 
-      await svc.disconnect('o1', 'inst-uuid');
-
-      expect(mocks.installsRepo.softDelete).toHaveBeenCalled();
-    });
-
-    it('404s if the installation is unknown or already disconnected', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue(null);
-
-      await expect(svc.disconnect('o1', 'inst-uuid')).rejects.toMatchObject({
+      await expect(svc.disconnect('org-1')).rejects.toMatchObject({
         code: 'GITHUB_INSTALLATION_NOT_FOUND',
       });
     });
   });
 
   describe('sync', () => {
-    it('404s when installation is not in the org', async () => {
+    it('reconciles repos through the stored credential', async () => {
+      const { svc, mocks } = makeService();
+      mocks.client.listInstallationRepos.mockResolvedValue([
+        {
+          githubRepoId: '10',
+          name: 'api',
+          fullName: 'acme/api',
+          private: false,
+          raw: { id: 10 },
+        },
+      ]);
+
+      await svc.sync('org-1', 'inst-1');
+
+      expect(mocks.client.listInstallationRepos).toHaveBeenCalledWith(
+        BigInt(USER.id),
+      );
+      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
+        'inst-1',
+        [expect.objectContaining({ githubRepoId: 10n })],
+      );
+    });
+
+    it('404s for an installation outside the workspace', async () => {
       const { svc, mocks } = makeService();
       mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue(null);
 
-      await expect(svc.sync('o1', 'inst-1')).rejects.toMatchObject({
-        status: 404,
+      await expect(svc.sync('org-1', 'inst-1')).rejects.toMatchObject({
+        code: 'GITHUB_INSTALLATION_NOT_FOUND',
       });
-    });
-
-    it('replaces the repo set and returns the updated view', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-1',
-        githubInstallationId: 5n,
-        organizationId: 'o1',
-        githubAccountLogin: 'acme',
-        githubAccountType: 'Organization',
-        githubAccountAvatarUrl: null,
-        suspendedAt: null,
-        connectedByUserId: 'u1',
-        createdAt: new Date(),
-      });
-      mocks.client.listInstallationRepos.mockResolvedValue([
-        makeRawRepo(10, 'acme/a', true),
-      ]);
-      mocks.reposRepo.listByInstallation.mockResolvedValue([
-        {
-          id: 'r1',
-          installationId: 'inst-1',
-          githubRepoId: 10n,
-          name: 'a',
-          fullName: 'acme/a',
-          private: true,
-        },
-      ]);
-
-      const view = await svc.sync('o1', 'inst-1');
-      expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
-        'inst-1',
-        [
-          expect.objectContaining({
-            githubRepoId: 10n,
-            fullName: 'acme/a',
-            raw: expect.anything(),
-          }),
-        ],
-      );
-      expect(view.repositories).toHaveLength(1);
-    });
-  });
-
-  describe('collaborator sync job enqueue', () => {
-    it('enqueues trigger:connected for newly connected repos and trigger:disconnected for removed repos after handleCallback', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValueOnce({
-        orgId: 'o1',
-        userId: 'u1',
-      });
-      mocks.installsRepo.findActiveByGithubInstallationId.mockResolvedValueOnce(
-        {
-          id: 'i1',
-          organizationId: 'o1',
-          deletedAt: null,
-        },
-      );
-      // Before: r-existing and r-gone are active
-      mocks.reposRepo.listByInstallation.mockResolvedValueOnce([
-        { id: 'r-existing' },
-        { id: 'r-gone' },
-      ]);
-      mocks.client.listInstallationRepos.mockResolvedValueOnce([
-        {
-          githubRepoId: '1',
-          name: 'a',
-          fullName: 'org/a',
-          private: false,
-          raw: {},
-        },
-      ]);
-      // After: r-existing remains, r-new appears, r-gone vanishes
-      mocks.reposRepo.listByInstallation.mockResolvedValueOnce([
-        { id: 'r-existing' },
-        { id: 'r-new' },
-      ]);
-
-      await svc.handleCallback({
-        installationId: 99n,
-        state: 'tok',
-        setupAction: 'install',
-        sessionUserId: 'u1',
-      });
-
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'r-new',
-              trigger: 'connected',
-              organizationId: 'o1',
-            },
-          ],
-        }),
-      );
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'r-gone',
-              trigger: 'disconnected',
-              organizationId: 'o1',
-            },
-          ],
-        }),
-      );
-      expect(mocks.temporal.start).not.toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            expect.objectContaining({
-              repositoryId: 'r-existing',
-              trigger: 'connected',
-            }),
-          ],
-        }),
-      );
-
-      // Connecting must NOT start commit ingestion: the new repo has no branch
-      // yet, and choosing one is what starts the scan.
-      expect(mocks.temporal.startDeduped).not.toHaveBeenCalled();
-    });
-
-    it('enqueues the diff produced by sync()', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValueOnce({
-        id: 'i1',
-        githubInstallationId: 99n,
-        organizationId: 'o1',
-        githubAccountLogin: 'acme',
-        githubAccountType: 'Organization',
-        githubAccountAvatarUrl: null,
-        suspendedAt: null,
-        connectedByUserId: 'u1',
-        createdAt: new Date(),
-        deletedAt: null,
-      });
-      const repoA = {
-        id: 'r-a',
-        githubRepoId: 10n,
-        name: 'a',
-        fullName: 'org/a',
-        private: false,
-      };
-      const repoB = {
-        id: 'r-b',
-        githubRepoId: 11n,
-        name: 'b',
-        fullName: 'org/b',
-        private: false,
-      };
-      mocks.reposRepo.listByInstallation
-        .mockResolvedValueOnce([repoA])
-        .mockResolvedValueOnce([repoA, repoB]);
-      mocks.client.listInstallationRepos.mockResolvedValueOnce([
-        {
-          githubRepoId: '1',
-          name: 'b',
-          fullName: 'org/b',
-          private: false,
-          raw: {},
-        },
-      ]);
-
-      await svc.sync('o1', 'i1');
-
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'r-b',
-              trigger: 'connected',
-              organizationId: 'o1',
-            },
-          ],
-        }),
-      );
-
-      // Same for sync(): it runs with no user present, so it can never choose a
-      // branch and must never start ingestion.
-      expect(mocks.temporal.startDeduped).not.toHaveBeenCalled();
-    });
-
-    it('enqueues trigger:disconnected for every repo of an installation being disconnected', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValueOnce({
-        id: 'i1',
-        githubInstallationId: 99n,
-        organizationId: 'o1',
-        deletedAt: null,
-      });
-      mocks.reposRepo.listByInstallation.mockResolvedValueOnce([
-        { id: 'r-a' },
-        { id: 'r-b' },
-      ]);
-      mocks.client.deleteInstallation.mockResolvedValueOnce(undefined);
-
-      await svc.disconnect('o1', 'i1');
-
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'r-a',
-              trigger: 'disconnected',
-              organizationId: 'o1',
-            },
-          ],
-        }),
-      );
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'r-b',
-              trigger: 'disconnected',
-              organizationId: 'o1',
-            },
-          ],
-        }),
-      );
-      expect(mocks.temporal.start).toHaveBeenCalledTimes(2);
     });
   });
 });

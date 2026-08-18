@@ -469,6 +469,42 @@ export interface MarketingWaitlistTable {
 }
 
 // ---------------------------------------------------------------------------
+// public schema — local job queue (replaces Temporal, see migration 00015)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per unit of background work. `id` is the dedup key: enqueueing with a
+ * stable id and `on conflict do nothing` is what Temporal's `USE_EXISTING`
+ * policy used to do.
+ *
+ * There is no `done` state: a handler that returns deletes its own row, so the
+ * table only ever holds work that is outstanding or dead.
+ */
+export type JobState = 'pending' | 'running' | 'failed';
+
+export interface JobsTable {
+  id: string;
+  type: string;
+  args: Json<Record<string, unknown>>;
+  /** `fetching` | `analyzing` | `generating` — the old search attribute. */
+  phase: string | null;
+  organizationId: string | null;
+  state: Generated<JobState>;
+  /** Incremented at claim time, so a job that crashes the process still exhausts its attempts. */
+  attempts: Generated<number>;
+  maxAttempts: Generated<number>;
+  runAt: GeneratedTimestamp;
+  createdAt: GeneratedTimestamp;
+  error: string | null;
+}
+
+/** Machine-local key/value state with no organization (e.g. `last_sweep_at`). */
+export interface LocalSettingsTable {
+  key: string;
+  value: Json<unknown>;
+}
+
+// ---------------------------------------------------------------------------
 // Database interface — keys are camelCase; CamelCasePlugin maps them to the
 // snake_case (and schema-qualified) SQL identifiers.
 // ---------------------------------------------------------------------------
@@ -477,6 +513,8 @@ export interface Database {
   organizations: OrganizationsTable;
   organizationMembers: OrganizationMembersTable;
   organizationInvites: OrganizationInvitesTable;
+  jobs: JobsTable;
+  localSettings: LocalSettingsTable;
 
   'auth.user': AuthUserTable;
   'auth.session': AuthSessionTable;
@@ -597,3 +635,10 @@ export type BriefCommitInsert = Insertable<BriefCommitsTable>;
 
 export type WaitlistEntrySelect = Selectable<MarketingWaitlistTable>;
 export type WaitlistEntryInsert = Insertable<MarketingWaitlistTable>;
+
+export type JobSelect = Selectable<JobsTable>;
+export type JobInsert = Insertable<JobsTable>;
+export type JobUpdate = Updateable<JobsTable>;
+
+export type LocalSettingSelect = Selectable<LocalSettingsTable>;
+export type LocalSettingInsert = Insertable<LocalSettingsTable>;

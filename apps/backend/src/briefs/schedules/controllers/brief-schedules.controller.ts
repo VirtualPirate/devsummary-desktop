@@ -8,7 +8,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { Session } from '@thallesp/nestjs-better-auth';
+import { Session } from '../../../local';
 import {
   CreateBriefScheduleSchema,
   UpdateBriefScheduleSchema,

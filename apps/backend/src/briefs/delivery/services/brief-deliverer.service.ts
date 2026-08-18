@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { AppError } from '../../../common/errors';
 import type {
   BriefDeliveryChannel,
@@ -7,11 +7,16 @@ import type {
 import { BriefsRepository } from '../../generation/repositories/briefs.repository';
 import { BriefReportService } from '../../generation/services/brief-report.service';
 import { BriefSchedulesRepository } from '../../schedules/repositories/brief-schedules.repository';
+import { BriefDesktopService } from './brief-desktop.service';
 import { BriefEmailService } from './brief-email.service';
 import { BriefSlackService } from './brief-slack.service';
 
+/**
+ * `desktop` is a delivery outcome but not a *stored* one: `delivered_channels`
+ * and the brief detail view's per-channel retry only know `email` and `slack`.
+ */
 type ChannelResult = {
-  kind: BriefDeliveryChannel;
+  kind: BriefDeliveryChannel | 'desktop';
   ok: boolean;
   err?: string;
 };
@@ -26,6 +31,9 @@ export class BriefDelivererService {
     private readonly email: BriefEmailService,
     private readonly slack: BriefSlackService,
     private readonly report: BriefReportService,
+    // Optional and last so the channel degrades to "absent" rather than taking
+    // delivery down if it is ever unregistered.
+    @Optional() private readonly desktop?: BriefDesktopService,
   ) {}
 
   /**
@@ -111,6 +119,20 @@ export class BriefDelivererService {
       );
     }
 
+    const desktop = this.desktop;
+    if (desktop && (await desktop.enabled())) {
+      tasks.push(
+        desktop
+          .send(renderable)
+          .then<ChannelResult>(() => ({ kind: 'desktop', ok: true }))
+          .catch<ChannelResult>((e: unknown) => ({
+            kind: 'desktop',
+            ok: false,
+            err: e instanceof Error ? e.message : String(e),
+          })),
+      );
+    }
+
     const results = await Promise.all(tasks);
     if (results.length === 0) {
       // Dashboard-only brief: no channel was ever configured, so there is
@@ -138,7 +160,12 @@ export class BriefDelivererService {
         failureReason,
         deliveredChannels: union(
           brief.deliveredChannels,
-          results.filter((r) => r.ok).map((r) => r.kind),
+          results
+            .filter(
+              (r): r is ChannelResult & { kind: BriefDeliveryChannel } =>
+                r.ok && r.kind !== 'desktop',
+            )
+            .map((r) => r.kind),
         ),
       });
       if (brief.briefScheduleId) {

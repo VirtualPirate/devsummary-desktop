@@ -1,13 +1,20 @@
+import { Logger } from '@nestjs/common';
+import type { AppDatabase } from '../../../databases/kysely';
+import { createJobsDb } from '../../../jobs/__tests__/jobs-test-db';
 import {
   buildStatus,
-  repositoryIdFromWorkflowId,
+  IngestStatusService,
 } from '../services/ingest-status.service';
 import type {
+  IngestStatusRepository,
   RepositoryCountsRow,
   TrackedRepositoryRow,
 } from '../repositories/ingest-status.repository';
 
+jest.setTimeout(30_000);
+
 const REPO_ID = '11111111-1111-4111-8111-111111111111';
+const ORG_ID = '3f1a9c62-2c1f-4f2e-9a52-4b1d0d5f8e11';
 const NOW = new Date('2026-08-13T12:00:00.000Z');
 
 function tracked(trackedSince: Date): TrackedRepositoryRow {
@@ -59,23 +66,129 @@ const running = (
 /** Minutes before NOW. */
 const ago = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000);
 
-describe('repositoryIdFromWorkflowId', () => {
-  it('reads the repository out of every id shape that carries one', () => {
-    expect(repositoryIdFromWorkflowId(`scan:${REPO_ID}:main`)).toBe(REPO_ID);
-    expect(
-      repositoryIdFromWorkflowId(`backfill:${REPO_ID}:main:2026-05-13`),
-    ).toBe(REPO_ID);
-    expect(
-      repositoryIdFromWorkflowId(
-        `analyze:${REPO_ID}:main:2026-05-13T00:00:00.000Z`,
-      ),
-    ).toBe(REPO_ID);
+describe('running jobs by repository', () => {
+  let db: AppDatabase;
+
+  const repo = {
+    listTracked: jest.fn(),
+    countsFor: jest.fn(),
+  } as unknown as jest.Mocked<IngestStatusRepository>;
+
+  const enqueue = (over: {
+    id: string;
+    type: string;
+    repositoryId?: string | null;
+    state?: 'pending' | 'running';
+    organizationId?: string;
+    createdAt?: Date;
+  }) =>
+    db
+      .insertInto('jobs')
+      .values({
+        id: over.id,
+        type: over.type,
+        args: JSON.stringify(
+          over.repositoryId === null
+            ? {}
+            : { repositoryId: over.repositoryId ?? REPO_ID },
+        ),
+        state: over.state ?? 'running',
+        organizationId: over.organizationId ?? ORG_ID,
+        ...(over.createdAt ? { createdAt: over.createdAt } : {}),
+      })
+      .execute();
+
+  beforeAll(async () => {
+    db = await createJobsDb();
   });
 
-  it('returns null rather than a bogus key for ids that carry no repository', () => {
-    expect(repositoryIdFromWorkflowId('NoopWorkflow:abc')).toBeNull();
-    expect(repositoryIdFromWorkflowId('scan')).toBeNull();
-    expect(repositoryIdFromWorkflowId('scan:not-a-uuid:main')).toBeNull();
+  afterAll(async () => {
+    await db.destroy();
+  });
+
+  beforeEach(async () => {
+    await db.deleteFrom('jobs').execute();
+    jest.clearAllMocks();
+    repo.listTracked.mockResolvedValue([tracked(ago(30))]);
+    repo.countsFor.mockResolvedValue(counts({ commitCount: 5 }));
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  const service = () => new IngestStatusService(repo, db);
+
+  it('buckets running ingest jobs onto the repository named in args', async () => {
+    await enqueue({
+      id: `scan:${REPO_ID}:main`,
+      type: 'github.scanRepository',
+      createdAt: ago(3),
+    });
+    await enqueue({
+      id: `analyze:${REPO_ID}:x`,
+      type: 'analysis.analyzeRepo',
+      createdAt: ago(2),
+    });
+
+    const out = await service().forOrganization(ORG_ID, NOW);
+
+    expect(out.repositories[0].fetching).toEqual({
+      state: 'running',
+      startedAt: ago(3).toISOString(),
+    });
+    expect(out.repositories[0].analyzing.state).toBe('running');
+    expect(out.ingesting).toBe(true);
+  });
+
+  it('ignores pending rows, other orgs, other job types, and args with no repository', async () => {
+    await enqueue({
+      id: 'queued',
+      type: 'github.scanRepository',
+      state: 'pending',
+    });
+    await enqueue({
+      id: 'other-org',
+      type: 'github.scanRepository',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+    });
+    // Collaborator sync is `fetching` too, but it is not commit ingestion —
+    // counting it would hold the onboarding CTA over work the user is not
+    // waiting for.
+    await enqueue({ id: 'collab', type: 'collaborators.syncRepo' });
+    await enqueue({
+      id: 'sweep-child',
+      type: 'github.ingestNewCommits',
+      repositoryId: null,
+    });
+
+    const out = await service().forOrganization(ORG_ID, NOW);
+
+    expect(out.repositories[0].fetching.state).toBe('done');
+    expect(out.repositories[0].analyzing.state).toBe('incomplete');
+  });
+
+  it('keeps the earliest start when two jobs share a phase', async () => {
+    await enqueue({
+      id: 'scan',
+      type: 'github.scanRepository',
+      createdAt: ago(9),
+    });
+    await enqueue({
+      id: 'backfill',
+      type: 'github.backfillCommits',
+      createdAt: ago(4),
+    });
+
+    const out = await service().forOrganization(ORG_ID, NOW);
+    expect(out.repositories[0].fetching.startedAt).toBe(ago(9).toISOString());
+  });
+
+  it('reports nothing running on a non-uuid org id rather than querying', async () => {
+    await enqueue({ id: 'scan', type: 'github.scanRepository' });
+
+    const out = await service().forOrganization('org-1', NOW);
+
+    expect(out.repositories[0].fetching.state).toBe('done');
   });
 });
 

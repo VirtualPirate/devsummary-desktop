@@ -7,6 +7,7 @@ import {
   REQUIRE_ORG_ROLE_KEY,
 } from '../decorators/require-org-role.decorator';
 import { OrganizationMembersRepository } from '../repositories/members.repository';
+import { LOCAL_ORG_ID } from '../../local/local-identity';
 import { AppError } from '../../common/errors';
 
 const ROLE_RANK: Record<OrganizationRole, number> = {
@@ -53,13 +54,13 @@ export class OrgContextGuard implements CanActivate {
     }>();
 
     const headerValue = request.headers['x-organization-id'];
-    const organizationId = Array.isArray(headerValue)
-      ? headerValue[0]
-      : headerValue;
-    if (
-      typeof organizationId !== 'string' ||
-      !ORGANIZATION_ID_SCHEMA.safeParse(organizationId).success
-    ) {
+    const header = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+    // No header means "the default workspace" — a desktop client that has not
+    // picked one yet, or an endpoint reached before the switcher loads. A
+    // header that *is* present still has to be a uuid: it goes straight into
+    // `WHERE organization_id = $1`.
+    const organizationId = header ?? LOCAL_ORG_ID;
+    if (!ORGANIZATION_ID_SCHEMA.safeParse(organizationId).success) {
       throw AppError.ORG_HEADER_REQUIRED();
     }
 

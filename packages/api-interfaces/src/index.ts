@@ -54,3 +54,5 @@ export * from "./requests/analytics.requests";
 export * from "./responses/analytics.responses";
 export * from "./responses/jobs.responses";
 export * from "./responses/health.responses";
+export * from "./requests/local-settings.requests";
+export * from "./responses/local-settings.responses";

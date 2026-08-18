@@ -13,6 +13,20 @@ export type GithubInstallationCreateInput = Omit<
   raw?: unknown;
 };
 
+/**
+ * What re-pasting a token rewrites: the credential blob plus the account fields
+ * derived from it. Never the ids or the organization — those are what make it
+ * the same row.
+ */
+export type GithubInstallationCredentialUpdate = Pick<
+  GithubInstallationSelect,
+  | 'githubAccountLogin'
+  | 'githubAccountType'
+  | 'githubAccountAvatarUrl'
+  | 'targetType'
+  | 'suspendedAt'
+> & { raw: unknown };
+
 @Injectable()
 export class GithubInstallationsRepository {
   constructor(@Inject(KYSELY_DB) private readonly db: AppDatabase) {}
@@ -130,6 +144,23 @@ export class GithubInstallationsRepository {
       })
       .returningAll()
       .executeTakeFirstOrThrow();
+  }
+
+  async updateCredential(
+    id: string,
+    input: GithubInstallationCredentialUpdate,
+    tx?: AppDatabase,
+  ): Promise<void> {
+    const { raw, ...rest } = input;
+    await this.exec(tx)
+      .updateTable('github.installations')
+      .set({
+        ...rest,
+        raw: raw == null ? null : JSON.stringify(raw),
+        updatedAt: new Date(),
+      })
+      .where('id', '=', id)
+      .execute();
   }
 
   async softDelete(id: string, tx?: AppDatabase): Promise<void> {

@@ -9,7 +9,7 @@ import {
   Post,
   Put,
 } from '@nestjs/common';
-import { Session } from '@thallesp/nestjs-better-auth';
+import { Session } from '../../../local';
 import {
   CreateTeamSchema,
   SetTeamCollaboratorsSchema,

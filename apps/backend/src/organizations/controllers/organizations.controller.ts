@@ -7,12 +7,9 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { Session } from '@thallesp/nestjs-better-auth';
 import {
   CreateOrganizationSchema,
   type CreateOrganizationRequest,
-  TransferOwnershipSchema,
-  type TransferOwnershipRequest,
   UpdateOrganizationSchema,
   type UpdateOrganizationRequest,
   type ApiResponse,
@@ -26,10 +23,7 @@ import {
   type OrgMembershipContext,
 } from '../decorators/org-membership.decorator';
 import { RequireOrgRole } from '../decorators/require-org-role.decorator';
-
-type SessionPayload = {
-  user: { id: string; email: string; emailVerified: boolean };
-};
+import { LOCAL_USER_ID } from '../../local/local-identity';
 
 @Controller('api/organizations')
 export class OrganizationsController {
@@ -37,11 +31,10 @@ export class OrganizationsController {
 
   @Post()
   async create(
-    @Session() session: SessionPayload,
     @Body(new ZodValidationPipe(CreateOrganizationSchema))
     body: CreateOrganizationRequest,
   ): Promise<ApiResponse<Organization>> {
-    const result = await this.orgs.createOrganization(session.user.id, body);
+    const result = await this.orgs.createOrganization(LOCAL_USER_ID, body);
     return {
       data: result.organization,
       message: 'Organization created',
@@ -50,10 +43,8 @@ export class OrganizationsController {
   }
 
   @Get('me')
-  async listMine(
-    @Session() session: SessionPayload,
-  ): Promise<ApiResponse<MyOrganization[]>> {
-    const data = await this.orgs.listMyOrganizations(session.user.id);
+  async listMine(): Promise<ApiResponse<MyOrganization[]>> {
+    const data = await this.orgs.listMyOrganizations(LOCAL_USER_ID);
     return { data, message: 'OK', success: true };
   }
 
@@ -93,20 +84,5 @@ export class OrganizationsController {
     @OrgMembership() membership: OrgMembershipContext,
   ): Promise<void> {
     await this.orgs.deleteOrganization(membership.organizationId);
-  }
-
-  @Post('current/transfer-ownership')
-  @RequireOrgRole('owner')
-  async transfer(
-    @OrgMembership() membership: OrgMembershipContext,
-    @Body(new ZodValidationPipe(TransferOwnershipSchema))
-    body: TransferOwnershipRequest,
-  ): Promise<ApiResponse<Organization>> {
-    const data = await this.orgs.transferOwnership({
-      organizationId: membership.organizationId,
-      currentOwnerUserId: membership.userId,
-      newOwnerUserId: body.newOwnerUserId,
-    });
-    return { data, message: 'Ownership transferred', success: true };
   }
 }

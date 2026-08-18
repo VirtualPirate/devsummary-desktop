@@ -1,0 +1,76 @@
+import { randomUUID } from 'node:crypto';
+import { Inject, Injectable } from '@nestjs/common';
+import { KYSELY_DB, type AppDatabase } from '../databases/kysely';
+import { type Phase, profileFor } from './job-profiles';
+
+export interface EnqueueOpts {
+  /** Stable dedup key. Defaults to `<type>:<uuid>`, i.e. never deduped. */
+  id?: string;
+  phase?: Phase;
+  organizationId?: string;
+  /** Postpone the first attempt (the old `startDelay`). */
+  delayMs?: number;
+}
+
+@Injectable()
+export class JobQueueService {
+  /**
+   * Organizations whose deletion is in flight. A handler that loops (sweeps,
+   * fan-outs) checks this and bails rather than writing rows into a workspace
+   * that is being torn down.
+   *
+   * ponytail: never pruned — one entry per org deleted per process lifetime, on
+   * a single-user desktop. Prune it the day teardown runs in a loop.
+   */
+  private readonly aborted = new Set<string>();
+
+  constructor(@Inject(KYSELY_DB) private readonly db: AppDatabase) {}
+
+  /**
+   * `on conflict do nothing` on a stable id is exactly what Temporal's
+   * `USE_EXISTING` conflict policy did: a second enqueue while the first is
+   * still pending or running is a no-op. The row is deleted on success, so the
+   * id frees up as soon as the work is done — which is what makes
+   * `dispatch:<minute>` and `sweep:<date>` behave like `ScheduleOverlapPolicy.SKIP`
+   * rather than a one-shot lock.
+   */
+  async enqueue(
+    type: string,
+    args: unknown = {},
+    opts: EnqueueOpts = {},
+  ): Promise<string> {
+    const id = opts.id ?? `${type}:${randomUUID()}`;
+    await this.db
+      .insertInto('jobs')
+      .values({
+        id,
+        type,
+        // `args` is a jsonb column typed `Json<>`: writes are strings, reads are
+        // parsed values. Handing it an object lands `[object Object]`.
+        args: JSON.stringify(args ?? {}),
+        phase: opts.phase ?? null,
+        organizationId: opts.organizationId ?? null,
+        maxAttempts: profileFor(type).maxAttempts,
+        runAt: new Date(Date.now() + (opts.delayMs ?? 0)),
+      })
+      .onConflict((c) => c.doNothing())
+      .execute();
+    return id;
+  }
+
+  /** Drops every job for an org that has not started, and flags the rest. */
+  async abortOrganization(organizationId: string): Promise<number> {
+    this.aborted.add(organizationId);
+    const res = await this.db
+      .deleteFrom('jobs')
+      .where('organizationId', '=', organizationId)
+      .where('state', '<>', 'running')
+      .executeTakeFirst();
+    return Number(res.numDeletedRows ?? 0);
+  }
+
+  /** Read by long-running handlers so they stop mid-flight. */
+  isAborted(organizationId: string | null | undefined): boolean {
+    return !!organizationId && this.aborted.has(organizationId);
+  }
+}

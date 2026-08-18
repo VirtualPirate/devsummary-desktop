@@ -20,6 +20,15 @@ export class WebClient {
   };
   auth = {
     revoke: jest.fn(() => Promise.resolve({ ok: true })),
+    test: jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        team: 'Acme',
+        team_id: 'T1',
+        user_id: 'U-bot',
+        response_metadata: { scopes: ['chat:write', 'channels:read'] },
+      } as Record<string, unknown>),
+    ),
   };
   chat = {
     postMessage: jest.fn(() =>

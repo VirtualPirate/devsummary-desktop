@@ -8,10 +8,9 @@ import {
   type SlackInstallationSelect,
 } from '../../../databases/kysely';
 import { BriefSchedulesRepository } from '../../../briefs/schedules/repositories/brief-schedules.repository';
+import { SecretsService } from '../../../local/settings/secrets.service';
 import { SlackClient } from '../slack.client';
-import type { SlackConfig } from '../slack.config';
 import { SlackInstallationsRepository } from '../repositories/installations.repository';
-import { StateTokenService } from './state-token.service';
 
 /** Wire shape lives in the shared package — the frontend gates its Slack
  * delivery field on this list, so the two must not drift. */
@@ -32,140 +31,85 @@ function serialize(row: SlackInstallationSelect): SlackInstallationView {
   };
 }
 
-interface OauthAccessResponseShape {
-  access_token?: string;
-  team?: { id?: string; name?: string };
-  bot_user_id?: string;
-  app_id?: string;
-  scope?: string;
-  authed_user?: { id?: string };
-}
-
-function buildRaw(
-  oauth: OauthAccessResponseShape,
-  connectedByUserId: string | null,
-): { accessToken: string; raw: SlackInstallationRaw } {
-  if (
-    !oauth.access_token ||
-    !oauth.team?.id ||
-    !oauth.team?.name ||
-    !oauth.bot_user_id ||
-    !oauth.app_id ||
-    !oauth.scope
-  ) {
-    throw AppError.SLACK_OAUTH_EXCHANGE_FAILED({
-      reason: 'OAuth response missing required fields',
-    });
-  }
-  return {
-    accessToken: oauth.access_token,
-    raw: {
-      teamId: oauth.team.id,
-      teamName: oauth.team.name,
-      botUserId: oauth.bot_user_id,
-      appId: oauth.app_id,
-      scope: oauth.scope,
-      authedUserId: oauth.authed_user?.id,
-      connectedByUserId: connectedByUserId ?? undefined,
-      oauthResponse: oauth,
-    },
-  };
-}
-
 @Injectable()
 export class SlackInstallationsService {
   private readonly logger = new Logger(SlackInstallationsService.name);
 
   constructor(
     private readonly installs: SlackInstallationsRepository,
-    private readonly stateToken: StateTokenService,
     private readonly client: SlackClient,
-    private readonly config: SlackConfig | null,
     @Inject(KYSELY_DB) private readonly db: AppDatabase,
     private readonly briefSchedules: BriefSchedulesRepository,
+    private readonly secrets: SecretsService,
   ) {}
 
-  private requireConfig(): SlackConfig {
-    if (!this.config) {
-      throw AppError.SLACK_NOT_CONFIGURED();
-    }
-    return this.config;
-  }
+  /**
+   * Paste-a-token replacement for the OAuth callback. `auth.test` is the whole
+   * validation: a token that cannot identify itself cannot post either, and
+   * failing here is the difference between a red field in settings and a brief
+   * that fails silently a week later.
+   *
+   * Unlike the OAuth flow this is *idempotent* — re-pasting a token for an
+   * already-connected workspace replaces it instead of throwing
+   * `SLACK_ORG_ALREADY_CONNECTED`, because rotating a bot token is the normal
+   * reason to come back to this screen.
+   */
+  async connectToken(input: {
+    orgId: string;
+    token: string;
+    userId: string | null;
+  }): Promise<SlackInstallationView> {
+    const auth = await this.client.authTest(input.token);
 
-  buildInstallUrl(input: { orgId: string; userId: string }): string {
-    this.requireConfig();
-    const state = this.stateToken.sign(input);
-    return this.client.generateAuthUri(state);
-  }
-
-  async handleCallback(input: {
-    state: string | undefined;
-    code: string | undefined;
-    sessionUserId: string | null;
-  }): Promise<{ orgId: string }> {
-    this.requireConfig();
-
-    if (!input.state || !input.code) {
-      throw AppError.SLACK_STATE_INVALID();
-    }
-
-    let payload: { orgId: string; userId: string };
-    try {
-      payload = this.stateToken.verify(input.state);
-    } catch {
-      throw AppError.SLACK_STATE_INVALID();
+    const teamId = auth.team_id;
+    if (!teamId) {
+      throw AppError.SLACK_API_FAILED({
+        reason: 'auth.test returned no team_id',
+      });
     }
 
-    if (input.sessionUserId && payload.userId !== input.sessionUserId) {
-      throw AppError.SLACK_STATE_USER_MISMATCH();
-    }
+    const raw: SlackInstallationRaw = {
+      teamId,
+      teamName: auth.team ?? teamId,
+      botUserId: auth.user_id ?? '',
+      // `auth.test` does not carry the app id, and nothing downstream reads it —
+      // it was OAuth provenance. Left blank rather than faking one from `bot_id`.
+      appId: '',
+      scope: (auth.response_metadata?.scopes ?? []).join(','),
+      connectedByUserId: input.userId ?? undefined,
+      oauthResponse: auth,
+    };
 
-    const oauth = (await this.client.exchangeCodeForToken(
-      input.code,
-    )) as OauthAccessResponseShape;
-    const built = buildRaw(oauth, payload.userId);
-
-    await this.db.transaction().execute(async (tx) => {
+    const row = await this.db.transaction().execute(async (tx) => {
       const existing = await this.installs.findByOrganizationIdIncludingDeleted(
-        payload.orgId,
+        input.orgId,
         tx,
       );
-
-      if (existing && existing.deletedAt === null) {
-        throw AppError.SLACK_ORG_ALREADY_CONNECTED();
-      }
-
       if (existing) {
         await this.installs.updateTokenAndRaw(
           existing.id,
-          {
-            accessToken: built.accessToken,
-            teamId: built.raw.teamId,
-            raw: built.raw,
-          },
+          { accessToken: input.token, teamId, raw },
           tx,
         );
-        this.logger.log(
-          `Slack re-installed for org=${payload.orgId} team=${built.raw.teamId}`,
-        );
-        return;
+        return this.installs.findById(existing.id, tx);
       }
-
-      await this.installs.create(
+      return this.installs.create(
         {
-          organizationId: payload.orgId,
-          accessToken: built.accessToken,
-          teamId: built.raw.teamId,
-          raw: built.raw,
+          organizationId: input.orgId,
+          accessToken: input.token,
+          teamId,
+          raw,
         },
         tx,
       );
-      this.logger.log(
-        `Slack installed for org=${payload.orgId} team=${built.raw.teamId}`,
-      );
     });
 
-    return { orgId: payload.orgId };
+    // The bundle is what the Electron shell persists to the keychain, so the
+    // token survives a wiped data directory and `GET status` has one source.
+    this.secrets.update({ SLACK_BOT_TOKEN: input.token });
+
+    this.logger.log(`Slack connected for org=${input.orgId} team=${teamId}`);
+    return serialize(row!);
   }
 
   async listForOrg(orgId: string): Promise<SlackInstallationView[]> {
@@ -179,12 +123,12 @@ export class SlackInstallationsService {
       throw AppError.SLACK_INSTALLATION_NOT_FOUND();
     }
 
-    // The same Slack workspace may be connected to several organizations, and
+    // The same Slack workspace may be connected to several workspaces here, and
     // `auth.revoke` kills the bot token for all of them — so only revoke when
     // this row is the last active holder of the workspace. A null teamId (row
-    // predating the team_id backfill, or an OAuth response without a team) is
+    // predating the team_id backfill, or an auth.test without a team) is
     // treated as shared: leaving a token alive until the app is uninstalled in
-    // Slack is recoverable, killing another org's delivery is not.
+    // Slack is recoverable, killing another workspace's delivery is not.
     let skipRevokeReason: string | null = null;
     if (row.teamId === null) {
       skipRevokeReason = 'team_id unknown';
@@ -225,6 +169,11 @@ export class SlackInstallationsService {
         tx,
       );
     });
+
+    if (!skipRevokeReason) {
+      this.secrets.update({ SLACK_BOT_TOKEN: undefined });
+    }
+
     this.logger.log(
       `Slack disconnected for org=${orgId} installation=${installationId}`,
     );

@@ -1,13 +1,5 @@
 import { WebClient } from '@slack/web-api';
 import { SlackClient } from '../slack.client';
-import type { SlackConfig } from '../slack.config';
-
-const cfg: SlackConfig = {
-  clientId: 'cid',
-  clientSecret: 'csec',
-  redirectUri: 'https://app.example/cb',
-  scopes: ['chat:write', 'channels:read'],
-};
 
 function latestClient(): jest.Mocked<WebClient> {
   const instances = (WebClient as unknown as { __mockInstances: WebClient[] })
@@ -23,58 +15,39 @@ describe('SlackClient', () => {
     (WebClient as unknown as { __reset: () => void }).__reset();
   });
 
-  it('builds the auth URI with state, configured scopes, and redirect', () => {
-    const c = new SlackClient(cfg);
-    const url = c.generateAuthUri('state-token');
-
-    expect(url.startsWith('https://slack.com/oauth/v2/authorize?')).toBe(true);
-    const u = new URL(url);
-    expect(u.searchParams.get('client_id')).toBe('cid');
-    expect(u.searchParams.get('redirect_uri')).toBe('https://app.example/cb');
-    expect(u.searchParams.get('state')).toBe('state-token');
-    expect(u.searchParams.get('scope')).toBe('chat:write,channels:read');
-  });
-
-  it('exchanges code for token and returns the OAuth response', async () => {
-    const c = new SlackClient(cfg);
+  it('validates a pasted bot token via auth.test and returns the workspace identity', async () => {
+    const c = new SlackClient();
     const client = latestClient();
-    (client.oauth.v2.access as jest.Mock).mockResolvedValue({
+    (client.auth.test as jest.Mock).mockResolvedValue({
       ok: true,
-      access_token: 'xoxb-abc',
-      team: { id: 'T1', name: 'team' },
-      bot_user_id: 'U1',
-      app_id: 'A1',
-      scope: 'chat:write',
-      authed_user: { id: 'U99' },
+      team: 'Acme',
+      team_id: 'T9',
+      user_id: 'U-bot',
+      response_metadata: { scopes: ['chat:write'] },
     });
 
-    const res = await c.exchangeCodeForToken('code-xyz');
+    const res = await c.authTest('xoxb-abc');
 
-    expect(client.oauth.v2.access).toHaveBeenCalledWith({
-      client_id: 'cid',
-      client_secret: 'csec',
-      code: 'code-xyz',
-      redirect_uri: 'https://app.example/cb',
-    });
-    expect(res.access_token).toBe('xoxb-abc');
+    expect(client.auth.test).toHaveBeenCalledWith({ token: 'xoxb-abc' });
+    expect(res.team_id).toBe('T9');
   });
 
-  it('throws SLACK_OAUTH_EXCHANGE_FAILED when Slack returns !ok', async () => {
-    const c = new SlackClient(cfg);
+  it('throws SLACK_API_FAILED when auth.test rejects the token', async () => {
+    const c = new SlackClient();
     const client = latestClient();
-    (client.oauth.v2.access as jest.Mock).mockResolvedValue({
+    (client.auth.test as jest.Mock).mockResolvedValue({
       ok: false,
-      error: 'invalid_code',
+      error: 'invalid_auth',
     });
 
-    await expect(c.exchangeCodeForToken('bad')).rejects.toMatchObject({
-      code: 'SLACK_OAUTH_EXCHANGE_FAILED',
+    await expect(c.authTest('xoxb-bad')).rejects.toMatchObject({
+      code: 'SLACK_API_FAILED',
       status: 502,
     });
   });
 
   it('posts a message via chat.postMessage with the supplied token', async () => {
-    const c = new SlackClient(cfg);
+    const c = new SlackClient();
     const client = latestClient();
     (client.chat.postMessage as jest.Mock).mockResolvedValue({
       ok: true,
@@ -93,7 +66,7 @@ describe('SlackClient', () => {
   });
 
   it('wraps WebClient errors as SLACK_API_FAILED', async () => {
-    const c = new SlackClient(cfg);
+    const c = new SlackClient();
     const client = latestClient();
     (client.chat.postMessage as jest.Mock).mockRejectedValue(
       new Error('network boom'),
@@ -106,7 +79,7 @@ describe('SlackClient', () => {
   });
 
   it('paginates conversations.list through next_cursor', async () => {
-    const c = new SlackClient(cfg);
+    const c = new SlackClient();
     const client = latestClient();
     (client.conversations.list as jest.Mock)
       .mockResolvedValueOnce({
@@ -131,7 +104,7 @@ describe('SlackClient', () => {
   });
 
   it('paginates users.list through next_cursor', async () => {
-    const c = new SlackClient(cfg);
+    const c = new SlackClient();
     const client = latestClient();
     (client.users.list as jest.Mock)
       .mockResolvedValueOnce({
@@ -150,7 +123,7 @@ describe('SlackClient', () => {
   });
 
   it('revokes a token via auth.revoke', async () => {
-    const c = new SlackClient(cfg);
+    const c = new SlackClient();
     const client = latestClient();
     (client.auth.revoke as jest.Mock).mockResolvedValue({ ok: true });
 

@@ -5,10 +5,10 @@ import { HealthService } from './health.service';
 /**
  * Public liveness/readiness endpoints (`GET /api/health`, `GET /api/health/live`).
  *
- * Depends only on the two global providers (KYSELY_DB from KyselyModule,
- * TEMPORAL_CLIENT from TemporalModule), so there is nothing to import here.
- * Both routes are @AllowAnonymous and neither is org-scoped, so the global
- * OrgContextGuard stays inert (it only engages on @RequireOrgRole routes).
+ * Depends only on the global KYSELY_DB provider, so there is nothing to import
+ * here. Both routes are allow-listed by path in LocalTokenGuard and neither is
+ * org-scoped, so the global OrgContextGuard stays inert (it only engages on
+ * @RequireOrgRole routes).
  */
 @Module({
   controllers: [HealthController],

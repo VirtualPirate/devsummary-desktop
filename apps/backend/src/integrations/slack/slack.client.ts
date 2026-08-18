@@ -2,14 +2,13 @@ import {
   LogLevel,
   WebClient,
   type AuthRevokeResponse,
+  type AuthTestResponse,
   type ChatPostMessageResponse,
   type ConversationsJoinResponse,
   type ConversationsListResponse,
-  type OauthV2AccessResponse,
   type UsersListResponse,
 } from '@slack/web-api';
 import { AppError } from '../../common/errors';
-import type { SlackConfig } from './slack.config';
 
 export type SlackBlock = Record<string, unknown>;
 
@@ -19,37 +18,30 @@ type Member = NonNullable<UsersListResponse['members']>[number];
 export class SlackClient {
   private readonly webClient: WebClient;
 
-  constructor(private readonly config: SlackConfig) {
+  constructor() {
     this.webClient = new WebClient(undefined, { logLevel: LogLevel.WARN });
   }
 
-  generateAuthUri(state: string, scopes?: string[]): string {
-    const params = new URLSearchParams({
-      client_id: this.config.clientId,
-      scope: (scopes ?? this.config.scopes).join(','),
-      redirect_uri: this.config.redirectUri,
-      state,
-    });
-    return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
-  }
-
-  async exchangeCodeForToken(code: string): Promise<OauthV2AccessResponse> {
-    let response: OauthV2AccessResponse;
+  /**
+   * The pasted-token replacement for the OAuth code exchange: it proves the
+   * token works and hands back the workspace identity the installation row
+   * needs. `response_metadata.scopes` is `@slack/web-api`'s parse of the
+   * `x-oauth-scopes` header, which is the only place a bot token's granted
+   * scopes are visible — the settings screen diffs it against
+   * `SLACK_BOT_SCOPES` to name what is missing.
+   */
+  async authTest(accessToken: string): Promise<AuthTestResponse> {
+    let response: AuthTestResponse;
     try {
-      response = await this.webClient.oauth.v2.access({
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        code,
-        redirect_uri: this.config.redirectUri,
-      });
+      response = await this.webClient.auth.test({ token: accessToken });
     } catch (err) {
       throw AppError.SLACK_API_FAILED({
         reason: err instanceof Error ? err.message : 'Unknown error',
       });
     }
     if (!response.ok) {
-      throw AppError.SLACK_OAUTH_EXCHANGE_FAILED({
-        reason: response.error ?? 'unknown',
+      throw AppError.SLACK_API_FAILED({
+        reason: response.error ?? 'invalid_auth',
       });
     }
     return response;

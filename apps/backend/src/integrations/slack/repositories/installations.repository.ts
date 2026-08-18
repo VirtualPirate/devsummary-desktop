@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { decrypt, encrypt } from '../../../auth/crypto';
 import {
   KYSELY_DB,
   type AppDatabase,
@@ -6,6 +7,7 @@ import {
   type SlackInstallationRaw,
   type SlackInstallationSelect,
 } from '../../../databases/kysely';
+import { SecretsService } from '../../../local/settings/secrets.service';
 
 export type SlackInstallationCreateInput = Omit<
   SlackInstallationInsert,
@@ -14,10 +16,30 @@ export type SlackInstallationCreateInput = Omit<
 
 @Injectable()
 export class SlackInstallationsRepository {
-  constructor(@Inject(KYSELY_DB) private readonly db: AppDatabase) {}
+  constructor(
+    @Inject(KYSELY_DB) private readonly db: AppDatabase,
+    private readonly secrets: SecretsService,
+  ) {}
 
   private exec(tx?: AppDatabase): AppDatabase {
     return tx ?? this.db;
+  }
+
+  /**
+   * The bot token is encrypted at rest and decrypted here rather than at each
+   * call site, so `accessToken` is plaintext for every reader and no future one
+   * can forget. `raw.oauthResponse` deliberately keeps no copy of the token.
+   */
+  private seal(token: string): string {
+    return encrypt(token, this.secrets.encryptionKey());
+  }
+
+  private open<T extends SlackInstallationSelect | undefined>(row: T): T {
+    if (!row) return row;
+    return {
+      ...row,
+      accessToken: decrypt(row.accessToken, this.secrets.encryptionKey()),
+    };
   }
 
   async findById(
@@ -30,7 +52,7 @@ export class SlackInstallationsRepository {
       .where('id', '=', id)
       .where('deletedAt', 'is', null)
       .executeTakeFirst();
-    return row ?? null;
+    return this.open(row) ?? null;
   }
 
   async findActiveByOrganizationId(
@@ -43,7 +65,7 @@ export class SlackInstallationsRepository {
       .where('organizationId', '=', organizationId)
       .where('deletedAt', 'is', null)
       .executeTakeFirst();
-    return row ?? null;
+    return this.open(row) ?? null;
   }
 
   async findByOrganizationIdIncludingDeleted(
@@ -55,7 +77,7 @@ export class SlackInstallationsRepository {
       .selectAll()
       .where('organizationId', '=', organizationId)
       .executeTakeFirst();
-    return row ?? null;
+    return this.open(row) ?? null;
   }
 
   async findByIdScopedToOrg(
@@ -70,7 +92,7 @@ export class SlackInstallationsRepository {
       .where('organizationId', '=', organizationId)
       .where('deletedAt', 'is', null)
       .executeTakeFirst();
-    return row ?? null;
+    return this.open(row) ?? null;
   }
 
   /**
@@ -97,11 +119,16 @@ export class SlackInstallationsRepository {
     input: SlackInstallationCreateInput,
     tx?: AppDatabase,
   ): Promise<SlackInstallationSelect> {
-    return this.exec(tx)
+    const row = await this.exec(tx)
       .insertInto('slack.installations')
-      .values({ ...input, raw: JSON.stringify(input.raw) })
+      .values({
+        ...input,
+        accessToken: this.seal(input.accessToken),
+        raw: JSON.stringify(input.raw),
+      })
       .returningAll()
       .executeTakeFirstOrThrow();
+    return this.open(row);
   }
 
   async updateTokenAndRaw(
@@ -116,7 +143,7 @@ export class SlackInstallationsRepository {
     await this.exec(tx)
       .updateTable('slack.installations')
       .set({
-        accessToken: input.accessToken,
+        accessToken: this.seal(input.accessToken),
         teamId: input.teamId,
         raw: JSON.stringify(input.raw),
         deletedAt: null,

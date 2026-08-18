@@ -1,38 +1,14 @@
-import type { ConfigService } from '@nestjs/config';
+import { SLACK_BOT_SCOPES } from '@launchstack/api-interfaces';
 
-export interface SlackConfig {
-  clientId: string;
-  clientSecret: string;
-  redirectUri: string;
-  scopes: string[];
-}
-
-const DEFAULT_SCOPES = [
-  'chat:write',
-  'channels:read',
-  'groups:read',
-  'users:read',
-  'channels:join',
-];
-
-export function loadSlackConfig(
-  configService: ConfigService,
-): SlackConfig | null {
-  const clientId = configService.get<string>('SLACK_CLIENT_ID');
-  const clientSecret = configService.get<string>('SLACK_CLIENT_SECRET');
-  const redirectUri = configService.get<string>('SLACK_REDIRECT_URI');
-
-  if (!clientId || !clientSecret || !redirectUri) {
-    return null;
-  }
-
-  const scopesRaw = configService.get<string>('SLACK_SCOPES');
-  const scopes = scopesRaw
-    ? scopesRaw
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-    : DEFAULT_SCOPES;
-
-  return { clientId, clientSecret, redirectUri, scopes };
-}
+/**
+ * The OAuth install flow is gone (no public callback URL on a desktop app), so
+ * `clientId`/`clientSecret`/`redirectUri` went with it. What is left is the
+ * scope list the user must grant their own Slack app before pasting its
+ * `xoxb-…` token — displayed by the settings screen, which reads the same
+ * constant out of `@launchstack/api-interfaces`.
+ *
+ * `channels:join` is not in the list: `conversations.join` is a convenience for
+ * public channels only, and the bot has to be `/invite`d to a private one
+ * regardless.
+ */
+export { SLACK_BOT_SCOPES };

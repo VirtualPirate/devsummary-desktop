@@ -7,11 +7,15 @@
     // everything is up to date, emits nothing, and `node dist/main` 404s.
     "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
   },
+  // `migrations/` used to be excluded here and to live outside `src/`. It is now
+  // `src/migrations/`, because `migrations-index.ts` imports all 16 statically
+  // (asar has no directory listing) and `rootDir: ./src` made every one of those
+  // imports a TS6059. Moving them keeps the flat `dist/` — `dist/main.js`, which
+  // package.json#main, `start:prod`, and the Electron fork path all assume.
   "exclude": [
     "node_modules",
     "test",
     "dist",
-    "migrations",
     "docs",
     "**/*spec.ts",
     "kysely.config.ts",

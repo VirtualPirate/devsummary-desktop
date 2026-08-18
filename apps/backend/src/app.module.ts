@@ -1,9 +1,10 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { KyselyModule } from './databases/kysely';
-import { AppAuthModule } from './auth';
+import { LocalSessionMiddleware, LocalTokenGuard } from './local';
 import { OrganizationsModule } from './organizations';
 import { GithubIntegrationsModule } from './integrations/github';
 import { SlackIntegrationsModule } from './integrations/slack';
@@ -13,9 +14,7 @@ import { BriefsModule } from './briefs';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { JobActivityModule } from './jobs-activity/job-activity.module';
 import { HealthModule } from './health/health.module';
-import { QueueModule } from './queue/queue.module';
-import { WaitlistModule } from './waitlist/waitlist.module';
-import { TemporalModule } from './temporal';
+import { JobsModule } from './jobs';
 import { LoggerModule, RequestIdMiddleware } from './logger';
 
 @Module({
@@ -23,8 +22,10 @@ import { LoggerModule, RequestIdMiddleware } from './logger';
     ConfigModule.forRoot({ isGlobal: true }),
     LoggerModule,
     KyselyModule,
-    TemporalModule.forRoot(),
-    AppAuthModule,
+    // After KyselyModule, never before: the runner's crash recovery and the
+    // scheduler's first sweep query on onModuleInit, and KyselyModule applies
+    // the migrations in its own.
+    JobsModule,
     OrganizationsModule,
     GithubIntegrationsModule,
     SlackIntegrationsModule,
@@ -34,14 +35,18 @@ import { LoggerModule, RequestIdMiddleware } from './logger';
     AnalyticsModule,
     JobActivityModule,
     HealthModule,
-    QueueModule,
-    WaitlistModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Root-module APP_GUARD, so Nest's scan order puts it ahead of
+    // OrganizationsModule's OrgContextGuard: the loopback token is checked
+    // before anything reads the org header or touches the database.
+    { provide: APP_GUARD, useClass: LocalTokenGuard },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
+    consumer.apply(RequestIdMiddleware, LocalSessionMiddleware).forRoutes('*');
   }
 }

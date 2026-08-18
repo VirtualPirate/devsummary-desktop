@@ -3,7 +3,7 @@
  *
  * Two distinct signals, deliberately split:
  *   - liveness  — "the process is up and serving HTTP". Touches no dependency.
- *   - readiness — "the process can actually do work". Probes Postgres + Temporal.
+ *   - readiness — "the process can actually do work". Probes the database.
  *
  * Restart-on-failure should watch liveness only. Wiring a restart to readiness
  * turns a transient database blip into a crash loop.
@@ -28,10 +28,8 @@ export interface HealthResponse {
   version: string;
   uptimeSeconds: number;
   checks: {
-    /** `select 1` against Postgres via Kysely. */
+    /** `select 1` against the local PGlite database via Kysely. */
     database: HealthCheckResult;
-    /** Temporal frontend gRPC reachability (`getSystemInfo`). */
-    temporal: HealthCheckResult;
   };
 }
 

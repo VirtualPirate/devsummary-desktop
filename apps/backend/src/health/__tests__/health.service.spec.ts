@@ -1,14 +1,8 @@
 import { Test } from '@nestjs/testing';
-import type { Client } from '@temporalio/client';
 import { KYSELY_DB, type AppDatabase } from '../../databases/kysely';
-import { TEMPORAL_CLIENT } from '../../temporal';
 import { HealthService } from '../health.service';
 
-function build(opts: {
-  dbFails?: boolean;
-  temporalFails?: boolean;
-  dbHangs?: boolean;
-}) {
+function build(opts: { dbFails?: boolean; dbHangs?: boolean }) {
   // Held as a standalone reference (not read back off `db`) so assertions do not
   // trip the unbound-method lint rule.
   const execute = jest.fn(() => {
@@ -28,63 +22,40 @@ function build(opts: {
     }),
   } as unknown as AppDatabase;
 
-  const getSystemInfo = jest.fn(() =>
-    opts.temporalFails
-      ? Promise.reject(new Error('14 UNAVAILABLE: connection refused'))
-      : Promise.resolve({ capabilities: {} }),
-  );
-
-  const temporal = {
-    connection: { workflowService: { getSystemInfo } },
-  } as unknown as Client;
-
-  return { db, temporal, getSystemInfo, execute };
+  return { db, execute };
 }
 
 async function createService(opts: Parameters<typeof build>[0]) {
-  const { db, temporal, getSystemInfo, execute } = build(opts);
+  const { db, execute } = build(opts);
   const moduleRef = await Test.createTestingModule({
-    providers: [
-      HealthService,
-      { provide: KYSELY_DB, useValue: db },
-      { provide: TEMPORAL_CLIENT, useValue: temporal },
-    ],
+    providers: [HealthService, { provide: KYSELY_DB, useValue: db }],
   }).compile();
-  return {
-    service: moduleRef.get(HealthService),
-    dbExecute: execute,
-    getSystemInfo,
-  };
+  return { service: moduleRef.get(HealthService), dbExecute: execute };
 }
 
 describe('HealthService', () => {
   describe('liveness', () => {
     it('reports ok without touching any dependency', async () => {
-      const { service, dbExecute, getSystemInfo } = await createService({
-        dbFails: true,
-        temporalFails: true,
-      });
+      const { service, dbExecute } = await createService({ dbFails: true });
 
       const result = service.liveness();
 
       expect(result.status).toBe('ok');
       expect(typeof result.version).toBe('string');
       expect(result.uptimeSeconds).toBeGreaterThanOrEqual(0);
-      // The whole point of liveness: broken dependencies must not be consulted.
+      // The whole point of liveness: a broken database must not be consulted.
       expect(dbExecute).not.toHaveBeenCalled();
-      expect(getSystemInfo).not.toHaveBeenCalled();
     });
   });
 
   describe('readiness', () => {
-    it('reports ok when both dependencies answer', async () => {
+    it('reports ok when the database answers', async () => {
       const { service } = await createService({});
 
       const result = await service.readiness();
 
       expect(result.status).toBe('ok');
       expect(result.checks.database.status).toBe('ok');
-      expect(result.checks.temporal.status).toBe('ok');
       expect(result.checks.database.error).toBeUndefined();
     });
 
@@ -96,19 +67,6 @@ describe('HealthService', () => {
       expect(result.status).toBe('degraded');
       expect(result.checks.database.status).toBe('error');
       expect(result.checks.database.error).toContain('ECONNREFUSED');
-      // A database failure must not mask Temporal's state.
-      expect(result.checks.temporal.status).toBe('ok');
-    });
-
-    it('degrades when Temporal is unreachable', async () => {
-      const { service } = await createService({ temporalFails: true });
-
-      const result = await service.readiness();
-
-      expect(result.status).toBe('degraded');
-      expect(result.checks.temporal.status).toBe('error');
-      expect(result.checks.temporal.error).toContain('UNAVAILABLE');
-      expect(result.checks.database.status).toBe('ok');
     });
 
     it('times out a hanging probe instead of hanging the request', async () => {

@@ -1,360 +1,222 @@
 import { SlackInstallationsService } from '../services/installations.service';
 
-function makeMocks() {
-  const installsRepo = {
+const AUTH_TEST = {
+  ok: true,
+  team: 'Acme',
+  team_id: 'T1',
+  user_id: 'U-bot',
+  response_metadata: { scopes: ['chat:write', 'channels:read'] },
+};
+
+function makeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'inst-1',
+    organizationId: 'org-1',
+    accessToken: 'xoxb-abc',
+    teamId: 'T1',
+    raw: {
+      teamId: 'T1',
+      teamName: 'Acme',
+      botUserId: 'U-bot',
+      appId: '',
+      scope: 'chat:write,channels:read',
+      oauthResponse: AUTH_TEST,
+    },
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+function makeService() {
+  const installs = {
     findById: jest.fn(),
     findActiveByOrganizationId: jest.fn(),
-    findByOrganizationIdIncludingDeleted: jest.fn(),
+    findByOrganizationIdIncludingDeleted: jest.fn().mockResolvedValue(null),
     findByIdScopedToOrg: jest.fn(),
     existsOtherActiveByTeamId: jest.fn().mockResolvedValue(false),
-    create: jest.fn(),
+    create: jest.fn().mockResolvedValue(makeRow()),
     updateTokenAndRaw: jest.fn(),
     softDelete: jest.fn(),
-    undelete: jest.fn(),
-  } as any;
-
-  const stateToken = {
-    sign: jest.fn(() => 'signed-token'),
-    verify: jest.fn(),
-  } as any;
-
+  };
   const client = {
-    generateAuthUri: jest.fn(
-      (state: string) => `https://slack.com/oauth/v2/authorize?state=${state}`,
-    ),
-    exchangeCodeForToken: jest.fn(),
-    revokeToken: jest.fn(),
-  } as any;
-
-  const config = {
-    clientId: 'cid',
-    clientSecret: 'csec',
-    redirectUri: 'https://app.example/cb',
-    scopes: ['chat:write'],
+    authTest: jest.fn().mockResolvedValue(AUTH_TEST),
+    revokeToken: jest.fn().mockResolvedValue({ ok: true }),
   };
-
   const db = {
-    transaction: jest.fn(() => ({
-      execute: (fn: (tx: unknown) => Promise<unknown>) => fn({ __tx: true }),
-    })),
-  } as any;
-
-  const briefSchedulesRepo = {
-    clearSlackConfigForInstallation: jest.fn(),
-  } as any;
-
-  return { installsRepo, stateToken, client, config, db, briefSchedulesRepo };
-}
-
-function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
-  const m = { ...makeMocks(), ...overrides };
-  return {
-    svc: new SlackInstallationsService(
-      m.installsRepo,
-      m.stateToken,
-      m.client,
-      m.config,
-      m.db,
-      m.briefSchedulesRepo,
-    ),
-    mocks: m,
+    transaction: () => ({
+      execute: (fn: (tx: unknown) => unknown) => Promise.resolve(fn({})),
+    }),
   };
+  const briefSchedules = { clearSlackConfigForInstallation: jest.fn() };
+  const secrets = { update: jest.fn() };
+  const svc = new SlackInstallationsService(
+    installs as never,
+    client as never,
+    db as never,
+    briefSchedules as never,
+    secrets as never,
+  );
+  return { svc, installs, client, briefSchedules, secrets };
 }
 
-function makeOauthResponse() {
-  return {
-    ok: true,
-    access_token: 'xoxb-abc',
-    team: { id: 'T1', name: 'team' },
-    bot_user_id: 'B1',
-    app_id: 'A1',
-    scope: 'chat:write,channels:read',
-    authed_user: { id: 'U99' },
-  };
-}
+describe('SlackInstallationsService.connectToken', () => {
+  it('validates the pasted token and stores a new installation', async () => {
+    const { svc, installs, client } = makeService();
 
-describe('SlackInstallationsService', () => {
-  describe('buildInstallUrl', () => {
-    it('throws when config is null', () => {
-      const { svc } = makeService({ config: null as any });
-      expect(() => svc.buildInstallUrl({ orgId: 'o', userId: 'u' })).toThrow(
-        /not configured/i,
-      );
+    const view = await svc.connectToken({
+      orgId: 'org-1',
+      token: 'xoxb-abc',
+      userId: 'user-1',
     });
 
-    it('returns Slack install url with signed state', () => {
-      const { svc, mocks } = makeService();
-      const url = svc.buildInstallUrl({ orgId: 'o1', userId: 'u1' });
+    expect(client.authTest).toHaveBeenCalledWith('xoxb-abc');
+    expect(installs.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-1',
+        accessToken: 'xoxb-abc',
+        teamId: 'T1',
+        raw: expect.objectContaining({
+          teamId: 'T1',
+          teamName: 'Acme',
+          botUserId: 'U-bot',
+          scope: 'chat:write,channels:read',
+          connectedByUserId: 'user-1',
+        }) as unknown,
+      }),
+      expect.anything(),
+    );
+    expect(view.teamId).toBe('T1');
+  });
 
-      expect(mocks.stateToken.sign).toHaveBeenCalledWith({
-        orgId: 'o1',
-        userId: 'u1',
-      });
-      expect(mocks.client.generateAuthUri).toHaveBeenCalledWith('signed-token');
-      expect(url).toBe(
-        'https://slack.com/oauth/v2/authorize?state=signed-token',
-      );
+  it('mirrors the token into the secret bundle so the keychain holds it', async () => {
+    const { svc, secrets } = makeService();
+    await svc.connectToken({ orgId: 'org-1', token: 'xoxb-abc', userId: null });
+    expect(secrets.update).toHaveBeenCalledWith({
+      SLACK_BOT_TOKEN: 'xoxb-abc',
     });
   });
 
-  describe('handleCallback', () => {
-    it('inserts a new installation when none exists for the org', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({ orgId: 'o1', userId: 'u1' });
-      mocks.installsRepo.findByOrganizationIdIncludingDeleted.mockResolvedValue(
-        null,
-      );
-      mocks.client.exchangeCodeForToken.mockResolvedValue(makeOauthResponse());
-      mocks.installsRepo.create.mockResolvedValue({ id: 'inst-uuid' });
+  it('replaces the token on an existing row instead of refusing (rotation)', async () => {
+    const { svc, installs } = makeService();
+    installs.findByOrganizationIdIncludingDeleted.mockResolvedValue(makeRow());
+    installs.findById.mockResolvedValue(makeRow({ accessToken: 'xoxb-new' }));
 
-      const result = await svc.handleCallback({
-        state: 't',
-        code: 'code-x',
-        sessionUserId: 'u1',
-      });
-
-      expect(mocks.installsRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organizationId: 'o1',
-          accessToken: 'xoxb-abc',
-          teamId: 'T1',
-          raw: expect.objectContaining({
-            teamId: 'T1',
-            teamName: 'team',
-            botUserId: 'B1',
-            appId: 'A1',
-            scope: 'chat:write,channels:read',
-            authedUserId: 'U99',
-            connectedByUserId: 'u1',
-          }),
-        }),
-        expect.anything(),
-      );
-      expect(result).toEqual({ orgId: 'o1' });
+    await svc.connectToken({
+      orgId: 'org-1',
+      token: 'xoxb-new',
+      userId: null,
     });
 
-    it('un-deletes a soft-deleted installation on re-install', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({ orgId: 'o1', userId: 'u1' });
-      mocks.installsRepo.findByOrganizationIdIncludingDeleted.mockResolvedValue(
-        {
-          id: 'existing-uuid',
-          organizationId: 'o1',
-          deletedAt: new Date('2026-05-10T00:00:00Z'),
-        },
-      );
-      mocks.client.exchangeCodeForToken.mockResolvedValue(makeOauthResponse());
-
-      await svc.handleCallback({
-        state: 't',
-        code: 'code-x',
-        sessionUserId: 'u1',
-      });
-
-      expect(mocks.installsRepo.updateTokenAndRaw).toHaveBeenCalledWith(
-        'existing-uuid',
-        {
-          accessToken: 'xoxb-abc',
-          teamId: 'T1',
-          raw: expect.objectContaining({ teamId: 'T1' }),
-        },
-        expect.anything(),
-      );
-      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-    });
-
-    it('rejects when an active installation already exists for the org', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({ orgId: 'o1', userId: 'u1' });
-      mocks.installsRepo.findByOrganizationIdIncludingDeleted.mockResolvedValue(
-        {
-          id: 'existing-uuid',
-          organizationId: 'o1',
-          deletedAt: null,
-        },
-      );
-      mocks.client.exchangeCodeForToken.mockResolvedValue(makeOauthResponse());
-
-      await expect(
-        svc.handleCallback({ state: 't', code: 'code-x', sessionUserId: 'u1' }),
-      ).rejects.toMatchObject({ code: 'SLACK_ORG_ALREADY_CONNECTED' });
-
-      expect(mocks.installsRepo.create).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.updateTokenAndRaw).not.toHaveBeenCalled();
-    });
-
-    it('rejects when state user does not match session user', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({
-        orgId: 'o1',
-        userId: 'someone-else',
-      });
-
-      await expect(
-        svc.handleCallback({ state: 't', code: 'c', sessionUserId: 'u1' }),
-      ).rejects.toMatchObject({ code: 'SLACK_STATE_USER_MISMATCH' });
-    });
-
-    it('rejects when state is invalid', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockImplementation(() => {
-        throw new Error('bad state');
-      });
-
-      await expect(
-        svc.handleCallback({ state: 'nope', code: 'c', sessionUserId: null }),
-      ).rejects.toMatchObject({ code: 'SLACK_STATE_INVALID' });
-    });
-
-    it('rejects when code is missing', async () => {
-      const { svc, mocks } = makeService();
-      mocks.stateToken.verify.mockReturnValue({ orgId: 'o1', userId: 'u1' });
-
-      await expect(
-        svc.handleCallback({
-          state: 't',
-          code: undefined,
-          sessionUserId: 'u1',
-        }),
-      ).rejects.toMatchObject({ code: 'SLACK_STATE_INVALID' });
-    });
+    expect(installs.updateTokenAndRaw).toHaveBeenCalledWith(
+      'inst-1',
+      expect.objectContaining({ accessToken: 'xoxb-new', teamId: 'T1' }),
+      expect.anything(),
+    );
+    expect(installs.create).not.toHaveBeenCalled();
   });
 
-  describe('listForOrg', () => {
-    it('returns active installation row without access_token', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findActiveByOrganizationId.mockResolvedValue({
-        id: 'i1',
-        organizationId: 'o1',
-        accessToken: 'xoxb-secret',
-        raw: {
-          teamId: 'T1',
-          teamName: 'team',
-          botUserId: 'B1',
-          appId: 'A1',
-          scope: 'chat:write',
-          oauthResponse: {},
-        },
-        createdAt: new Date('2026-01-01'),
-        updatedAt: new Date('2026-01-01'),
-        deletedAt: null,
-      });
+  it('un-deletes a soft-deleted installation on re-connect', async () => {
+    const { svc, installs } = makeService();
+    installs.findByOrganizationIdIncludingDeleted.mockResolvedValue(
+      makeRow({ deletedAt: new Date('2026-02-01T00:00:00Z') }),
+    );
+    installs.findById.mockResolvedValue(makeRow());
 
-      const list = await svc.listForOrg('o1');
-      expect(list).toHaveLength(1);
-      expect(list[0]).not.toHaveProperty('accessToken');
-      expect(list[0]).toMatchObject({
-        id: 'i1',
-        teamId: 'T1',
-        teamName: 'team',
-      });
-    });
+    await svc.connectToken({ orgId: 'org-1', token: 'xoxb-abc', userId: null });
 
-    it('returns an empty array when no installation exists', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findActiveByOrganizationId.mockResolvedValue(null);
-
-      expect(await svc.listForOrg('o1')).toEqual([]);
-    });
+    // `updateTokenAndRaw` clears deletedAt — that is the un-delete.
+    expect(installs.updateTokenAndRaw).toHaveBeenCalled();
   });
 
-  describe('disconnect', () => {
-    it('revokes the token and soft-deletes the row when this org is the only holder', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        accessToken: 'xoxb-abc',
-        teamId: 'T1',
-      });
+  it('propagates an auth.test failure without storing anything', async () => {
+    const { svc, installs, client, secrets } = makeService();
+    client.authTest.mockRejectedValue(new Error('invalid_auth'));
 
-      await svc.disconnect('o1', 'inst-uuid');
+    await expect(
+      svc.connectToken({ orgId: 'org-1', token: 'xoxb-bad', userId: null }),
+    ).rejects.toThrow('invalid_auth');
+    expect(installs.create).not.toHaveBeenCalled();
+    expect(secrets.update).not.toHaveBeenCalled();
+  });
 
-      expect(mocks.installsRepo.existsOtherActiveByTeamId).toHaveBeenCalledWith(
-        'T1',
-        'inst-uuid',
-      );
-      expect(mocks.client.revokeToken).toHaveBeenCalledWith('xoxb-abc');
-      expect(mocks.installsRepo.softDelete).toHaveBeenCalledWith(
-        'inst-uuid',
-        expect.anything(),
-      );
-    });
+  it('refuses a token whose auth.test names no workspace', async () => {
+    const { svc, installs, client } = makeService();
+    client.authTest.mockResolvedValue({ ok: true });
 
-    it('skips the revoke but still soft-deletes when another active org shares the workspace', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        accessToken: 'xoxb-abc',
-        teamId: 'T1',
-      });
-      mocks.installsRepo.existsOtherActiveByTeamId.mockResolvedValue(true);
+    await expect(
+      svc.connectToken({ orgId: 'org-1', token: 'xoxb-abc', userId: null }),
+    ).rejects.toMatchObject({ code: 'SLACK_API_FAILED' });
+    expect(installs.create).not.toHaveBeenCalled();
+  });
+});
 
-      await svc.disconnect('o1', 'inst-uuid');
+describe('SlackInstallationsService.listForOrg', () => {
+  it('returns the active installation without its access token', async () => {
+    const { svc, installs } = makeService();
+    installs.findActiveByOrganizationId.mockResolvedValue(makeRow());
 
-      expect(mocks.client.revokeToken).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.softDelete).toHaveBeenCalledWith(
-        'inst-uuid',
-        expect.anything(),
-      );
-    });
+    const [view] = await svc.listForOrg('org-1');
 
-    it('skips the revoke when team_id is unknown (pre-backfill row)', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        accessToken: 'xoxb-abc',
-        teamId: null,
-      });
+    expect(view).toMatchObject({ id: 'inst-1', teamId: 'T1' });
+    expect(JSON.stringify(view)).not.toContain('xoxb-abc');
+  });
 
-      await svc.disconnect('o1', 'inst-uuid');
+  it('returns an empty array when nothing is connected', async () => {
+    const { svc, installs } = makeService();
+    installs.findActiveByOrganizationId.mockResolvedValue(null);
+    expect(await svc.listForOrg('org-1')).toEqual([]);
+  });
+});
 
-      expect(
-        mocks.installsRepo.existsOtherActiveByTeamId,
-      ).not.toHaveBeenCalled();
-      expect(mocks.client.revokeToken).not.toHaveBeenCalled();
-      expect(mocks.installsRepo.softDelete).toHaveBeenCalledWith(
-        'inst-uuid',
-        expect.anything(),
-      );
-    });
+describe('SlackInstallationsService.disconnect', () => {
+  it('revokes, soft-deletes, clears schedules and drops the stored token', async () => {
+    const { svc, installs, client, briefSchedules, secrets } = makeService();
+    installs.findByIdScopedToOrg.mockResolvedValue(makeRow());
 
-    it('still soft-deletes locally when Slack-side revoke fails', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        accessToken: 'xoxb-abc',
-        teamId: 'T1',
-      });
-      mocks.client.revokeToken.mockRejectedValue(new Error('boom'));
+    await svc.disconnect('org-1', 'inst-1');
 
-      await svc.disconnect('o1', 'inst-uuid');
+    expect(client.revokeToken).toHaveBeenCalledWith('xoxb-abc');
+    expect(installs.softDelete).toHaveBeenCalledWith(
+      'inst-1',
+      expect.anything(),
+    );
+    expect(briefSchedules.clearSlackConfigForInstallation).toHaveBeenCalledWith(
+      'inst-1',
+      expect.anything(),
+    );
+    expect(secrets.update).toHaveBeenCalledWith({ SLACK_BOT_TOKEN: undefined });
+  });
 
-      expect(mocks.installsRepo.softDelete).toHaveBeenCalled();
-    });
+  it('skips the revoke when another workspace still holds the same team', async () => {
+    const { svc, installs, client, secrets } = makeService();
+    installs.findByIdScopedToOrg.mockResolvedValue(makeRow());
+    installs.existsOtherActiveByTeamId.mockResolvedValue(true);
 
-    it('clears dependent brief-schedule Slack config in the same transaction', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue({
-        id: 'inst-uuid',
-        accessToken: 'xoxb-abc',
-        teamId: 'T1',
-      });
+    await svc.disconnect('org-1', 'inst-1');
 
-      await svc.disconnect('o1', 'inst-uuid');
+    expect(client.revokeToken).not.toHaveBeenCalled();
+    expect(installs.softDelete).toHaveBeenCalled();
+    // The token still works for the other workspace, so it stays in the bundle.
+    expect(secrets.update).not.toHaveBeenCalled();
+  });
 
-      const tx = mocks.installsRepo.softDelete.mock.calls[0][1];
-      expect(
-        mocks.briefSchedulesRepo.clearSlackConfigForInstallation,
-      ).toHaveBeenCalledWith('inst-uuid', tx);
-    });
+  it('still soft-deletes locally when the Slack-side revoke fails', async () => {
+    const { svc, installs, client } = makeService();
+    installs.findByIdScopedToOrg.mockResolvedValue(makeRow());
+    client.revokeToken.mockRejectedValue(new Error('boom'));
 
-    it('404s if the installation is not in the org', async () => {
-      const { svc, mocks } = makeService();
-      mocks.installsRepo.findByIdScopedToOrg.mockResolvedValue(null);
+    await svc.disconnect('org-1', 'inst-1');
 
-      await expect(svc.disconnect('o1', 'inst-uuid')).rejects.toMatchObject({
-        code: 'SLACK_INSTALLATION_NOT_FOUND',
-      });
+    expect(installs.softDelete).toHaveBeenCalled();
+  });
+
+  it('404s if the installation is not in the org', async () => {
+    const { svc, installs } = makeService();
+    installs.findByIdScopedToOrg.mockResolvedValue(null);
+
+    await expect(svc.disconnect('org-1', 'inst-1')).rejects.toMatchObject({
+      code: 'SLACK_INSTALLATION_NOT_FOUND',
     });
   });
 });

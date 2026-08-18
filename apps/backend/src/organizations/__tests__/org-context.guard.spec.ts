@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { OrgContextGuard } from '../guards/org-context.guard';
 import { OrganizationMembersRepository } from '../repositories/members.repository';
 import { REQUIRE_ORG_ROLE_KEY } from '../decorators/require-org-role.decorator';
+import { LOCAL_ORG_ID, LOCAL_USER_ID } from '../../local/local-identity';
 
 // A real uuid: the guard now rejects anything Postgres' uuid parser would,
 // so the happy paths have to carry a header the DB would actually accept.
@@ -51,11 +52,37 @@ describe('OrgContextGuard', () => {
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
-  it('400 when header missing and route is org-scoped', async () => {
-    const { ctx, reflector, membersRepo } = makeContext({ level: 'member' });
+  // A desktop client that has not picked a workspace yet still gets one: the
+  // header is how the switcher moves between workspaces, not how the app
+  // proves who it is (docs/DELTAS.md D-A).
+  it('falls back to the default workspace when the header is absent', async () => {
+    const { ctx, request, reflector, membersRepo } = makeContext({
+      level: 'member',
+      session: { user: { id: LOCAL_USER_ID } },
+      membership: { role: 'owner' },
+    });
+    const guard = new OrgContextGuard(reflector, membersRepo);
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(membersRepo.findByOrgAndUser).toHaveBeenCalledWith(
+      LOCAL_ORG_ID,
+      LOCAL_USER_ID,
+    );
+    expect(request.orgMembership).toEqual({
+      organizationId: LOCAL_ORG_ID,
+      userId: LOCAL_USER_ID,
+      role: 'owner',
+    });
+  });
+
+  it('404s on the fallback workspace when its membership row is missing', async () => {
+    const { ctx, reflector, membersRepo } = makeContext({
+      level: 'member',
+      membership: null,
+    });
     const guard = new OrgContextGuard(reflector, membersRepo);
     await expect(guard.canActivate(ctx)).rejects.toMatchObject({
-      status: 400,
+      status: 404,
+      code: 'ORG_NOT_FOUND',
     });
   });
 

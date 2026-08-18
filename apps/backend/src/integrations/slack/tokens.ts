@@ -1,1 +1,0 @@
-export const SLACK_CONFIG_TOKEN = Symbol('SLACK_CONFIG_TOKEN');

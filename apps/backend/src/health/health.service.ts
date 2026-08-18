@@ -1,6 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'kysely';
-import type { Client } from '@temporalio/client';
 import { API_VERSION } from '@launchstack/core';
 import type {
   HealthCheckResult,
@@ -8,7 +7,6 @@ import type {
   LivenessResponse,
 } from '@launchstack/api-interfaces';
 import { KYSELY_DB, type AppDatabase } from '../databases/kysely';
-import { TEMPORAL_CLIENT } from '../temporal';
 
 /**
  * Per-probe budget. A health endpoint that can hang is worse than none at all:
@@ -21,14 +19,11 @@ const CHECK_TIMEOUT_MS = 2_000;
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
 
-  constructor(
-    @Inject(KYSELY_DB) private readonly db: AppDatabase,
-    @Inject(TEMPORAL_CLIENT) private readonly temporal: Client,
-  ) {}
+  constructor(@Inject(KYSELY_DB) private readonly db: AppDatabase) {}
 
   /**
    * Liveness: is this process up. Deliberately touches nothing external, so a
-   * Postgres or Temporal outage can never cause a restart loop here.
+   * database outage can never cause a restart loop here.
    */
   liveness(): LivenessResponse {
     return {
@@ -39,28 +34,22 @@ export class HealthService {
   }
 
   /**
-   * Readiness: can this process serve real requests. Probes run concurrently so
-   * total latency is the slowest check, not their sum, and one failing
-   * dependency never masks the state of the other.
+   * Readiness: can this process serve real requests. One dependency now — the
+   * embedded database. The Temporal probe is gone with Temporal itself, and the
+   * job runner is in-process, so "is the runner up" is answered by liveness.
    */
   async readiness(): Promise<HealthResponse> {
-    const [database, temporal] = await Promise.all([
-      this.probe('database', () => sql`select 1`.execute(this.db)),
-      // getSystemInfo is served by the Temporal frontend, so a successful
-      // response proves both TCP reachability and that the service is serving —
-      // the same thing `tctl cluster health` establishes.
-      this.probe('temporal', () =>
-        this.temporal.connection.workflowService.getSystemInfo({}),
-      ),
-    ]);
+    const database = await this.probe('database', () =>
+      sql`select 1`.execute(this.db),
+    );
 
-    const healthy = database.status === 'ok' && temporal.status === 'ok';
+    const healthy = database.status === 'ok';
 
     return {
       status: healthy ? 'ok' : 'degraded',
       version: API_VERSION,
       uptimeSeconds: uptimeSeconds(),
-      checks: { database, temporal },
+      checks: { database },
     };
   }
 
