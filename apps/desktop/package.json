@@ -12,6 +12,7 @@
     "@types/node": "^22.10.7",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
+    "playwright": "^1.62.1",
     "typescript": "~5.9.3",
     "wait-on": "^9.1.0"
   }

@@ -17,13 +17,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCreateTeam, useUpdateTeam } from "@/hooks/api/use-teams";
 import { extractErrorMessage } from "@/components/devsummary/shared/error-state";
 
+// Hex, not `oklch(…)` — see the note in new-project/project-dialog.tsx:
+// `team.color` is a `varchar(16)` and the request schema caps it at 16 chars.
 const COLORS = [
-  "oklch(0.62 0.22 305)",
-  "oklch(0.62 0.18 277)",
-  "oklch(0.6 0.16 200)",
-  "oklch(0.65 0.18 140)",
-  "oklch(0.7 0.18 85)",
-  "oklch(0.68 0.2 30)",
+  "#a657ed",
+  "#6e76f0",
+  "#009aa6",
+  "#48a830",
+  "#d19200",
+  "#fb5a46",
 ];
 
 export function TeamDialog({
