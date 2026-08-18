@@ -55,6 +55,11 @@ export class JobQueueService {
         maxAttempts: profileFor(type).maxAttempts,
         runAt,
       })
+      // ponytail: re-arm resets attempts=0, so a deterministically failing handler behind a
+      // recurring stable id (e.g. sweep:<repoId>:<branch>:<date>, re-enqueued every 15 min)
+      // re-burns its full retry budget each cycle — up to ~380 GitHub calls/day against the
+      // user's own PAT. Ceiling if it bites: skip the re-arm when the failed row's run_at is
+      // younger than the scheduler tick interval.
       .onConflict((c) =>
         c
           .column('id')
