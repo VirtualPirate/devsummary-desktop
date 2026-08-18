@@ -1,61 +1,38 @@
 import type { Kysely } from 'kysely';
-import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/databases/kysely/database.types';
-import { createFileDatabase } from '../harness/database';
+import { LOCAL_ORG_ID } from '../../../src/local/local-identity';
+import { api } from '../harness/api';
 import { createTestApp, type TestApp } from '../harness/create-test-app';
-import { createVerifiedUser } from '../harness/auth-client';
+import { createTestDatabase } from '../harness/database';
 
-const PASSWORD = 'correct-horse-battery-staple';
 const PERIOD_START = new Date('2026-08-02T00:00:00Z');
 const PERIOD_END = new Date('2026-08-09T00:00:00Z');
 
 describe('GET /api/organizations/current/briefs/:briefId/report', () => {
   let testApp: TestApp;
   let db: Kysely<Database>;
-  let closeDb: () => Promise<void>;
 
-  let orgId: string;
-  let cookie: string;
   let otherOrgId: string;
-  let otherCookie: string;
   let briefId: string;
   let repoId: string;
 
   beforeAll(async () => {
-    ({ db, close: closeDb } = await createFileDatabase());
-    testApp = await createTestApp();
+    ({ db } = await createTestDatabase());
+    testApp = await createTestApp(db);
 
-    const owner = await createVerifiedUser(testApp.server, db, {
-      email: 'report-owner@example.com',
-      password: PASSWORD,
-      name: 'Report Owner',
-    });
-    cookie = owner.cookie;
-    orgId = (
-      await request(testApp.server)
-        .post('/api/organizations')
-        .set('Cookie', cookie)
-        .send({ name: 'Report Org' })
-    ).body.data.id as string;
-
-    const outsider = await createVerifiedUser(testApp.server, db, {
-      email: 'report-outsider@example.com',
-      password: PASSWORD,
-      name: 'Report Outsider',
-    });
-    otherCookie = outsider.cookie;
+    // A second workspace, for the cross-workspace 404. Created through the API
+    // so it gets its owner membership row the same way the app makes one.
     otherOrgId = (
-      await request(testApp.server)
+      await api(testApp.server)
         .post('/api/organizations')
-        .set('Cookie', otherCookie)
-        .send({ name: 'Other Org' })
+        .send({ name: 'Other Workspace' })
     ).body.data.id as string;
 
     const installation = await db
       .insertInto('github.installations')
       .values({
-        organizationId: orgId,
+        organizationId: LOCAL_ORG_ID,
         githubInstallationId: 1n,
         githubAccountId: 1n,
         githubAccountLogin: 'acme',
@@ -130,7 +107,7 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
       await db
         .insertInto('briefs.briefs')
         .values({
-          organizationId: orgId,
+          organizationId: LOCAL_ORG_ID,
           scopeType: 'repository',
           scopeRepositoryId: repo.id,
           periodStart: PERIOD_START,
@@ -144,14 +121,11 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
 
   afterAll(async () => {
     await testApp.close();
-    await closeDb();
   });
 
   it('excludes merge commits so totals match the brief scope', async () => {
-    const res = await request(testApp.server)
+    const res = await api(testApp.server, LOCAL_ORG_ID)
       .get(`/api/organizations/current/briefs/${briefId}/report`)
-      .set('Cookie', cookie)
-      .set('X-Organization-Id', orgId)
       .expect(200);
 
     const report = res.body.data;
@@ -164,10 +138,8 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
   });
 
   it('zero-fills the period and folds docs and chore into upkeep', async () => {
-    const res = await request(testApp.server)
+    const res = await api(testApp.server, LOCAL_ORG_ID)
       .get(`/api/organizations/current/briefs/${briefId}/report`)
-      .set('Cookie', cookie)
-      .set('X-Organization-Id', orgId)
       .expect(200);
 
     const report = res.body.data;
@@ -180,10 +152,8 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
   });
 
   it('compares against the previous period', async () => {
-    const res = await request(testApp.server)
+    const res = await api(testApp.server, LOCAL_ORG_ID)
       .get(`/api/organizations/current/briefs/${briefId}/report`)
-      .set('Cookie', cookie)
-      .set('X-Organization-Id', orgId)
       .expect(200);
 
     // One commit the week before, three this week: +200%.
@@ -199,7 +169,7 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
     const schedule = await db
       .insertInto('briefs.briefSchedules')
       .values({
-        organizationId: orgId,
+        organizationId: LOCAL_ORG_ID,
         name: 'Legacy zone',
         cadenceType: 'weekly',
         cadenceTime: '09:00',
@@ -215,7 +185,7 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
     const scoped = await db
       .insertInto('briefs.briefs')
       .values({
-        organizationId: orgId,
+        organizationId: LOCAL_ORG_ID,
         briefScheduleId: schedule.id,
         scopeType: 'repository',
         scopeRepositoryId: repoId,
@@ -234,10 +204,8 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
       .returning('id')
       .executeTakeFirstOrThrow();
 
-    const res = await request(testApp.server)
+    const res = await api(testApp.server, LOCAL_ORG_ID)
       .get(`/api/organizations/current/briefs/${scoped.id}/report`)
-      .set('Cookie', cookie)
-      .set('X-Organization-Id', orgId)
       .expect(200);
 
     const report = res.body.data;
@@ -250,11 +218,9 @@ describe('GET /api/organizations/current/briefs/:briefId/report', () => {
     expect(report.totals.contributors).toBe(1);
   });
 
-  it('returns 404 for a brief in another organization', async () => {
-    await request(testApp.server)
+  it('returns 404 for a brief in another workspace', async () => {
+    await api(testApp.server, otherOrgId)
       .get(`/api/organizations/current/briefs/${briefId}/report`)
-      .set('Cookie', otherCookie)
-      .set('X-Organization-Id', otherOrgId)
       .expect(404);
   });
 });

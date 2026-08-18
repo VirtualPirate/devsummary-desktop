@@ -1,61 +1,62 @@
-import { randomBytes } from 'node:crypto';
-import { CamelCasePlugin, Kysely, PostgresDialect } from 'kysely';
-import { Client, Pool } from 'pg';
-import { inject } from 'vitest';
-// Type-only import: keeps this module free of src/databases/kysely's
-// side effects (it sets a process-wide pg int8 type parser at module scope).
+import { PGlite } from '@electric-sql/pglite';
+import { CamelCasePlugin, Kysely, Migrator } from 'kysely';
 import type { Database } from '../../../src/databases/kysely/database.types';
+import { staticMigrationProvider } from '../../../src/databases/kysely/migrations-index';
+import { pgliteDialect } from '../../../src/databases/kysely/pglite-driver';
 
-const TEMPLATE_DB = 'e2e_template';
-
-function withDatabase(url: string, database: string): string {
-  const parsed = new URL(url);
-  parsed.pathname = `/${database}`;
-  return parsed.toString();
-}
-
-export interface FileDatabase {
+export interface TestDatabase {
   /** Configured exactly like the application's instance, CamelCasePlugin included. */
   db: Kysely<Database>;
-  databaseUrl: string;
+  /**
+   * Only for specs that never call `createTestApp()`. When an app is booted on
+   * this instance, `KyselyModule.onModuleDestroy` destroys it — so those specs
+   * call `testApp.close()` and nothing else, or PGlite is closed twice.
+   */
   close: () => Promise<void>;
 }
 
 /**
- * Clone the migrated template into a database private to this test file, and
- * point DATABASE_URL at it. Postgres copies the template's files directly, so
- * this is milliseconds rather than a migration replay.
+ * A private, in-memory Postgres for one test file.
  *
- * Call this in a `beforeAll`, before the file's first `createTestApp()`.
+ * `new PGlite()` with no data directory keeps the whole database in WASM
+ * memory: nothing to clean up, no Docker, and — unlike the `postgres:18`
+ * testcontainer this replaces — no shared server, so files cannot see each
+ * other's rows and there is no template database to clone from. The migration
+ * chain is replayed per file instead (~1.2 s for all 16), which is cheaper than
+ * the container start it removes.
+ *
+ * Call this in a `beforeAll`, before the file's `createTestApp()`.
  */
-export async function createFileDatabase(): Promise<FileDatabase> {
-  const adminUrl = inject('postgresAdminUrl');
-  const databaseName = `e2e_${randomBytes(6).toString('hex')}`;
-
-  const admin = new Client({ connectionString: adminUrl });
-  await admin.connect();
-  try {
-    await admin.query(
-      `CREATE DATABASE "${databaseName}" TEMPLATE "${TEMPLATE_DB}"`,
-    );
-  } finally {
-    await admin.end();
-  }
-
-  const databaseUrl = withDatabase(adminUrl, databaseName);
-  process.env.DATABASE_URL = databaseUrl;
-
-  const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+export async function createTestDatabase(): Promise<TestDatabase> {
   const db = new Kysely<Database>({
-    dialect: new PostgresDialect({ pool }),
+    dialect: pgliteDialect(
+      new PGlite({
+        // Mirrors createPGlite() in src/databases/kysely/kysely.module.ts:
+        // GitHub ids are int8 (oid 20) and must not arrive as lossy JS numbers.
+        // Constructed here rather than through createAppDatabase() because that
+        // helper always resolves a data directory, and this one has none.
+        parsers: { 20: (value: string) => BigInt(value) },
+      }),
+    ),
     plugins: [new CamelCasePlugin()],
   });
 
-  return {
-    db,
-    databaseUrl,
-    close: async () => {
-      await db.destroy();
-    },
-  };
+  // The same chain KyselyModule applies at boot. Running it here means the
+  // DB-only specs (which boot no app) get a migrated schema, and the app's own
+  // boot migration then finds nothing pending.
+  //
+  // `withoutPlugins()` is load-bearing: migrations use literal snake_case
+  // identifiers, so a CamelCasePlugin connection would re-translate them.
+  const migrator = new Migrator({
+    db: db.withoutPlugins(),
+    provider: staticMigrationProvider,
+  });
+  const { error } = await migrator.migrateToLatest();
+  if (error) {
+    throw error instanceof Error
+      ? error
+      : new Error('e2e migrations failed', { cause: error });
+  }
+
+  return { db, close: () => db.destroy() };
 }

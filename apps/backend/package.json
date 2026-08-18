@@ -107,7 +107,6 @@
       "^@octokit/core$": "<rootDir>/__mocks__/@octokit/core.ts",
       "^@octokit/plugin-paginate-rest$": "<rootDir>/__mocks__/@octokit/plugin-paginate-rest.ts",
       "^@slack/web-api$": "<rootDir>/__mocks__/@slack/web-api.ts",
-      "^@thallesp/nestjs-better-auth$": "<rootDir>/__mocks__/@thallesp/nestjs-better-auth.ts",
       "^nodemailer$": "<rootDir>/__mocks__/nodemailer.ts",
       "^openai$": "<rootDir>/__mocks__/openai.ts",
       "^openai/helpers/zod$": "<rootDir>/__mocks__/openai/helpers/zod.ts",

@@ -1,25 +1,25 @@
+// @nestjs/common's decorators need the polyfill, and nothing in a DB-only
+// spec's import graph pulls @nestjs/core (which loads it for the app specs).
+import 'reflect-metadata';
 import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
-import { inject, vi } from 'vitest';
+import { vi } from 'vitest';
+import { E2E_API_TOKEN } from './harness/api';
 
 // Must run before any import of src/app.module. ConfigModule.forRoot reads
-// apps/backend/.env from cwd; without this, tests would boot against the dev
-// database on port 11753 and mutate it. dotenv never overwrites an
-// already-set key, so these values win and the dev .env can only fill gaps.
+// apps/backend/.env from cwd; without this, tests would boot against whatever
+// the developer's .env holds. dotenv never overwrites an already-set key, so
+// these values win and the dev .env can only fill gaps.
 loadEnv({ path: fileURLToPath(new URL('../../.env.test', import.meta.url)) });
 
-// Set before any import of src/app.module: TemporalModule.forRoot() calls
-// Connection.connect() eagerly in a useFactory, so the app connects for real
-// to the dev server rather than to a mocked client.
-process.env.TEMPORAL_ADDRESS = inject('temporalAddress');
+// LocalTokenGuard reads this once, when DI constructs it. Set from the same
+// constant the request helper sends, so the two cannot drift.
+process.env.API_TOKEN = E2E_API_TOKEN;
 
-// A module mock, not a DI override: `new Resend(...)` is called directly at
-// five non-injectable sites — auth/auth.config.ts, auth/email-otp.service.ts,
-// organizations/services/invite-mailer.ts,
-// briefs/delivery/services/brief-email.service.ts, and
-// waitlist/waitlist.service.ts. Only a module-level mock reaches all of them,
-// and it needs no edit when a sixth site appears.
-vi.mock('resend', async () => {
-  const { ResendMock } = await import('./harness/resend-mock');
-  return { Resend: ResendMock };
-});
+// vitest.e2e.config.ts aliases @octokit/*, @slack/web-api, nodemailer and
+// openai to src/__mocks__/ — the same files Jest loads through
+// moduleNameMapper, so they are written against the `jest` global. `vi` is
+// API-compatible for everything they use (fn, mockReset, mockImplementation).
+// This must land before the first aliased module is evaluated, which it does:
+// setup files run before the test file's imports.
+(globalThis as { jest?: unknown }).jest = vi;

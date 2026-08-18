@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/databases/kysely/database.types';
 import { CommitsRepository } from '../../../src/integrations/github/commit-analysis/repositories/commits.repository';
 import { RepositoryBranchesRepository } from '../../../src/integrations/github/repositories/repository-branches.repository';
-import { createFileDatabase } from '../harness/database';
+import { createTestDatabase } from '../harness/database';
 
 /**
  * The branch model against a real Postgres, because the parts that matter live in
@@ -40,7 +40,7 @@ describe('branch tracking + commit attribution', () => {
   });
 
   beforeAll(async () => {
-    ({ db, close: closeDb } = await createFileDatabase());
+    ({ db, close: closeDb } = await createTestDatabase());
     branches = new RepositoryBranchesRepository(db);
     commits = new CommitsRepository(db);
 

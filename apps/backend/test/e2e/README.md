@@ -1,34 +1,69 @@
 # E2E integration tests
 
-Real Postgres, real Temporal, real Better Auth. Run with `pnpm test:e2e` from
-`apps/backend/`. **Docker must be running.**
+Real NestJS app, real migrations, real PGlite. Run with `pnpm test:e2e` from
+`apps/backend/`. **No Docker, no Postgres server, no network.**
 
 Filter a single file with
 `pnpm exec vitest run --config vitest.e2e.config.ts test/e2e/specs/<file>`.
 
-## What is real and what is not
+## The database
 
-Exactly one module is mocked: `resend`. `new Resend(...)` is called directly at
-five non-injectable sites, so it is mocked at the module level in
-`setup-file.ts` rather than through Nest DI — and stays correct when a sixth
-appears.
+`createTestDatabase()` builds `new PGlite()` with **no data directory** — the
+whole database lives in WASM memory — wires it to Kysely exactly as
+`kysely.module.ts` does (PGlite dialect, `CamelCasePlugin`, int8 → BigInt), and
+replays the migration chain into it (~1.2 s for all 16).
 
-Everything else runs for real — Better Auth (including its own Kysely/pg
-stack), `OrgContextGuard`, `AllExceptionsFilter`, `RequestIdMiddleware`, and
-`@react-email/render`.
+There is no `globalSetup` and no template database. An in-memory instance
+cannot be shared across processes — `globalSetup` can only hand workers
+serialisable values — so each file migrates its own, which is still cheaper
+than the `postgres:18` testcontainer this replaces.
 
-Google OAuth is disabled rather than mocked: `.env.test` sets
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` empty, so `auth.config.ts` omits
-`socialProviders`. GitHub, OpenAI, and Slack need no handling — their modules
-already provide rejecting stubs when their env vars are absent.
+`createTestApp(db)` boots the real `AppModule` with the `KYSELY_DB` token
+**overridden** to that instance. The override is the whole mechanism: an
+in-memory PGlite lives inside one object, so the harness and the app have to
+share it or they would see two empty, unrelated databases. Everything else —
+migrations at boot, the job runner, the scheduler, both global guards — runs
+untouched.
 
-## Two pools per app
+**Close exactly once.** `KyselyModule.onModuleDestroy` destroys the injected
+handle, so a spec that boots an app calls `testApp.close()` and nothing else. A
+spec that never boots one calls the `close()` from `createTestDatabase()`.
 
-`createAuth()` builds Better Auth its own `pg.Pool` (`search_path=auth`).
-`KyselyModule.onModuleDestroy` destroys only the application pool, so
-`app.close()` alone leaks up to 10 sockets per boot and Vitest reports a
-hanging process. `createTestApp().close()` ends both. **If the process stops
-exiting cleanly, check that first** — it is not a Vitest configuration problem.
+## Auth
+
+There is none. The seed migration (`00016_seed_local_singleton`) creates one
+`auth.user` and one organization ("My Workspace"), `LocalSessionMiddleware`
+puts that user on every request, and `LocalTokenGuard` requires the
+`x-desktop-token` header to match `API_TOKEN` on everything outside
+`/api/health*`.
+
+Use the `api(server, organizationId?)` helper from `harness/api.ts`: it sets
+the token on every request and the workspace header when you pass one. Omit
+`organizationId` to exercise `OrgContextGuard`'s fallback to `LOCAL_ORG_ID`.
+Use bare `request(server)` only when the point of the test is a *missing*
+token.
+
+Roles still work (docs/DELTAS.md D-A), so role tests demote the local user's
+membership row inside a scratch workspace — there is nobody else to be.
+
+## What is mocked
+
+Every outbound network module, aliased in `vitest.e2e.config.ts` to the same
+`src/__mocks__/` files Jest loads through `moduleNameMapper`:
+`@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`,
+`nodemailer`, `openai`, `openai/helpers/zod`. An alias is Vitest's equivalent
+of `moduleNameMapper` (which it does not read) and needs no DI override, so the
+app's own wiring stays under test. The aliases are anchored regexes, not bare
+strings: a string alias for `openai` is a prefix match and would rewrite
+`openai/helpers/zod` into a path inside the mock file.
+
+Those mocks are written against the `jest` global, so `setup-file.ts` sets
+`globalThis.jest = vi` before anything loads them.
+
+`@react-email/*` is deliberately **not** aliased — brief HTML is rendered for
+real. `smoke.e2e.spec.ts` asserts both halves of this: real react-email, and a
+`__reset` static on all four mocked clients (which fails the moment an alias
+stops matching and a real, network-capable client is loaded instead).
 
 ## JSX in the email templates
 
@@ -36,63 +71,33 @@ exiting cleanly, check that first** — it is not a Vitest configuration problem
 explicitly. unplugin-swc reads this package's `tsconfig.json` for decorators
 and target, but does **not** translate its `jsx: react-jsx` into swc's
 automatic runtime. Without the override, `src/emails/*.tsx` compile to bare
-`React.createElement` and every send fails with `React is not defined` —
-which surfaces as an empty `capturedEmails` array, not as an obvious build
-error.
+`React.createElement` and every render fails with `React is not defined`.
 
 ## Why this directory has its own tsconfig
 
 `test/e2e/tsconfig.json` overrides `module` to `esnext`. The package tsconfig
 targets `nodenext`/CommonJS, under which `import.meta` is an error and relative
 imports demand `.js` extensions — both wrong for files that only ever run as
-ESM through swc. Nothing compiles this directory with tsc; the override exists
-so editors and a manual `tsc --noEmit` agree with how the code actually runs.
-
-## Lifecycle
-
-- **Once per run** (`global-setup.ts`): start `postgres:18` with
-  `max_connections=300`, create `e2e_template`, run `kysely migrate:latest`
-  into it, start a Temporal CLI dev server with `OrganizationId` and `Phase`
-  registered as search attributes.
-- **Once per worker** (`setup-file.ts`): load `.env.test`, apply the injected
-  Postgres and Temporal addresses, install the `resend` mock.
-- **Once per file** (`createFileDatabase()`): `CREATE DATABASE … TEMPLATE
-  e2e_template`, a near-instant file copy, then point `DATABASE_URL` at it and
-  return a `Kysely<Database>` configured like the application's.
+ESM through swc. `tsc --noEmit -p test/e2e/tsconfig.json` is clean.
 
 ## Writing a new spec
 
-1. `beforeAll`: call `createFileDatabase()` **first**, then any `process.env`
-   mutation the file needs, then `createTestApp()`.
-2. `afterAll`: `await testApp.close()` then `await closeDb()`.
-3. Use lowercase emails. Better Auth builds the OTP identifier as
-   `${type}-otp-${email}` with the email exactly as supplied.
-4. Query with the returned Kysely instance — camelCase, schema-qualified keys
+1. `beforeAll`: `createTestDatabase()` first, then any `process.env` mutation
+   the file needs, then `createTestApp(db)`.
+2. `afterAll`: one close — see above.
+3. Query with the returned Kysely instance — camelCase, schema-qualified keys
    (`auth.user`, `organizationMembers`). `CamelCasePlugin` handles the SQL.
-5. `count(*)` is `int8`, and `kysely.module.ts` sets a process-wide `pg` parser
-   mapping `int8` to `BigInt`. Cast `::int` or wrap in `Number()`.
-
-## Reading OTPs
-
-Do not try to intercept email. `readOtp()` reads the code out of
-`auth.verification` — the same row the verify endpoint checks against.
+4. `count(*)` is `int8` and the instance parses int8 as `BigInt`. Cast `::int`
+   or wrap in `Number()`.
 
 ## Known limits
 
-- Parallel files share one Temporal server and the `default` namespace.
-  Auto-generated workflow IDs will not collide, but `startDeduped()` uses
-  caller-supplied IDs that could. The first suite to use it must namespace its
-  IDs per file.
-- No worker consumes the task queue, so workflows the API starts stay in
-  Scheduled state. That is the correct assertion for "did this endpoint enqueue
-  work". Add a worker when a suite needs real execution.
-- OTP rows expire after 300s. Irrelevant at test speed; a paused debugger will
-  expire one.
-- `seedMember()` can only seed `owner` on an org that has none —
-  `migrations/00005_organization_single_owner` allows one owner row per
-  organization.
+- Each file gets its own database, so nothing is shared and nothing needs
+  namespacing — but a file's specs run in order against one instance, and the
+  suites here rely on that.
+- The job runner and the scheduler are live in every booted app. The boot sweep
+  finds no tracked branches and stops at one indexed query; if a future spec
+  seeds tracked branches, it will also enqueue ingest work.
+- `organization_members` has no `updated_at` column. Do not add one to a `set()`.
 - `DELETE /api/organizations/current` runs `OrganizationTeardownService`, which
-  queries and terminates the org's workflows on the real Temporal server. It
-  swallows its own failures, so it never fails the delete.
-- First run downloads the `postgres:18` image and the Temporal dev server
-  binary, and needs network access.
+  swallows its own integration failures, so it never fails the delete.

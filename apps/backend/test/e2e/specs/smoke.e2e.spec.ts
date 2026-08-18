@@ -2,34 +2,56 @@ import { sql, type Kysely } from 'kysely';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/databases/kysely/database.types';
-import { createFileDatabase } from '../harness/database';
+import { LOCAL_ORG_ID, LOCAL_USER_ID } from '../../../src/local/local-identity';
+import { api } from '../harness/api';
 import { createTestApp, type TestApp } from '../harness/create-test-app';
+import { createTestDatabase } from '../harness/database';
 
 describe('vitest ESM support', () => {
-  it('imports the real better-auth package, not a mock', async () => {
-    const mod = await import('better-auth');
-    expect(typeof mod.betterAuth).toBe('function');
+  // Why this suite is Vitest and not Jest: the app's real dependency graph is
+  // ESM-only in places Jest (CJS) cannot load, which is exactly what the unit
+  // suites mock. @react-email/* is the surviving example — the brief HTML the
+  // delivery path renders is produced for real here, and is not aliased in
+  // vitest.e2e.config.ts.
+  it('imports the real @react-email/render, not the unit-test mock', async () => {
+    const { createElement } = await import('react');
+    const { render } = await import('@react-email/render');
+    const html = await render(createElement('p', null, 'hello'));
+    // The Jest mock ignores its component and answers a constant, so anything
+    // derived from the element proves the real renderer ran.
+    expect(html).toContain('hello');
   });
 
-  it('imports the real better-auth/api entry point', async () => {
-    const mod = await import('better-auth/api');
-    expect(typeof mod.createAuthMiddleware).toBe('function');
-    expect(typeof mod.APIError).toBe('function');
-  });
-
-  it('imports the real better-auth/plugins entry point', async () => {
-    const mod = await import('better-auth/plugins');
-    expect(typeof mod.emailOTP).toBe('function');
-    expect(typeof mod.openAPI).toBe('function');
+  it('stubs every outbound network module at the unit-test seam', async () => {
+    // `__reset` exists only on src/__mocks__/*, so this fails the moment an
+    // alias in vitest.e2e.config.ts stops matching and a real client — able to
+    // reach github.com, api.openai.com, slack.com or an SMTP relay — is loaded
+    // into the app instead.
+    const [octokit, slack, nodemailer, openai] = await Promise.all([
+      import('@octokit/core'),
+      import('@slack/web-api'),
+      import('nodemailer'),
+      import('openai'),
+    ]);
+    expect(typeof (octokit.Octokit as { __reset?: unknown }).__reset).toBe(
+      'function',
+    );
+    expect(typeof (slack.WebClient as { __reset?: unknown }).__reset).toBe(
+      'function',
+    );
+    expect(typeof (nodemailer as { __reset?: unknown }).__reset).toBe(
+      'function',
+    );
+    expect(typeof (openai as { __reset?: unknown }).__reset).toBe('function');
   });
 });
 
-describe('template database', () => {
+describe('in-memory PGlite', () => {
   let db: Kysely<Database>;
   let close: () => Promise<void>;
 
   beforeAll(async () => {
-    ({ db, close } = await createFileDatabase());
+    ({ db, close } = await createTestDatabase());
   });
 
   afterAll(async () => {
@@ -46,18 +68,32 @@ describe('template database', () => {
     );
   });
 
-  it('has the core tables and starts empty', async () => {
-    // Cast to ::int deliberately. count(*) is int8, and kysely.module.ts sets a
-    // process-wide pg type parser mapping int8 to BigInt, so an un-cast count
-    // arrives as 0n and fails toBe(0). int4 is always a JS number.
+  it('starts with the seeded singleton and nothing else', async () => {
+    // Cast to ::int deliberately. count(*) is int8, and the PGlite instance is
+    // built with an int8 parser mapping to BigInt, so an un-cast count arrives
+    // as 1n and fails toBe(1). int4 is always a JS number.
     const users = await sql<{ n: number }>`
       select count(*)::int as n from auth."user"
     `.execute(db);
     const orgs = await sql<{ n: number }>`
       select count(*)::int as n from public.organizations
     `.execute(db);
-    expect(users.rows[0].n).toBe(0);
-    expect(orgs.rows[0].n).toBe(0);
+    const commits = await sql<{ n: number }>`
+      select count(*)::int as n from github.commits
+    `.execute(db);
+    expect(users.rows[0].n).toBe(1);
+    expect(orgs.rows[0].n).toBe(1);
+    expect(commits.rows[0].n).toBe(0);
+  });
+
+  it('seeds the local user as owner of the default workspace', async () => {
+    const membership = await db
+      .selectFrom('organizationMembers')
+      .select('role')
+      .where('organizationId', '=', LOCAL_ORG_ID)
+      .where('userId', '=', LOCAL_USER_ID)
+      .executeTakeFirst();
+    expect(membership?.role).toBe('owner');
   });
 
   it('exposes the camelCase Kysely surface the app uses', async () => {
@@ -67,43 +103,61 @@ describe('template database', () => {
       .selectFrom('auth.user')
       .select(['id', 'emailVerified'])
       .executeTakeFirst();
-    expect(row).toBeUndefined();
+    expect(row?.id).toBe(LOCAL_USER_ID);
   });
 });
 
 describe('app harness', () => {
   let testApp: TestApp;
-  let closeDb: () => Promise<void>;
 
   beforeAll(async () => {
-    ({ close: closeDb } = await createFileDatabase());
-    testApp = await createTestApp();
+    const { db } = await createTestDatabase();
+    testApp = await createTestApp(db);
   });
 
   afterAll(async () => {
+    // Closes the PGlite instance too — KyselyModule owns the injected handle.
     await testApp.close();
-    await closeDb();
   });
 
-  it('serves the anonymous liveness route', async () => {
+  it('serves the anonymous liveness route without a token', async () => {
     const res = await request(testApp.server).get('/api/health/live');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
 
-  it('protects a route that has no @AllowAnonymous', async () => {
-    // AuthGuard is registered as a global APP_GUARD by
-    // @thallesp/nestjs-better-auth and throws UnauthorizedException when there
-    // is no session; anything without @AllowAnonymous is protected by default.
+  it('reports the database as healthy on the readiness route', async () => {
+    const res = await request(testApp.server).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.data.checks.database.status).toBe('ok');
+  });
+
+  it('refuses everything else without x-desktop-token', async () => {
+    // LocalTokenGuard is the only thing between this API and every other
+    // process on the machine; loopback is not a trust boundary.
     const res = await request(testApp.server).get('/api/organizations/me');
     expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ code: 'UNAUTHENTICATED' });
+  });
+
+  it('refuses a wrong token', async () => {
+    const res = await request(testApp.server)
+      .get('/api/organizations/me')
+      .set('x-desktop-token', 'nope');
+    expect(res.status).toBe(401);
+  });
+
+  it('serves the route with the token', async () => {
+    const res = await api(testApp.server).get('/api/organizations/me');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
   });
 
   it('applies the global AllExceptionsFilter', async () => {
     // An unmatched route is a plain NotFoundException. The filter rewrites it
     // into the ApiError envelope; without configureApp() this body would be
     // Nest's default { statusCode, message }.
-    const res = await request(testApp.server).get('/api/does-not-exist');
+    const res = await api(testApp.server).get('/api/does-not-exist');
     expect(res.status).toBe(404);
     expect(res.body).toMatchObject({ code: 'NOT_FOUND' });
   });

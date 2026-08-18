@@ -1,5 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
+
+/** The Jest manual mocks, reused verbatim — see `resolve.alias` below. */
+const mock = (file: string) =>
+  fileURLToPath(new URL(`./src/__mocks__/${file}`, import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -21,21 +26,49 @@ export default defineConfig({
       },
     }),
   ],
+  resolve: {
+    // Every network seam, stubbed at the same module boundary the unit suites
+    // use. Jest gets there through `moduleNameMapper` in package.json, which
+    // Vitest does not read; an alias is the equivalent one-line mechanism and
+    // needs no DI override, so the app's own wiring stays under test.
+    //
+    // Anchored regexes, not bare strings: a string alias for `openai` is a
+    // prefix match and would rewrite `openai/helpers/zod` to a path inside the
+    // mock file. @react-email/* is deliberately absent — the e2e suite renders
+    // brief emails for real.
+    alias: [
+      { find: /^@octokit\/core$/, replacement: mock('@octokit/core.ts') },
+      {
+        find: /^@octokit\/plugin-paginate-rest$/,
+        replacement: mock('@octokit/plugin-paginate-rest.ts'),
+      },
+      { find: /^@slack\/web-api$/, replacement: mock('@slack/web-api.ts') },
+      { find: /^nodemailer$/, replacement: mock('nodemailer.ts') },
+      { find: /^openai$/, replacement: mock('openai.ts') },
+      {
+        find: /^openai\/helpers\/zod$/,
+        replacement: mock('openai/helpers/zod.ts'),
+      },
+    ],
+  },
   test: {
     include: ['test/e2e/specs/**/*.e2e.spec.ts'],
-    globalSetup: ['./test/e2e/global-setup.ts'],
     setupFiles: ['./test/e2e/setup-file.ts'],
-    // Forks, not threads: the app opens native handles (two pg pools, pino
-    // transport workers, the Temporal native connection) that do not survive
-    // worker-thread teardown cleanly.
+    // No globalSetup: the database is an in-memory PGlite built per file, and
+    // an in-memory instance cannot be shared across processes (globalSetup can
+    // only hand workers serialisable values). Nothing is left to start once.
+    //
+    // Forks, not threads: the app opens native handles (the PGlite WASM
+    // instance, pino transport workers) that do not survive worker-thread
+    // teardown cleanly.
     pool: 'forks',
     // Vitest 4 removed test.poolOptions; the fork cap is now the top-level
     // maxWorkers (the plan was written against Vitest 3, which spelled this
     // poolOptions.forks.maxForks). There is no minWorkers counterpart.
     maxWorkers: 4,
-    // A cold `postgres:18` pull plus the first-run Temporal binary download
-    // are both slow. Steady-state setup is a few seconds.
-    hookTimeout: 120_000,
+    // Replaying the 16 migrations into a fresh PGlite is ~1.2 s per file; the
+    // old 120 s allowance existed for a cold `postgres:18` pull.
+    hookTimeout: 30_000,
     testTimeout: 30_000,
   },
 });

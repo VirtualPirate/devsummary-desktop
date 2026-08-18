@@ -2,7 +2,7 @@ import type { Kysely } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/databases/kysely/database.types';
 import { CollaboratorsRepository } from '../../../src/integrations/github/collaborators/repositories/collaborators.repository';
-import { createFileDatabase } from '../harness/database';
+import { createTestDatabase } from '../harness/database';
 
 /**
  * Who an organization can scope a brief to, against a real Postgres — the rule
@@ -125,7 +125,7 @@ describe('collaborators derived from commit authors', () => {
   }
 
   beforeAll(async () => {
-    ({ db, close: closeDb } = await createFileDatabase());
+    ({ db, close: closeDb } = await createTestDatabase());
     collaborators = new CollaboratorsRepository(db);
 
     const main = await seedOrg('main', 601n);
