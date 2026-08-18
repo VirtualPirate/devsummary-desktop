@@ -79,6 +79,11 @@ export const AppError = sealRegistry({
     status: HttpStatus.CONFLICT,
     message: 'Slug already in use',
   }),
+  ORG_LAST_WORKSPACE: defineError({
+    status: HttpStatus.CONFLICT,
+    message:
+      'This is your only workspace. Create another one before deleting it.',
+  }),
 
   // --- Org transfer (3-way split) ---
   ORG_TRANSFER_TO_SELF: defineError({

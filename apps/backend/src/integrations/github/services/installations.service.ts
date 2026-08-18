@@ -141,7 +141,7 @@ export class GithubInstallationsService {
       githubAccountAvatarUrl: meta.accountAvatarUrl,
       targetType: meta.targetType,
       suspendedAt: meta.suspendedAt,
-      raw: sealGithubToken(token, meta.raw),
+      raw: sealGithubToken(token, meta.raw, this.secrets.encryptionKey()),
     };
 
     const repoRows = repos.map((repo) => ({

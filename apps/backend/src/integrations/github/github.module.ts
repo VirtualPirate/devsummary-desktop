@@ -3,6 +3,7 @@ import * as express from 'express';
 import { GithubInstallationsController } from './controllers/installations.controller';
 import { GithubRepositoriesController } from './controllers/repositories.controller';
 import { openGithubToken } from './credentials';
+import { SecretsService } from '../../local/settings/secrets.service';
 import { GithubAppClient } from './github.client';
 import { IngestStatusRepository } from './repositories/ingest-status.repository';
 import { GithubInstallationsRepository } from './repositories/installations.repository';
@@ -21,12 +22,15 @@ import { RepositoryBranchesService } from './services/repository-branches.servic
       // resolution with the same `GITHUB_APP_NOT_CONFIGURED` the stub threw —
       // and now it covers *every* method, which the stub did not.
       provide: GithubAppClient,
-      inject: [GithubInstallationsRepository],
-      useFactory: (installs: GithubInstallationsRepository) =>
+      inject: [GithubInstallationsRepository, SecretsService],
+      useFactory: (
+        installs: GithubInstallationsRepository,
+        secrets: SecretsService,
+      ) =>
         new GithubAppClient(async (installationId) => {
           const row =
             await installs.findActiveByGithubInstallationId(installationId);
-          return openGithubToken(row?.raw);
+          return openGithubToken(row?.raw, secrets.encryptionKey());
         }),
     },
     GithubInstallationsService,

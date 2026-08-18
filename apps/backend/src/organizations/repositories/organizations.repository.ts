@@ -68,6 +68,15 @@ export class OrganizationsRepository {
     return row ?? null;
   }
 
+  /** Total workspaces on this machine. `organizations` is hard-deleted, so every row counts. */
+  async count(tx?: DbExecutor): Promise<number> {
+    const row = await this.exec(tx)
+      .selectFrom('organizations')
+      .select(({ fn }) => fn.countAll<string>().as('count'))
+      .executeTakeFirstOrThrow();
+    return Number(row.count);
+  }
+
   /** Returns the number of rows deleted, so a no-op delete can 404. */
   async delete(id: string, tx?: DbExecutor): Promise<number> {
     const res = await this.exec(tx)

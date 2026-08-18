@@ -159,6 +159,57 @@ describe('dedup', () => {
     // First writer wins — the second enqueue is a no-op, not an update.
     expect(rows[0].args).toEqual({ page: 1 });
   });
+
+  // A terminally failed row keeps its dedup id forever, and every stable id
+  // here is derived from state rather than time: without the re-arm a failed
+  // `sweep:<repo>:<branch>:<date>` blocks that repository's ingest until the
+  // next runDate, and a failed `brief:<id>` makes the stale-pending reaper a
+  // silent no-op.
+  it('re-arms a terminally failed row on re-enqueue', async () => {
+    const id = 'sweep:r1:main:2026-08-19';
+    await queue.enqueue('github.sweep', { page: 1 }, { id });
+    await db
+      .updateTable('jobs')
+      .set({
+        state: 'failed',
+        attempts: 4,
+        error: 'boom',
+        runAt: new Date(Date.now() - 60_000),
+      })
+      .where('id', '=', id)
+      .execute();
+
+    await queue.enqueue('github.sweep', { page: 1 }, { id });
+
+    const job = await row(id);
+    expect(job).toMatchObject({ state: 'pending', attempts: 0, error: null });
+    // Claimable again, not just relabelled.
+    registry.register('github.sweep', () => Promise.resolve());
+    expect(await runner.runOnce()).toBe(true);
+  });
+
+  it('still no-ops over a pending or running row', async () => {
+    const id = 'sweep:2026-08-19';
+    await queue.enqueue('github.sweep', { page: 1 }, { id });
+    await db
+      .updateTable('jobs')
+      .set({ attempts: 2 })
+      .where('id', '=', id)
+      .execute();
+
+    await queue.enqueue('github.sweep', { page: 9 }, { id });
+    expect(await row(id)).toMatchObject({ attempts: 2, state: 'pending' });
+
+    await db
+      .updateTable('jobs')
+      .set({ state: 'running' })
+      .where('id', '=', id)
+      .execute();
+    await queue.enqueue('github.sweep', { page: 9 }, { id });
+    // The whole point of the dedup: a second enqueue must not restart the
+    // attempt budget of work that is still in flight.
+    expect(await row(id)).toMatchObject({ attempts: 2, state: 'running' });
+  });
 });
 
 describe('crash recovery', () => {

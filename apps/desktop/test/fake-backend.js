@@ -24,9 +24,13 @@ console.log(
 );
 
 if (process.env.FAKE_BACKEND_MODE === 'crash') {
+  // The exit code is a parameter: an exit the shell did not ask for is a crash
+  // whatever the code says, and `FAKE_BACKEND_EXIT_CODE=0` is the case that used
+  // to be ignored outright — leaving the window pointed at a dead port.
+  const code = Number(process.env.FAKE_BACKEND_EXIT_CODE ?? 1);
   process.parentPort.postMessage({ port: 45678 });
-  console.log('[fake-backend] crash mode — exiting(1) in 300ms');
-  setTimeout(() => process.exit(1), 300);
+  console.log(`[fake-backend] crash mode — exiting(${code}) in 300ms`);
+  setTimeout(() => process.exit(code), 300);
 } else {
   // 1. the port announcement the main process must await
   process.parentPort.postMessage({ port: 45678 });

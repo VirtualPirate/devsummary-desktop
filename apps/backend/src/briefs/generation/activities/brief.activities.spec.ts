@@ -123,6 +123,48 @@ describe('BriefActivities', () => {
       expect(result).toEqual({ proceed: false });
       expect(mocks.briefs.update).not.toHaveBeenCalled();
     });
+
+    // Regression: a crash — or a plain quit — during `generateContent` leaves
+    // the brief `generating`. Boot requeues the deduped `brief:<id>` job, and
+    // refusing here made the handler "succeed", so the job row was deleted and
+    // the brief was wedged forever with no content (`reapStalePending` only
+    // ever looks at `pending`).
+    it('resumes a brief left generating by a dead process and regenerates its content', async () => {
+      const mocks = makeMocks();
+      mocks.briefs.findById.mockResolvedValue({
+        id: 'b1',
+        organizationId: 'o1',
+        status: 'generating',
+        scopeType: 'repository' as const,
+        scopeProjectId: null,
+        scopeTeamId: null,
+        scopeCollaboratorId: null,
+        scopeRepositoryId: 'r1',
+        scopeBranch: null,
+        periodStart: new Date('2026-01-01T00:00:00Z'),
+        periodEnd: new Date('2026-01-02T00:00:00Z'),
+        periodTimezone: 'UTC',
+        commitClock: 'committed' as const,
+      });
+      mocks.generator.generate.mockResolvedValueOnce({
+        kind: 'empty',
+        scopeLabel: 'Repository: acme/widgets',
+        contributorCount: 0,
+        commitCount: 0,
+      });
+      mocks.cadence.formatPeriodLabel.mockReturnValueOnce('Jan 1, 2026');
+      const activities = makeActivities(mocks);
+
+      expect(await activities.markGenerating({ briefId: 'b1' })).toEqual({
+        proceed: true,
+      });
+      await activities.generateContent({ briefId: 'b1' });
+
+      expect(mocks.briefs.update).toHaveBeenLastCalledWith(
+        'b1',
+        expect.objectContaining({ status: 'generated' }),
+      );
+    });
   });
 
   describe('generateContent', () => {

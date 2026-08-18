@@ -53,7 +53,6 @@ export class LocalSettingsService {
     body: UpdateLocalCredentialsRequest,
   ): Promise<LocalSettingsStatus> {
     const overlay: SecretBundle = {};
-    if (body.githubToken !== undefined) overlay.GITHUB_TOKEN = body.githubToken;
     if (body.openaiApiKey !== undefined)
       overlay.OPENAI_API_KEY = body.openaiApiKey;
     if (body.smtpHost !== undefined) overlay.SMTP_HOST = body.smtpHost;

@@ -81,7 +81,20 @@ export class BriefActivities {
       this.logger.warn(`brief ${input.briefId} not found`);
       return { proceed: false };
     }
-    if (brief.status !== 'pending' && brief.status !== 'failed') {
+    // `generating` proceeds too. Durability is now whole-handler retry, not
+    // Temporal replay: the deduped `brief:<id>` job row is the single execution
+    // authority, so a row that still exists means no run of this handler has
+    // finished. A crash (or a plain quit) during `generateContent` left the
+    // brief `generating`; boot requeued the job, this returned proceed:false,
+    // the handler "succeeded", the row was deleted — and `reapStalePending`
+    // only looks at `pending`, so the brief was wedged with no content forever.
+    // `generated`/`delivered` still exit: those cost an LLM call to redo and
+    // the brief detail view's per-channel button already re-sends them.
+    if (
+      brief.status !== 'pending' &&
+      brief.status !== 'failed' &&
+      brief.status !== 'generating'
+    ) {
       this.logger.log(`brief ${brief.id} already ${brief.status}; exiting`);
       return { proceed: false };
     }

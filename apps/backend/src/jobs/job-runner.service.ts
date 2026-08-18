@@ -2,6 +2,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  type OnApplicationBootstrap,
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
@@ -27,7 +28,9 @@ const IDLE_MS = 1_000;
 const LOOPS = 2;
 
 @Injectable()
-export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
+export class JobRunnerService
+  implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly logger = new Logger(JobRunnerService.name);
   private stopped = false;
 
@@ -37,8 +40,19 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
     private readonly queue: JobQueueService,
   ) {}
 
+  /** Crash recovery only — it must run before anything can claim. */
   async onModuleInit(): Promise<void> {
     await this.recoverRunning();
+  }
+
+  /**
+   * Claiming starts here, not in `onModuleInit`: feature modules register their
+   * handlers in *their* `onModuleInit`, and `JobsModule` is initialised before
+   * them. A loop started that early can claim a job whose handler is not
+   * registered yet and fail it terminally as "no handler for job type".
+   * `onApplicationBootstrap` runs after every module's init.
+   */
+  onApplicationBootstrap(): void {
     for (let i = 0; i < LOOPS; i++) void this.loop();
   }
 

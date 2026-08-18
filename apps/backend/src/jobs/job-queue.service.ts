@@ -27,12 +27,13 @@ export class JobQueueService {
   constructor(@Inject(KYSELY_DB) private readonly db: AppDatabase) {}
 
   /**
-   * `on conflict do nothing` on a stable id is exactly what Temporal's
-   * `USE_EXISTING` conflict policy did: a second enqueue while the first is
-   * still pending or running is a no-op. The row is deleted on success, so the
-   * id frees up as soon as the work is done — which is what makes
-   * `dispatch:<minute>` and `sweep:<date>` behave like `ScheduleOverlapPolicy.SKIP`
-   * rather than a one-shot lock.
+   * `on conflict` on a stable id is exactly what Temporal's `USE_EXISTING`
+   * conflict policy did: a second enqueue while the first is still pending or
+   * running is a no-op. The row is deleted on success, so the id frees up as
+   * soon as the work is done — which is what makes `dispatch:<minute>` and
+   * `sweep:<date>` behave like `ScheduleOverlapPolicy.SKIP` rather than a
+   * one-shot lock. A row that failed terminally is the one case that is *not*
+   * a no-op: see the `where` below.
    */
   async enqueue(
     type: string,
@@ -40,6 +41,7 @@ export class JobQueueService {
     opts: EnqueueOpts = {},
   ): Promise<string> {
     const id = opts.id ?? `${type}:${randomUUID()}`;
+    const runAt = new Date(Date.now() + (opts.delayMs ?? 0));
     await this.db
       .insertInto('jobs')
       .values({
@@ -51,9 +53,23 @@ export class JobQueueService {
         phase: opts.phase ?? null,
         organizationId: opts.organizationId ?? null,
         maxAttempts: profileFor(type).maxAttempts,
-        runAt: new Date(Date.now() + (opts.delayMs ?? 0)),
+        runAt,
       })
-      .onConflict((c) => c.doNothing())
+      .onConflict((c) =>
+        c
+          .column('id')
+          .doUpdateSet({ state: 'pending', attempts: 0, error: null, runAt })
+          // Only a *terminally failed* row is re-armed; pending and running
+          // still no-op, which is the dedup this whole method exists for.
+          // Without it a dead row holds its id forever, and every stable id
+          // here is derived from state rather than time: a failed
+          // `sweep:<repo>:<branch>:<runDate>` blocks that repository's ingest
+          // until the next runDate, a failed `brief:<id>` makes
+          // `reapStalePending` a silent no-op, and a failed `sweep:<date>`
+          // kills the day's polling outright. A fresh enqueue is a fresh
+          // request, so it also restarts the attempt budget.
+          .where('jobs.state', '=', 'failed'),
+      )
       .execute();
     return id;
   }

@@ -1,17 +1,30 @@
 import type { Params } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join } from 'node:path';
 
 const DEFAULT_LOG_FILE_PATH = '../../logs/app.log';
 const DEFAULT_LOG_FILE_MAX_SIZE = '50M';
 const DEFAULT_LOG_FILE_KEEP_FILES = 7;
+
+/**
+ * `../../logs/app.log` is relative to the repo root and only makes sense
+ * headless. Inside the shell `DATA_DIR` is `app.getPath('userData')`, which is
+ * where the database already lives and the one directory the app is guaranteed
+ * to be able to write to — a packaged app's cwd is not.
+ */
+function logFilePath(): string {
+  if (process.env.LOG_FILE_PATH) return process.env.LOG_FILE_PATH;
+  const dataDir = process.env.DATA_DIR;
+  return dataDir ? join(dataDir, 'logs', 'app.log') : DEFAULT_LOG_FILE_PATH;
+}
 
 const buildTargets = (level: string) => {
   const fileTarget = {
     target: 'pino-roll',
     level,
     options: {
-      file: process.env.LOG_FILE_PATH ?? DEFAULT_LOG_FILE_PATH,
+      file: logFilePath(),
       size: process.env.LOG_FILE_MAX_SIZE ?? DEFAULT_LOG_FILE_MAX_SIZE,
       limit: {
         count: Number(

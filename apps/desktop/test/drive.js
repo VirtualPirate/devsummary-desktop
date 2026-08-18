@@ -105,6 +105,17 @@ async function happy() {
     `url still ${win.webContents.getURL()}`,
   );
 
+  // `http://localhost:51735` carries the dev URL as a *prefix*. A startsWith
+  // check called it internal and let it drive this token-bearing window.
+  await evalInRenderer(win, "location.href = 'http://localhost:51735/'; 0");
+  await delay(500);
+  check(
+    'an origin that merely prefix-matches the dev URL is external',
+    opened.includes('http://localhost:51735/') &&
+      new URL(win.webContents.getURL()).port === '5173',
+    `opened=${JSON.stringify(opened)} url=${win.webContents.getURL()}`,
+  );
+
   const rejected = await evalInRenderer(
     win,
     "window.desktop.openExternal('file:///etc/passwd').then(() => 'resolved', (e) => 'rejected: ' + e.message)",
@@ -129,7 +140,7 @@ async function happy() {
 async function crash() {
   await delay(4000);
   check(
-    'unexpected exit → exactly one restart, then an error dialog',
+    `unexpected exit (code ${process.env.FAKE_BACKEND_EXIT_CODE ?? 1}) → exactly one restart, then an error dialog`,
     dialogs.length === 1,
     JSON.stringify(dialogs),
   );

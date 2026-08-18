@@ -12,8 +12,11 @@ import { BriefEmailService } from './brief-email.service';
 import { BriefSlackService } from './brief-slack.service';
 
 /**
- * `desktop` is a delivery outcome but not a *stored* one: `delivered_channels`
- * and the brief detail view's per-channel retry only know `email` and `slack`.
+ * All three channels are stored: a successful `desktop` send joins
+ * `delivered_channels` like the other two, and `BriefDeliveryChannel` is
+ * `'email' | 'slack' | 'desktop'` in the DTO and the database types alike.
+ * Only the *manual re-send* is narrower — `deliverOne` excludes `desktop`,
+ * because re-notifying the machine you are already looking at is not a retry.
  */
 type ChannelResult = {
   kind: BriefDeliveryChannel;

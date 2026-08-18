@@ -111,7 +111,7 @@ Multi-tenancy survives the desktop port as local **workspaces** (`docs/DELTAS.md
 - Org-scoped requests carry the **`x-organization-id` header**. `OrgContextGuard` (a global `APP_GUARD`) activates on routes decorated with `@RequireOrgRole(level)`: validates the header as a UUID, **falls back to `LOCAL_ORG_ID` when it is absent**, verifies membership and role rank, then attaches the membership to the request.
 - Role levels for `@RequireOrgRole`: `'owner' | 'admin' | 'member'` — `member` means *any* role. DB roles are `owner | admin | viewer`. The seeded local user is `owner` of the default workspace and of every workspace it creates, so the checks are real but never fail in practice.
 - `@OrgMembership()` injects `{ organizationId, userId, role }` in controllers.
-- Controller: `api/organizations` — create, `/me`, `/current` (get/patch/delete). Members, invites and transfer-ownership are **deleted**: there is one user on this machine and no one to invite or transfer to.
+- Controller: `api/organizations` — create, `/me`, `/current` (get/patch/delete). **The last remaining workspace cannot be deleted** (`ORG_LAST_WORKSPACE`, 409, checked before the irreversible teardown): there is no sign-up flow to re-seed one, so every org-scoped route would fall back to a `LOCAL_ORG_ID` that no longer exists. Members, invites and transfer-ownership are **deleted**: there is one user on this machine and no one to invite or transfer to.
 
 ### Identity and the API token (`src/local/`)
 
@@ -142,7 +142,7 @@ All in `src/common/errors/`:
 
 - `LOG_LEVEL` env (default `info`); redacts `authorization`/`cookie` headers.
 - Request IDs: honors incoming `x-request-id` or generates a UUID; `RequestIdMiddleware` echoes it on responses.
-- Transports: dev = pretty console + rolling file; production = file only. File via `pino-roll` at `LOG_FILE_PATH` (default `../../logs/app.log`, i.e. `<repo-root>/logs/`), max size/retention via `LOG_FILE_MAX_SIZE`/`LOG_FILE_KEEP_FILES`.
+- Transports: dev = pretty console + rolling file; production = file only. File via `pino-roll` at `LOG_FILE_PATH`; unset, it defaults to `$DATA_DIR/logs/app.log` (the `userData` folder the database already lives in — a packaged app's cwd is not writable) and falls back to `../../logs/app.log`, i.e. `<repo-root>/logs/`, only when `DATA_DIR` is unset too. Max size/retention via `LOG_FILE_MAX_SIZE`/`LOG_FILE_KEEP_FILES`.
 - Use the standard NestJS `Logger` class in services/handlers — it routes through pino (`app.useLogger(app.get(Logger))` in main.ts).
 
 ### Background jobs (`src/jobs/`)
@@ -151,9 +151,9 @@ Temporal is gone. Background work is a `jobs` table plus an in-process poll loop
 
 **The table.** `public.jobs`: `id`, `type`, `args` (jsonb), `state` (`pending|running|failed`), `attempts`, `max_attempts`, `run_at`, `phase`, `organization_id`, `error`. A **succeeded job is deleted**, so the table is a work queue, not a history — "drained" means empty.
 
-**`JobQueueService.enqueue(type, args, opts)`** — the producer. `opts.id` is a stable dedup key (`on conflict do nothing`), which is what `startDeduped` / `workflowIdConflictPolicy: USE_EXISTING` bought: `scan:<repositoryId>:<branch>`, `analyze:<repositoryId>:<branch>:<sinceISO>`, `brief:<briefId>`, `sweep:<repositoryId>:<branch>:<runDate>`, `dispatch:<YYYY-MM-DDTHH:mm>`. `opts.phase` and `opts.organizationId` are the old `Phase` / `OrganizationId` search attributes, now columns.
+**`JobQueueService.enqueue(type, args, opts)`** — the producer. `opts.id` is a stable dedup key, which is what `startDeduped` / `workflowIdConflictPolicy: USE_EXISTING` bought — a second enqueue over a `pending` or `running` row is a no-op, and over a **terminally failed** one it re-arms the row (`state='pending'`, `attempts=0`, `error=null`, fresh `run_at`). Without that re-arm a dead row holds its id forever, and every id here is derived from state rather than time: a failed `sweep:<repo>:<branch>:<runDate>` would block that repository's ingest until the next runDate, and a failed `brief:<id>` would make the stale-pending reaper a silent no-op. Ids: `scan:<repositoryId>:<branch>`, `analyze:<repositoryId>:<branch>:<sinceISO>`, `brief:<briefId>`, `sweep:<repositoryId>:<branch>:<runDate>`, `dispatch:<YYYY-MM-DDTHH:mm>`. `opts.phase` and `opts.organizationId` are the old `Phase` / `OrganizationId` search attributes, now columns.
 
-**`JobRunnerService`** — two loops, 1 s idle poll. A claim is a single `update … where id = (select … limit 1) returning *` statement: atomic without a transaction, which matters because PGlite has one connection and a transaction would block the other loop and every HTTP request. `attempts` increments **at claim time**, so a job that kills the process still burns its budget. On boot, `update jobs set state='pending' where state='running'` requeues whatever the dead process was holding.
+**`JobRunnerService`** — two loops, 1 s idle poll. A claim is a single `update … where id = (select … limit 1) returning *` statement: atomic without a transaction, which matters because PGlite has one connection and a transaction would block the other loop and every HTTP request. `attempts` increments **at claim time**, so a job that kills the process still burns its budget. On boot, `update jobs set state='pending' where state='running'` requeues whatever the dead process was holding — in `onModuleInit`, before anything can claim. The **loops start in `onApplicationBootstrap`**, not `onModuleInit`: feature modules register their handlers in their own `onModuleInit` and `JobsModule` initialises before them, so a loop started that early can claim a job whose handler does not exist yet and fail it terminally as "no handler for job type".
 
 **A handler is the whole workflow body** — one call, one attempt. Returning succeeds (the row is deleted); throwing hands the job to its retry profile. `continueAsNew` became `while (cursor)`; `startChild(…, ABANDON)` became another `enqueue` with a stable id.
 
@@ -259,6 +259,8 @@ A **repository** scope is validated against the tracked set at the boundary — 
 
    Three related guarantees live here: missed periods are all created but only the most recent one gets `deliver: true` (the rest are backfill-style, so a week of downtime cannot fan out a week of emails); briefs left `pending` past `BRIEFS_PENDING_REAP_MINUTES` are re-dispatched, covering a process that died after the claim committed; and a schedule that fails dispatch repeatedly accumulates `dispatch_failure_count` and is auto-paused at 5, so it stops holding the oldest `next_run_at` and starving healthy schedules. `briefs_schedule_period_active_unique` makes a duplicate claim a `23505` the claim path treats as "already claimed".
 3. **Generate** — the `briefs.generate` handler runs `markGenerating` then `generateContent` (`BriefActivities`, backed by `BriefGeneratorService`) → `BriefScopeResolver` (scope → repo IDs + optional author filter) → fetch commits + their analyses → `buildBriefUserPrompt()` (truncates to `BRIEFS_MAX_PROMPT_CHARS`, default 30k) → `OpenAIBriefClient` (OpenAI `responses.parse()` with Zod `BriefOutputSchema` → `{ title, summary }`; model `OPENAI_BRIEF_MODEL`, default gpt-4o-mini). Stores title/summary/token counts and links commits via `brief_commits` (`BriefCommitsRepository.replaceForBrief()`). Zero-commit periods produce "no activity" briefs without an LLM call.
+
+   **`markGenerating` proceeds on `pending`, `failed` *and* `generating`.** Durability is whole-handler retry now, not Temporal replay, so the deduped `brief:<id>` job row is the single execution authority — a row that still exists means no run of the handler has finished. Refusing on `generating` wedged every brief whose process died mid-generation: the handler "succeeded", the row was deleted, and `reapStalePending` only ever looks at `pending`. `generated`/`delivered` still exit — those cost an LLM call to redo, and the brief detail view's per-channel button already re-sends them.
 4. **Deliver** (`delivery/`) — `BriefDelivererService` sends email (SMTP, HTML from `BriefRenderService`), Slack (markdown via `SlackMessagesService`) and, when enabled, a desktop notification, in parallel; then sets brief status `delivered`/`failed` (+ `failureReason`) and `schedule.lastSentAt`. Backfilled briefs skip delivery.
 
 Brief listing uses base64url cursor pagination with filters (scheduleId, scopeType, period, excludeNoActivity).
@@ -294,13 +296,13 @@ No OAuth. The user creates a Slack app, grants the bot scopes, and pastes the `x
 
 ### Email delivery
 
-Resend is gone; there is no hosted email provider and no verified sending domain to arrange. `BriefEmailService` sends over **SMTP** with the user's own mailbox credentials (a Gmail app password, Fastmail, a company relay) via `nodemailer`, through the single `createTransport` call site in `src/local/settings/smtp.ts`. Credentials come from `SecretsService`, read **inside** the send path — nothing is loaded at construction, so booting with no SMTP settings cannot fail.
+Resend is gone; there is no hosted email provider and no verified sending domain to arrange. `BriefEmailService` sends over **SMTP** with the user's own mailbox credentials (a Gmail app password, Fastmail, a company relay) via `nodemailer`, through the single `createTransport` call site in `src/local/settings/smtp.ts`, which sets `secure` on 465 and `requireTLS` on everything else — nodemailer otherwise falls back to plaintext when STARTTLS is missing, which would put the user's mailbox password on the wire. The cost is that a certificate-less localhost/LAN relay now fails instead of silently downgrading. Credentials come from `SecretsService`, read **inside** the send path — nothing is loaded at construction, so booting with no SMTP settings cannot fail.
 
 `PUT /api/local-settings/credentials` runs `transporter.verify()` (connect + AUTH, no message sent) before storing, so a typo'd app password is a red field rather than a failed brief days later.
 
 The brief's HTML is rendered by `BriefRenderService` from the React Email template in `briefs/delivery/` — that is the only React Email left; the auth (OTP, invite) templates went with Better Auth, and `src/emails/` no longer exists.
 
-**A third channel: desktop notification.** `BriefDesktopService` posts `{ type: 'notification', title, body, briefId }` over `process.parentPort` and the Electron main process shows a native notification. It is `@Optional()` in `BriefDelivererService` and gated on a toggle in `local_settings`; outside Electron it fails with "desktop channel unavailable" rather than pretending. It deliberately does **not** appear in `delivered_channels`, whose union is `'email' | 'slack'` in both the DTO and the database types.
+**A third channel: desktop notification.** `BriefDesktopService` posts `{ type: 'notification', title, body, briefId }` over `process.parentPort` and the Electron main process shows a native notification. It is `@Optional()` in `BriefDelivererService` and gated on a toggle in `local_settings`; outside Electron it fails with "desktop channel unavailable" rather than pretending. A successful desktop send **is** recorded in `delivered_channels`, whose union is `'email' | 'slack' | 'desktop'` in both the DTO and the database types — that is what stops a notification-only delivery from reading as "nothing was sent". What it does not get is a *manual* re-send: `deliverOne` takes `Exclude<BriefDeliveryChannel, 'desktop'>`, since re-notifying the machine the user is already looking at is not a retry.
 
 ## Testing
 
@@ -349,7 +351,7 @@ See `.env.example` for the full template. In normal operation **the Electron mai
 
 **The secret bundle** (all optional — pasted in the settings screen, persisted by the shell, and writable at runtime through `PUT /api/local-settings/credentials`):
 
-- `GITHUB_TOKEN` — the fine-grained PAT. The authoritative copy is the encrypted `github.installations` row; this mirrors it so `GET /api/local-settings` has one source.
+- `GITHUB_TOKEN` — the fine-grained PAT. The authoritative copy is the encrypted `github.installations` row; this mirrors it so `GET /api/local-settings` has one source. **Not writable through `PUT /credentials`** — it is written only by `POST /api/integrations/github/token`, which validates the PAT and writes the row ingest actually reads.
 - `OPENAI_API_KEY` — shared by commit analysis and brief generation.
 - `OPENAI_COMMIT_ANALYSIS_MODEL`, `OPENAI_BRIEF_MODEL` — both default `gpt-4o-mini`. Read live, so a change applies to the next job.
 - `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` — email delivery. Host, user and password are all required for the channel to count as configured.
@@ -359,6 +361,6 @@ See `.env.example` for the full template. In normal operation **the Electron mai
 
 **Briefs tuning:** `BRIEFS_DISPATCHER_INTERVAL_SECONDS` (60), `BRIEFS_MAX_PROMPT_CHARS` (30000), `BRIEFS_BACKFILL_MAX_BRIEFS` (100 — a backstop; the binding limit is the 90-day `MAX_HISTORY_DAYS` clamp), `BRIEFS_DISPATCH_BATCH_SIZE` (100), `BRIEFS_PENDING_REAP_MINUTES` (15), `BRIEFS_MAX_SCHEDULES_PER_ORG` (20).
 
-**Logging:** `LOG_LEVEL` (info), `LOG_FILE_PATH` (`../../logs/app.log`), `LOG_FILE_MAX_SIZE` (50M), `LOG_FILE_KEEP_FILES` (7). `pino-http` logs request headers, so `authorization`, `cookie`, `set-cookie` and `x-desktop-token` are redacted; request **bodies** are never serialized, which is what keeps a pasted credential out of the log.
+**Logging:** `LOG_LEVEL` (info), `LOG_FILE_PATH` (`$DATA_DIR/logs/app.log`, or `../../logs/app.log` headless), `LOG_FILE_MAX_SIZE` (50M), `LOG_FILE_KEEP_FILES` (7). `pino-http` logs request headers, so `authorization`, `cookie`, `set-cookie` and `x-desktop-token` are redacted; request **bodies** are never serialized, which is what keeps a pasted credential out of the log.
 
 **Gone:** `DATABASE_URL`, `BETTER_AUTH_*`, `GOOGLE_*`, `RESEND_API_KEY`, `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET`, `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_REDIRECT_URI`/`SLACK_SCOPES`, `TEMPORAL_*`, `INTERNAL_API_TOKEN`.

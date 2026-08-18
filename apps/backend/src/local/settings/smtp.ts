@@ -18,6 +18,13 @@ export function smtpTransport(settings: SmtpSettings): Transporter {
     host: settings.host,
     port: settings.port,
     secure: settings.port === 465,
+    // On a STARTTLS port, refuse to send if the upgrade does not happen —
+    // nodemailer's default is to fall back to plaintext, which puts the user's
+    // mailbox password on the wire. Caveat: a localhost/LAN relay with no
+    // certificate now fails instead of silently downgrading. That is the right
+    // default for a credential; the escape hatch is port 25 on a relay that
+    // needs no auth, which this transport is not built for anyway.
+    requireTLS: settings.port !== 465,
     auth: { user: settings.user, pass: settings.pass },
   });
 }

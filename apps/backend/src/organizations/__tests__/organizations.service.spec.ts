@@ -7,6 +7,9 @@ function makeMocks() {
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn().mockResolvedValue(1),
+    // Two workspaces by default, so the last-workspace guard is out of the way
+    // for every test that is not about it.
+    count: jest.fn().mockResolvedValue(2),
     setOwner: jest.fn(),
     lockById: jest.fn().mockResolvedValue({ id: 'org-1' }),
   } as any;
@@ -240,6 +243,23 @@ describe('OrganizationsService', () => {
       expect(teardown.run).toHaveBeenCalledWith('org-1');
       expect(orgsRepo.delete).toHaveBeenCalledWith('org-1');
       expect(order).toEqual(['teardown', 'delete']);
+    });
+
+    // There is no sign-up flow to re-seed a workspace, so deleting the last one
+    // leaves every org-scoped route falling back to an id that no longer exists.
+    it('refuses to delete the only remaining workspace, without tearing it down', async () => {
+      const { orgsRepo, membersRepo, db, teardown } = makeMocks();
+      orgsRepo.count.mockResolvedValue(1);
+
+      const svc = new OrganizationsService(orgsRepo, membersRepo, db, teardown);
+      await expect(svc.deleteOrganization('org-1')).rejects.toMatchObject({
+        status: 409,
+        code: 'ORG_LAST_WORKSPACE',
+      });
+      // The teardown is irreversible; it must not run for a delete that is
+      // going to be refused.
+      expect(teardown.run).not.toHaveBeenCalled();
+      expect(orgsRepo.delete).not.toHaveBeenCalled();
     });
 
     it('404s when nothing was deleted', async () => {

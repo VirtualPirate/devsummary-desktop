@@ -1,9 +1,12 @@
 /**
  * Every field is optional and write-only: an omitted key is left alone, an
  * empty string clears the credential. Nothing is ever read back.
+ *
+ * GitHub is deliberately absent: its PAT goes to
+ * `POST /api/integrations/github/token`, which validates it and writes the
+ * encrypted installation row ingest reads from.
  */
 export interface UpdateLocalCredentialsRequest {
-  githubToken?: string;
   openaiApiKey?: string;
   smtpHost?: string;
   smtpPort?: number;

@@ -160,6 +160,14 @@ export class OrganizationsService {
   }
 
   async deleteOrganization(organizationId: string): Promise<void> {
+    // Checked before the teardown, which is destructive and irreversible. With
+    // no workspace left every org-scoped route falls back to a `LOCAL_ORG_ID`
+    // that no longer exists, so the app comes back to an empty shell the user
+    // cannot get out of — there is no sign-up flow to re-seed it.
+    if ((await this.orgs.count()) <= 1) {
+      throw AppError.ORG_LAST_WORKSPACE();
+    }
+
     // Before the row goes: the delete cascades to every child, so afterwards
     // nothing names the Slack token, the GitHub installation, or the workflows
     // still running for this org. Best-effort — it never blocks the delete.

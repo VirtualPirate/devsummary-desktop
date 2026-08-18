@@ -147,7 +147,11 @@ function startBackend(): void {
   child.on('message', onBackendMessage);
 
   child.on('exit', (code) => {
-    if (quitting || code === 0) return;
+    // Any exit we did not ask for is a crash, code 0 included: the backend is
+    // supposed to outlive the window, so a clean `process.exit(0)` from an
+    // uncaught shutdown path leaves the renderer talking to a dead port just as
+    // surely as a segfault does.
+    if (quitting) return;
     if (restarts++ < 1) {
       console.error(`[desktop] backend exited with ${code}; restarting once`);
       startBackend();
@@ -162,9 +166,23 @@ function startBackend(): void {
 
 // ----------------------------------------------------------------- window ---
 
-/** http(s) that is not our own dev origin. Packaged, the app is `file://`, so every http(s) URL is external. */
+/**
+ * http(s) that is not our own dev origin. Packaged, the app is `file://`, so every http(s) URL is external.
+ *
+ * Origin comparison, never `startsWith`: `http://localhost:51735` and
+ * `http://localhost:5173.evil.test` both carry the dev URL as a prefix, so a
+ * prefix match let a hostile page navigate this token-bearing window instead of
+ * being handed to the system browser.
+ */
 function isExternal(url: string): boolean {
-  return /^https?:/i.test(url) && !url.startsWith(DEV_URL);
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    return parsed.origin !== new URL(DEV_URL).origin;
+  } catch {
+    // Unparseable is not ours, but it is also not something to hand the OS.
+    return false;
+  }
 }
 
 function createWindow(): BrowserWindow {

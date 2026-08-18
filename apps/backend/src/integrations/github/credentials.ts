@@ -1,4 +1,4 @@
-import { decrypt, deriveKey, encrypt } from '../../auth/crypto';
+import { decrypt, encrypt } from '../../auth/crypto';
 import { AppError } from '../../common/errors';
 
 /**
@@ -15,42 +15,31 @@ export interface GithubCredentialRaw {
 }
 
 /**
- * `crypto.ts` wants a 32-byte Buffer, which it derives from a *secret string*
- * with scrypt — so this is a passphrase, not raw key material.
- *
- * `DB_ENCRYPTION_KEY` is generated once on first launch and handed to the
- * backend by the Electron main process (safeStorage). The fallback keeps a
- * headless `pnpm start:dev` working; losing or changing the key only costs the
- * user a re-paste, since the token is the only thing encrypted with it.
+ * The key is passed in, from `SecretsService.encryptionKey()` — the same seam
+ * the Slack token uses. It used to be derived here from `DB_ENCRYPTION_KEY` with
+ * a hardcoded `'devsummary-local-dev'` fallback, which is a key every install
+ * shares: a stolen `installations.raw` row was decryptable by anyone whenever
+ * the shell had not supplied a key. `SecretsService` generates an ephemeral
+ * per-boot key instead, so an unreadable token reads as "not connected" (a
+ * re-paste) rather than as a token protected by a published passphrase.
  */
-const DEV_FALLBACK_SECRET = 'devsummary-local-dev';
-
-let cached: { secret: string; key: Buffer } | null = null;
-
-function encryptionKey(): Buffer {
-  const secret = process.env.DB_ENCRYPTION_KEY || DEV_FALLBACK_SECRET;
-  if (cached?.secret !== secret) {
-    cached = { secret, key: deriveKey(secret) };
-  }
-  return cached.key;
-}
-
 export function sealGithubToken(
   token: string,
   user: unknown,
+  key: Buffer,
 ): GithubCredentialRaw {
-  return { token: encrypt(token, encryptionKey()), user };
+  return { token: encrypt(token, key), user };
 }
 
 /**
  * Anything unreadable — no row, no token, or a key that has since changed —
  * is "not connected", which is the state the settings screen can act on.
  */
-export function openGithubToken(raw: unknown): string {
+export function openGithubToken(raw: unknown, key: Buffer): string {
   const sealed = (raw as GithubCredentialRaw | null)?.token;
   if (!sealed) throw AppError.GITHUB_APP_NOT_CONFIGURED();
   try {
-    return decrypt(sealed, encryptionKey());
+    return decrypt(sealed, key);
   } catch {
     throw AppError.GITHUB_APP_NOT_CONFIGURED();
   }

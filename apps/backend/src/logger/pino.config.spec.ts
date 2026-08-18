@@ -21,6 +21,7 @@ describe('buildPinoConfig', () => {
     delete process.env.LOG_FILE_MAX_SIZE;
     delete process.env.LOG_FILE_KEEP_FILES;
     delete process.env.NODE_ENV;
+    delete process.env.DATA_DIR;
   });
 
   afterAll(() => {
@@ -46,6 +47,22 @@ describe('buildPinoConfig', () => {
   it('honors LOG_FILE_PATH when set', () => {
     process.env.LOG_FILE_PATH = '/tmp/test.log';
     expect(getRollTarget().options.file).toBe('/tmp/test.log');
+  });
+
+  // The default is relative to the repo root, which only exists headless. In
+  // the shell `DATA_DIR` is `userData` — where the database already is, and the
+  // one directory a packaged app is guaranteed to be able to write to.
+  it('defaults under DATA_DIR when it is set and LOG_FILE_PATH is not', () => {
+    process.env.DATA_DIR = '/tmp/devsummary-userdata';
+    expect(getRollTarget().options.file).toBe(
+      '/tmp/devsummary-userdata/logs/app.log',
+    );
+  });
+
+  it('still lets LOG_FILE_PATH win over DATA_DIR', () => {
+    process.env.DATA_DIR = '/tmp/devsummary-userdata';
+    process.env.LOG_FILE_PATH = '/tmp/explicit.log';
+    expect(getRollTarget().options.file).toBe('/tmp/explicit.log');
   });
 
   it('rotates at 50M and keeps 7 files by default', () => {

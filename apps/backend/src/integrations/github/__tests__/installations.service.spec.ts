@@ -1,9 +1,13 @@
 import { Octokit } from '@octokit/core';
+import { deriveKey } from '../../../auth/crypto';
 import { openGithubToken } from '../credentials';
 import { GithubInstallationsService } from '../services/installations.service';
 
 import { JOB } from '../../../jobs';
 import type { SecretsService } from '../../../local/settings/secrets.service';
+
+/** Stands in for `SecretsService.encryptionKey()`, which is what seals the PAT. */
+const KEY = deriveKey('spec-encryption-key');
 
 const USER = {
   id: 4242,
@@ -101,6 +105,7 @@ function makeMocks() {
 
   const secrets = {
     update: jest.fn(),
+    encryptionKey: jest.fn(() => KEY),
   } as unknown as SecretsService;
 
   return {
@@ -165,7 +170,7 @@ describe('GithubInstallationsService', () => {
       });
       // Encrypted at rest, and whitespace-trimmed on the way in.
       expect(created.raw.token).not.toContain('github_pat_secret');
-      expect(openGithubToken(created.raw)).toBe('github_pat_secret');
+      expect(openGithubToken(created.raw, KEY)).toBe('github_pat_secret');
 
       expect(mocks.reposRepo.reconcileForInstallation).toHaveBeenCalledWith(
         'inst-1',
@@ -244,7 +249,7 @@ describe('GithubInstallationsService', () => {
       expect(mocks.installsRepo.create).not.toHaveBeenCalled();
       const [id, update] = mocks.installsRepo.updateCredential.mock.calls[0];
       expect(id).toBe('inst-1');
-      expect(openGithubToken(update.raw)).toBe('rotated');
+      expect(openGithubToken(update.raw, KEY)).toBe('rotated');
     });
 
     it('revives a soft-deleted row for the same workspace', async () => {
