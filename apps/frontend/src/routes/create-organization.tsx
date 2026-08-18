@@ -47,21 +47,21 @@ export function CreateOrganizationPage() {
           <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-2xl bg-brand/12">
             <Building2 className="size-6 text-brand" />
           </div>
-          <CardTitle>Create organization</CardTitle>
+          <CardTitle>Create workspace</CardTitle>
           <CardDescription>
-            You&apos;ll be the owner and can invite teammates once it&apos;s set
-            up.
+            A workspace keeps its own repositories, projects, teams, schedules
+            and briefs. Nothing is shared between them.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-1.5">
-              <Label htmlFor="org-name">Organization name</Label>
+              <Label htmlFor="org-name">Workspace name</Label>
               <Input
                 id="org-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Acme Inc"
+                placeholder="My Workspace"
                 required
               />
             </div>
@@ -71,7 +71,7 @@ export function CreateOrganizationPage() {
               </p>
             ) : null}
             <Button type="submit" className="w-full" disabled={createOrg.isPending}>
-              {createOrg.isPending ? "Creating…" : "Create organization"}
+              {createOrg.isPending ? "Creating…" : "Create workspace"}
             </Button>
           </form>
         </CardContent>

@@ -4,7 +4,6 @@ import type {
   MyOrganization,
   Organization,
   OrganizationRole,
-  TransferOwnershipRequest,
   UpdateOrganizationRequest,
 } from "@launchstack/api-interfaces";
 import { axiosInstance } from "./axios-client";
@@ -58,16 +57,5 @@ export const OrganizationsAPI = {
       url: "/api/organizations/current",
       method: "DELETE",
     });
-  },
-
-  transferOwnership: async (
-    payload: TransferOwnershipRequest,
-  ): Promise<ApiResponse<Organization>> => {
-    const response = await axiosInstance.request({
-      url: "/api/organizations/current/transfer-ownership",
-      method: "POST",
-      data: payload,
-    });
-    return response.data as ApiResponse<Organization>;
   },
 };

@@ -315,11 +315,6 @@ export function NextStepBar({ step }: { step: NextStep }) {
             can set a schedule up. Briefs land here once they do.
           </>
         }
-        actions={
-          <Button asChild size="sm" variant="outline">
-            <Link to="/settings/organization/members">See who to ask</Link>
-          </Button>
-        }
       />
     </>
   );

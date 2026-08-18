@@ -1,48 +1,50 @@
 import type {
   ApiResponse,
+  ConnectGithubTokenRequest,
   GithubInstallationWithRepos,
   ListRepositoryBranchesResponse,
   RepositoryIngestStatusResponse,
   SetRepositoryBranchesRequest,
   SetRepositoryBranchesResponse,
-  StartGithubConnectResponse,
 } from "@launchstack/api-interfaces"
 import { axiosInstance } from "./axios-client"
 
-const REPOS_BASE = "/api/integrations/github/repositories"
+const BASE = "/api/integrations/github"
+const REPOS_BASE = `${BASE}/repositories`
 
 export const GithubIntegrationsAPI = {
+  /**
+   * Still an array: a workspace holds at most one PAT, but the setup screen
+   * reads `repositories` off each entry and that shape did not change.
+   */
   list: async (): Promise<ApiResponse<GithubInstallationWithRepos[]>> => {
-    const response = await axiosInstance.request({
-      url: "/api/integrations/github/installations",
-      method: "GET",
-    })
+    const response = await axiosInstance.request({ url: BASE, method: "GET" })
     return response.data as ApiResponse<GithubInstallationWithRepos[]>
   },
 
-  start: async (): Promise<ApiResponse<StartGithubConnectResponse>> => {
+  connectToken: async (
+    payload: ConnectGithubTokenRequest,
+  ): Promise<ApiResponse<GithubInstallationWithRepos>> => {
     const response = await axiosInstance.request({
-      url: "/api/integrations/github/installations/start",
+      url: `${BASE}/token`,
       method: "POST",
+      data: payload,
     })
-    return response.data as ApiResponse<StartGithubConnectResponse>
+    return response.data as ApiResponse<GithubInstallationWithRepos>
   },
 
   sync: async (
     installationId: string,
   ): Promise<ApiResponse<GithubInstallationWithRepos>> => {
     const response = await axiosInstance.request({
-      url: `/api/integrations/github/installations/${installationId}/sync`,
+      url: `${BASE}/installations/${installationId}/sync`,
       method: "POST",
     })
     return response.data as ApiResponse<GithubInstallationWithRepos>
   },
 
-  disconnect: async (installationId: string): Promise<void> => {
-    await axiosInstance.request({
-      url: `/api/integrations/github/installations/${installationId}`,
-      method: "DELETE",
-    })
+  disconnect: async (): Promise<void> => {
+    await axiosInstance.request({ url: BASE, method: "DELETE" })
   },
 
   listBranches: async (

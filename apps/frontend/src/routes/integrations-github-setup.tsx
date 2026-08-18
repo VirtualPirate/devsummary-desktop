@@ -81,8 +81,8 @@ export function IntegrationsGithubSetupPage() {
   )
 
   const callerRole = currentOrg.data?.data.role
-  // Same freshness rule as the members page: `!== "viewer"` is briefly true while
-  // the org refetches after a switch, which would flash the form at a viewer.
+  // Positive test, not `!== "viewer"`: the latter is briefly true while the
+  // workspace refetches after a switch, which would flash the form at a viewer.
   const canConfigure = callerRole === "owner" || callerRole === "admin"
 
   const handleSubmit = (payload: {

@@ -1,4 +1,7 @@
-import type { GithubInstallationWithRepos } from "@launchstack/api-interfaces"
+import {
+  GITHUB_PAT_CREATE_URL,
+  type GithubInstallationWithRepos,
+} from "@launchstack/api-interfaces"
 import { Link } from "@tanstack/react-router"
 import {
   ChevronDown,
@@ -51,11 +54,6 @@ export function InstallationRow({ installation, defaultExpanded }: Props) {
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const syncMutation = useSyncGithubInstallation()
 
-  const configureUrl =
-    installation.accountType === "Organization"
-      ? `https://github.com/organizations/${installation.accountLogin}/settings/installations/${installation.githubInstallationId}`
-      : `https://github.com/settings/installations/${installation.githubInstallationId}`
-
   const repoCount = installation.repositories.length
   const unconfiguredCount = installation.repositories.filter(
     (repo) => repo.branch === null,
@@ -99,10 +97,17 @@ export function InstallationRow({ installation, defaultExpanded }: Props) {
         </button>
 
         <div className="flex shrink-0 items-center gap-1">
+          {/* target="_blank" — the Electron main process opens it in the system
+              browser rather than a second window. */}
           <Button asChild variant="ghost" size="sm">
-            <a href={configureUrl} target="_blank" rel="noreferrer">
+            <a
+              href={GITHUB_PAT_CREATE_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="Repository access is granted by the token — edit it on GitHub, then Sync"
+            >
               <ExternalLink className="size-3.5" />
-              Configure
+              Token access
             </a>
           </Button>
           <Button
@@ -131,7 +136,8 @@ export function InstallationRow({ installation, defaultExpanded }: Props) {
         <div className="border-t p-4">
           {repoCount === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No repositories yet — use Configure to add some on GitHub.
+              No repositories yet — grant the token access to some on GitHub,
+              then press Sync.
             </p>
           ) : (
             <div className="flex flex-col gap-2">
@@ -189,7 +195,6 @@ export function InstallationRow({ installation, defaultExpanded }: Props) {
       <DisconnectInstallationDialog
         open={disconnectOpen}
         onOpenChange={setDisconnectOpen}
-        installationId={installation.id}
         accountLogin={installation.accountLogin}
       />
     </Card>

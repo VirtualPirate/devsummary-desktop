@@ -12,20 +12,18 @@ import { useDisconnectGithubInstallation } from "@/hooks/api/use-github-integrat
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  installationId: string
   accountLogin: string
 }
 
 export function DisconnectInstallationDialog({
   open,
   onOpenChange,
-  installationId,
   accountLogin,
 }: Props) {
   const mutation = useDisconnectGithubInstallation()
 
   const handleConfirm = async () => {
-    await mutation.mutateAsync(installationId)
+    await mutation.mutateAsync()
     onOpenChange(false)
   }
 
@@ -37,8 +35,8 @@ export function DisconnectInstallationDialog({
           <DialogDescription>
             DevSummary will stop syncing commits from{" "}
             <strong>{accountLogin}</strong>&rsquo;s repositories. Briefs you
-            already generated stay. To fully revoke access, also uninstall the
-            DevSummary GitHub App on GitHub.
+            already generated stay. The stored token is deleted from this
+            machine; to make it unusable everywhere, also revoke it on GitHub.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

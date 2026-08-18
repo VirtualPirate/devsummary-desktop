@@ -5,7 +5,6 @@ import {
 } from "@tanstack/react-query";
 import type {
   CreateOrganizationRequest,
-  TransferOwnershipRequest,
   UpdateOrganizationRequest,
 } from "@launchstack/api-interfaces";
 import { OrganizationsAPI } from "@/api/organizations.api";
@@ -73,17 +72,3 @@ export function useDeleteCurrentOrganization() {
   });
 }
 
-export function useTransferOwnership() {
-  const queryClient = useQueryClient();
-  const activeOrgId = useActiveOrganizationStore((s) => s.activeOrganizationId);
-  return useMutation({
-    mutationFn: (payload: TransferOwnershipRequest) =>
-      OrganizationsAPI.transferOwnership(payload),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: organizationsKeys.me });
-      await queryClient.invalidateQueries({
-        queryKey: organizationsKeys.current(activeOrgId),
-      });
-    },
-  });
-}

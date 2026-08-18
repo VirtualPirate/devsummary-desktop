@@ -4,7 +4,9 @@ The frontend app for DevSummary: an organization-scoped dashboard for generating
 
 ## Stack
 
-React 19, Vite 7, TypeScript 5.9 (strict), TanStack Router v1 (code-based), TanStack Query v5, Zustand v5 (persisted stores), Tailwind CSS v4, shadcn/ui (Radix Nova style), Axios, Better Auth client (email OTP plugin), Zod v4, sonner (toasts), lucide-react (icons), recharts.
+React 19, Vite 7, TypeScript 5.9 (strict), TanStack Router v1 (code-based), TanStack Query v5, Zustand v5 (persisted stores), Tailwind CSS v4, shadcn/ui (Radix Nova style), Axios, Zod v4, sonner (toasts), lucide-react (icons), recharts.
+
+This is the renderer of an Electron desktop app. There is no sign-in: the backend seeds one local user and one default workspace, and the app opens on the dashboard.
 
 ## Commands
 
@@ -24,22 +26,21 @@ There is no frontend test setup — tests live in the backend only.
 src/
   api/                       # One API module per backend domain + axios-client.ts
   components/
-    auth/                    # Email/Google auth forms
     devsummary/              # App shell, sidebar, topbar + feature components
       briefs/ new-project/ new-team/ schedules/ shared/
-    integrations/            # GitHub integration components
-    organization/            # Org switcher, invites, roles
+    integrations/            # GitHub + Slack credential forms and status cards
+    organization/            # Workspace switcher, role badge
     theme/                   # ThemeProvider + toggles
     ui/                      # shadcn/ui primitives
-  env/config-env.ts          # Zod-validated env (globalEnv)
+  env/config-env.ts          # Async API bootstrap (port + desktop token)
   hooks/
     api/use-<domain>.ts      # React Query hooks + query-key factory per domain
     use-bootstrap-active-organization.ts
-  lib/                       # auth-client, auth-redirect, extract-error, utils (cn), small formatters
+  lib/                       # extract-error, utils (cn), small formatters
   routes/                    # One page component per route (<name>.tsx exports <Name>Page)
-  stores/                    # Zustand stores (active org, sidebar prefs)
+  stores/                    # Zustand stores (active workspace, sidebar prefs)
   router.tsx                 # ALL route definitions (code-based TanStack Router)
-  App.tsx                    # Renders AppShell (protected layout)
+  App.tsx                    # Renders AppShell (the app layout)
   main.tsx                   # ThemeProvider > TooltipProvider > QueryClientProvider > RouterProvider + Toaster
 ```
 
@@ -47,24 +48,24 @@ src/
 
 ## Routing
 
-Routes are defined **code-based** in `src/router.tsx` (no file-based routing plugin). Two tiers under the root route:
+Routes are defined **code-based** in `src/router.tsx` (no file-based routing plugin). One pathless layout route under the root:
 
-- **Public auth routes** — `/sign-in`, `/sign-up`, `/google-sign-in`, `/google-sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/auth/error`, `/accept-invite`. Their `beforeLoad` redirects already-authenticated users away.
-- **`protectedRoute`** (pathless, `id: "protected"`) — wraps everything else. Its `beforeLoad` calls `AuthAPI.getSession()`: no session → redirect to `/sign-in?redirect=<path>`; unverified email → `/verify-email`. Its component is `App` → `AppShell` (Topbar + SidebarNav + `<Outlet/>`).
+- **`protectedRoute`** (pathless, `id: "protected"`) — wraps every page. It has **no `beforeLoad` guard**: there is no session to check. Its component is `App` → `AppShell` (Topbar + SidebarNav + `<Outlet/>`).
+- The root route's `notFoundComponent` redirects to `/`. There is no address bar in the shell, so an unmatched path is a stale auth URL or a bad `Link`, and the dashboard is a better answer than a dead end.
 
 To add a page:
 1. Create `src/routes/<kebab-name>.tsx` exporting a named `<PascalName>Page` component.
 2. In `router.tsx`: `createRoute({ getParentRoute: () => protectedRoute, path: "...", component: ... })` and add it to the `routeTree` children.
 
-Search params are validated with hand-written `validateSearch` narrowing functions (plain `typeof` checks returning a typed object — not Zod). Redirect paths must go through `normalizeRedirectPath` from `@/lib/auth-redirect` (rejects non-relative paths).
+Search params are validated with hand-written `validateSearch` narrowing functions (plain `typeof` checks returning a typed object — not Zod).
 
-## Organization Scoping (cross-cutting)
+## Workspace Scoping (cross-cutting)
 
-Almost all data is scoped to the active organization. The pieces:
+Organizations survive the desktop port as local **workspaces** — the `organizationId` column, the header and the switcher are all unchanged; only sign-in is gone. Almost all data is scoped to the active workspace. The pieces:
 
 - `useActiveOrganizationStore` (Zustand, persisted to localStorage) holds `activeOrganizationId`.
 - The axios request interceptor (`src/api/axios-client.ts`) injects it as the `X-Organization-Id` header on **every** request; backend URLs use `/api/organizations/current/...`.
-- `useBootstrapActiveOrganization()` (called once in `AppShell`) selects the first org on login and clears a stale id when the user loses access.
+- `useBootstrapActiveOrganization()` (called once in `AppShell`) selects the first workspace on boot — the seeded "My Workspace" on a fresh install — and clears a stale id when that workspace is gone.
 - Every org-scoped query includes `orgId` in its query key and gates with `enabled: !!orgId`, so switching orgs refetches automatically.
 
 ## API Integration Pattern
@@ -146,18 +147,23 @@ Three kinds of date reach this app, and each has exactly one correct rendering:
 
 When a component needs a zone it does not have, thread the existing field down or read it off the brief — do not fall back to UTC and do not add a backend field without checking `packages/api-interfaces/src/responses/` first.
 
-## Auth
+## API access (there is no auth)
 
-- `src/lib/auth-client.ts` creates the Better Auth client (`createAuthClient` with `emailOTPClient()` plugin, `baseURL: globalEnv.apiBaseUri`).
-- **Components and routes never call `authClient` directly** — they go through the `AuthAPI` facade (`src/api/auth.api.ts`), which wraps authClient methods (sign-in/up, Google OAuth, session, sign-out, password reset) and raw OTP endpoints, typed via `AuthClientResult<T>` from `@launchstack/api-interfaces`.
-- Sessions are cookie-based (`withCredentials: true` on the axios instance) — no token handling in the frontend.
-- Auth pages pass `redirect`/`email` search params; build URLs with the helpers in `@/lib/auth-redirect`.
+Better Auth is gone. What guards the API instead is a per-boot bearer token, because the backend listens on loopback where any local process could reach it.
+
+- `src/env/config-env.ts` resolves `{ baseURL, token }` **before** `createRoot().render()`. Inside the shell it awaits `window.desktop.apiConfig()` (the Electron main process knows the OS-assigned port); headless it falls back to `VITE_API_BASE_URI` + `VITE_DESKTOP_TOKEN`.
+- The axios request interceptor sets `x-desktop-token` on **every** request. A request without it is a 401.
+- `withCredentials` is gone — there are no cookies.
+
+### Credentials
+
+The user's GitHub PAT, OpenAI key, SMTP password and Slack bot token are pasted in `routes/settings.tsx` and stored in the OS keychain by the backend. **Nothing is ever read back**: `GET /api/local-settings` answers booleans only, so a status pill is the most the UI can show. GitHub is the exception — its status comes from `useGithubInstallations()`, because the token is stored by `POST /api/integrations/github/token` (which also validates it and reconciles the repository list) rather than through the credentials endpoint.
 
 ## Client State (Zustand)
 
 Server state lives in React Query; Zustand is only for cross-cutting client state, persisted to localStorage via the `persist` middleware:
 
-- `active-organization-store.ts` — active org id (key `launchstack.activeOrganization`).
+- `active-organization-store.ts` — active workspace id (key `launchstack.activeOrganization`).
 - `sidebar-prefs-store.ts` — pinned/collapsed sidebar sections (versioned, with `migrate`).
 
 ## UI & Feedback
@@ -174,14 +180,18 @@ Server state lives in React Query; Zustand is only for cross-cutting client stat
 
 ## Environment Variables
 
-Validated with Zod in `src/env/config-env.ts` and exposed as `globalEnv` with **camelCase keys**:
+None are needed inside the Electron shell — `window.desktop.apiConfig()` supplies the port and the token. The two `VITE_*` vars exist only so the bundle can be driven headless (a bare `vite dev`, or a browser-driven test):
 
-```typescript
-import { globalEnv } from "@/env/config-env";
-globalEnv.apiBaseUri; // from VITE_API_BASE_URI
+```
+VITE_API_BASE_URI=http://127.0.0.1:3000
+VITE_DESKTOP_TOKEN=<the backend's API_TOKEN>
 ```
 
-`.env` requires: `VITE_API_BASE_URI=http://localhost:3000`
+Read them through `getAppConfig()` from `@/env/config-env`, never `import.meta.env` directly.
+
+## Desktop chrome
+
+External links keep `target="_blank"`. The Electron main process intercepts `setWindowOpenHandler` / `will-navigate` and hands the URL to `shell.openExternal`, so they open in the system browser rather than a second Electron window. Do **not** call `window.desktop.openExternal` from a component — the anchor is the accessible, testable version and main already handles it.
 
 ## Shared Packages
 

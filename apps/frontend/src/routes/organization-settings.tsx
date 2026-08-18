@@ -15,31 +15,24 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   useCurrentOrganization,
   useDeleteCurrentOrganization,
   useMyOrganizations,
-  useTransferOwnership,
   useUpdateCurrentOrganization,
 } from "@/hooks/api/use-organizations";
-import { useCurrentOrganizationMembers } from "@/hooks/api/use-members";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { useActiveOrganizationStore } from "@/stores/active-organization-store";
 
+/**
+ * Rename and delete, and nothing else. There is one local user, so there is no
+ * one to invite, no roles to manage and no one to hand ownership to.
+ */
 export function OrganizationSettingsPage() {
   const navigate = useNavigate();
   const current = useCurrentOrganization();
   const myOrgs = useMyOrganizations();
-  const members = useCurrentOrganizationMembers();
   const updateOrg = useUpdateCurrentOrganization();
   const deleteOrg = useDeleteCurrentOrganization();
-  const transfer = useTransferOwnership();
   const clearActive = useActiveOrganizationStore((s) => s.clear);
   const setActive = useActiveOrganizationStore(
     (s) => s.setActiveOrganizationId,
@@ -47,19 +40,15 @@ export function OrganizationSettingsPage() {
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [newOwnerId, setNewOwnerId] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const role = current.data?.data.role;
   const org = current.data?.data.organization;
   // Same freshness test as useBootstrapActiveOrganization: React Query serves
-  // the cached org list first and keeps it while refetching, so a list we
-  // haven't fetched during this mount cannot tell "you have no other
-  // organization" from "not loaded yet".
+  // the cached list first and keeps it while refetching, so a list we haven't
+  // fetched during this mount cannot tell "you have no other workspace" from
+  // "not loaded yet".
   const listIsFresh = myOrgs.isFetchedAfterMount && !myOrgs.isFetching;
-  const admins =
-    members.data?.data.filter((m) => m.role === "admin") ?? [];
 
   const handleUpdate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -76,28 +65,23 @@ export function OrganizationSettingsPage() {
       await updateOrg.mutateAsync(parsed.data);
       setName("");
       setSlug("");
+      toast.success("Workspace updated");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Update failed");
+      setError(extractErrorMessage(err));
     }
-  };
-
-  const handleTransfer = async () => {
-    if (!newOwnerId) return;
-    await transfer.mutateAsync({ newOwnerUserId: newOwnerId });
-    setNewOwnerId("");
   };
 
   const handleDelete = async () => {
     if (!org || deleteConfirm !== org.name) return;
-    // Pick the next org here rather than letting useBootstrapActiveOrganization
-    // install orgs[0]: staying on this URL would re-render it — live Danger zone
-    // included — against an organization the user never asked for. Await an
-    // untrustworthy list instead of reading "no other org" out of it, or we
-    // strand the user on /organizations/new while the bootstrap re-installs
-    // orgs[0] behind them.
+    // Pick the next workspace here rather than letting
+    // useBootstrapActiveOrganization install orgs[0]: staying on this URL would
+    // re-render it — live Danger zone included — against a workspace the user
+    // never asked for. Await an untrustworthy list instead of reading "no other
+    // workspace" out of it, or we strand the user on /organizations/new while
+    // the bootstrap re-installs orgs[0] behind them.
     const list = listIsFresh ? myOrgs : await myOrgs.refetch();
     if (!list.isSuccess) {
-      toast.error("Couldn't load your organizations. Try again.");
+      toast.error("Couldn't load your workspaces. Try again.");
       return;
     }
     const nextOrgId =
@@ -122,29 +106,26 @@ export function OrganizationSettingsPage() {
     return (
       <>
         <PageHeader
-          title="Organization settings"
-          description="Update your organization, hand off ownership, or delete it."
+          title="Workspace settings"
+          description="Rename this workspace or delete it."
         />
-        <SkeletonList rows={3} rowHeight={140} />
+        <SkeletonList rows={2} rowHeight={140} />
       </>
     );
   }
 
-  const canEdit = role === "owner" || role === "admin";
-  const isOwner = role === "owner";
-
   return (
     <>
       <PageHeader
-        title="Organization settings"
-        description="Update your organization, hand off ownership, or delete it."
+        title="Workspace settings"
+        description="Rename this workspace or delete it."
       />
       <div className="space-y-8">
         <Card>
           <CardHeader>
             <CardTitle>Profile</CardTitle>
             <CardDescription>
-              The name and URL slug teammates see for this organization.
+              The name and URL slug this workspace goes by.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -155,7 +136,6 @@ export function OrganizationSettingsPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={org.name}
-                  disabled={!canEdit}
                 />
               </div>
               <div className="space-y-1.5">
@@ -164,7 +144,6 @@ export function OrganizationSettingsPage() {
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
                   placeholder={org.slug}
-                  disabled={!canEdit}
                 />
               </div>
               {error ? (
@@ -172,78 +151,37 @@ export function OrganizationSettingsPage() {
                   {error}
                 </p>
               ) : null}
-              <Button type="submit" disabled={!canEdit || updateOrg.isPending}>
+              <Button type="submit" disabled={updateOrg.isPending}>
                 {updateOrg.isPending ? "Saving…" : "Save changes"}
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        {isOwner ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Transfer ownership</CardTitle>
-              <CardDescription>
-                Pick an admin to become the new owner. You&apos;ll stay on as an
-                admin.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 sm:flex-row">
-              <Select value={newOwnerId} onValueChange={setNewOwnerId}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Select an admin" />
-                </SelectTrigger>
-                <SelectContent>
-                  {admins.length === 0 ? (
-                    <SelectItem value="_" disabled>
-                      No admins to transfer to
-                    </SelectItem>
-                  ) : (
-                    admins.map((m) => (
-                      <SelectItem key={m.userId} value={m.userId}>
-                        {m.user.name} — {m.user.email}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              <Button
-                onClick={handleTransfer}
-                disabled={!newOwnerId || transfer.isPending}
-              >
-                {transfer.isPending ? "Transferring…" : "Transfer ownership"}
-              </Button>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {isOwner ? (
-          <Card className="border-destructive/40">
-            <CardHeader>
-              <CardTitle className="text-destructive">Danger zone</CardTitle>
-              <CardDescription>
-                Deleting removes every project, team, schedule, and brief for
-                this organization. This can&apos;t be undone. Type{" "}
-                <strong className="text-foreground">{org.name}</strong> to
-                confirm.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Input
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder={org.name}
-              />
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={deleteConfirm !== org.name || deleteOrg.isPending}
-              >
-                {deleteOrg.isPending ? "Deleting…" : "Delete organization"}
-              </Button>
-            </CardContent>
-          </Card>
-        ) : null}
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-destructive">Danger zone</CardTitle>
+            <CardDescription>
+              Deleting removes every project, team, schedule, and brief in this
+              workspace. This can&apos;t be undone. Type{" "}
+              <strong className="text-foreground">{org.name}</strong> to confirm.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Input
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder={org.name}
+            />
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleteConfirm !== org.name || deleteOrg.isPending}
+            >
+              {deleteOrg.isPending ? "Deleting…" : "Delete workspace"}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </>
   );

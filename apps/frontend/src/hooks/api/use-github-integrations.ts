@@ -4,7 +4,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import type { SetRepositoryBranchesRequest } from "@launchstack/api-interfaces"
+import type {
+  ConnectGithubTokenRequest,
+  SetRepositoryBranchesRequest,
+} from "@launchstack/api-interfaces"
 import { GithubIntegrationsAPI } from "@/api/github-integrations.api"
 import { useActiveOrganizationStore } from "@/stores/active-organization-store"
 
@@ -53,11 +56,21 @@ export function useGithubInstallations() {
   })
 }
 
-export function useStartGithubConnect() {
+/**
+ * Pastes a fine-grained PAT. The backend validates it against GitHub and
+ * reconciles the repository list in the same call, so a success here means the
+ * setup screen already has branches to choose from.
+ */
+export function useConnectGithubToken() {
+  const queryClient = useQueryClient()
+  const activeOrgId = useActiveOrganizationStore((s) => s.activeOrganizationId)
   return useMutation({
-    mutationFn: () => GithubIntegrationsAPI.start(),
-    onSuccess: (res) => {
-      window.location.href = res.data.installUrl
+    mutationFn: (payload: ConnectGithubTokenRequest) =>
+      GithubIntegrationsAPI.connectToken(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: githubKeys.installations(activeOrgId),
+      })
     },
   })
 }
@@ -137,8 +150,7 @@ export function useDisconnectGithubInstallation() {
   const queryClient = useQueryClient()
   const activeOrgId = useActiveOrganizationStore((s) => s.activeOrganizationId)
   return useMutation({
-    mutationFn: (installationId: string) =>
-      GithubIntegrationsAPI.disconnect(installationId),
+    mutationFn: () => GithubIntegrationsAPI.disconnect(),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: githubKeys.installations(activeOrgId),

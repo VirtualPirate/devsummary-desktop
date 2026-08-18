@@ -1,16 +1,14 @@
-import { Link } from "@tanstack/react-router";
 import { CalendarClock } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 /**
- * `/briefs` for a viewer with no schedule: repositories are read, but briefs are
- * only produced on a schedule and only owners/admins can create one
- * (`brief-schedules.controller.ts` requires the admin role).
+ * `/briefs` for a workspace member who cannot create a schedule: repositories
+ * are read, but briefs are only produced on a schedule and only owners/admins
+ * can create one (`brief-schedules.controller.ts` requires the admin role).
  *
- * No ingest matrix and no primary action — none of it is something this user can
- * act on. An admin is told what to do next; a viewer is told what the state is
- * and who owns it. Safe to own the page here because there is no list to hide;
- * on `/` a viewer gets the compact bar instead, so their dashboard stays intact.
+ * Unreachable on a desktop install — the local user is seeded as owner of the
+ * default workspace and owns every one they create — but the role check it
+ * hangs off is still enforced backend-side, so the branch is kept rather than
+ * deleted. The "who to ask" CTA is gone: there is no one else on this machine.
  */
 export function AwaitingSchedule({ orgName }: { orgName?: string }) {
   return (
@@ -32,11 +30,6 @@ export function AwaitingSchedule({ orgName }: { orgName?: string }) {
         ) : null}{" "}
         can set one up — once they do, briefs land here.
       </p>
-      <div className="mt-5 flex flex-wrap justify-center gap-2">
-        <Button asChild variant="outline">
-          <Link to="/settings/organization/members">See who to ask</Link>
-        </Button>
-      </div>
     </div>
   );
 }

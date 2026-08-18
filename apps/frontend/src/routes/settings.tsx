@@ -1,22 +1,31 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Monitor, Moon, Send, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
-import { ChangePasswordDialog } from "@/components/devsummary/settings/change-password-dialog";
-import { DevicesDialog } from "@/components/devsummary/settings/devices-dialog";
+import { GithubPatForm } from "@/components/integrations/github-pat-form";
+import { SlackTokenForm } from "@/components/integrations/slack-token-form";
+import { SlackTestMessageDialog } from "@/components/integrations/slack-test-message-dialog";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonList } from "@/components/devsummary/shared/skeleton-list";
+import { Switch } from "@/components/ui/switch";
+import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
 import {
-  useAuthAccounts,
-  useAuthSession,
-  useAuthSessions,
-  useUpdateUser,
-} from "@/hooks/api/use-auth";
+  useLocalSettings,
+  useSendTestEmail,
+  useUpdateLocalCredentials,
+} from "@/hooks/api/use-local-settings";
+import { useSlackInstallations } from "@/hooks/api/use-slack";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { cn } from "@/lib/utils";
 
@@ -25,11 +34,6 @@ const THEMES: Array<{ value: Theme; label: string; icon: typeof Sun }> = [
   { value: "dark", label: "Dark", icon: Moon },
   { value: "system", label: "System", icon: Monitor },
 ];
-
-const PROVIDER_LABELS: Record<string, string> = {
-  credential: "email and password",
-  google: "Google",
-};
 
 function ThemePicker() {
   const { theme, setTheme } = useTheme();
@@ -57,103 +61,325 @@ function ThemePicker() {
   );
 }
 
-function SettingsSkeleton() {
+/** Green tick when a credential is stored. Never the value — only the boolean. */
+function StatusPill({ configured }: { configured: boolean }) {
+  return configured ? (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-gb-status-shipped/15 px-2.5 py-0.5 text-xs font-medium text-gb-status-shipped">
+      <Check className="size-3" />
+      Configured
+    </span>
+  ) : (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      Not set
+    </span>
+  );
+}
+
+function SectionCard({
+  title,
+  description,
+  configured,
+  children,
+}: {
+  title: string;
+  description: React.ReactNode;
+  configured: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <Card>
-      <CardContent className="space-y-5">
-        <div className="flex items-center gap-4">
-          <Skeleton className="size-14 rounded-[19px]" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-3.5 w-24" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-3 w-1/2" />
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <StatusPill configured={configured} />
+        </div>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function OpenAiSection({ configured }: { configured: boolean }) {
+  const update = useUpdateLocalCredentials();
+  const [key, setKey] = useState("");
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = key.trim();
+    if (!value) return;
+    try {
+      await update.mutateAsync({ openaiApiKey: value });
+      setKey("");
+      toast.success("OpenAI key saved");
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  return (
+    <SectionCard
+      title="OpenAI"
+      description="Classifies each commit and writes the briefs. Billed to your own key."
+      configured={configured}
+    >
+      <form className="max-w-md space-y-4" onSubmit={handleSubmit}>
+        <div className="space-y-1.5">
+          <Label htmlFor="openai-key">API key</Label>
+          <Input
+            id="openai-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+            placeholder="sk-…"
+            className="font-mono"
+          />
+        </div>
+        <Button type="submit" disabled={!key.trim() || update.isPending}>
+          {update.isPending ? "Saving…" : "Save key"}
+        </Button>
+      </form>
+      <p className="mt-4 text-xs text-muted-foreground">
+        Model overrides and running token totals aren&rsquo;t editable here yet —
+        both need a backend endpoint that does not exist. Models come from
+        <span className="font-mono"> OPENAI_COMMIT_ANALYSIS_MODEL</span> and
+        <span className="font-mono"> OPENAI_BRIEF_MODEL</span>; token counts are
+        recorded per brief and per commit analysis in the database.
+      </p>
+    </SectionCard>
+  );
+}
+
+function SmtpSection({
+  configured,
+  fromConfigured,
+}: {
+  configured: boolean;
+  fromConfigured: boolean;
+}) {
+  const update = useUpdateLocalCredentials();
+  const testEmail = useSendTestEmail();
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("587");
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
+  const [from, setFrom] = useState("");
+  const [testTo, setTestTo] = useState("");
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    // Omitted keys are left alone server-side, so a partial edit (just the
+    // password, say) does not blank the rest.
+    const payload: Record<string, string | number> = {};
+    if (host.trim()) payload.smtpHost = host.trim();
+    if (port.trim()) payload.smtpPort = Number(port);
+    if (user.trim()) payload.smtpUser = user.trim();
+    if (pass) payload.smtpPass = pass;
+    if (from.trim()) payload.emailFrom = from.trim();
+    if (Object.keys(payload).length === 0) return;
+    try {
+      // The backend runs `transporter.verify()` before storing, so a typo'd app
+      // password is a red field here rather than a failed brief days later.
+      await update.mutateAsync(payload);
+      setPass("");
+      toast.success("SMTP settings saved");
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  const handleTest = async () => {
+    const to = testTo.trim();
+    if (!to) return;
+    try {
+      const res = await testEmail.mutateAsync({ to });
+      toast.success(res.data.detail);
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  return (
+    <SectionCard
+      title="Email (SMTP)"
+      description="Your own mailbox sends the briefs — a Gmail app password, Fastmail, or a company relay."
+      configured={configured && fromConfigured}
+    >
+      <form className="max-w-md space-y-4" onSubmit={handleSubmit}>
+        <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
+          <div className="space-y-1.5">
+            <Label htmlFor="smtp-host">Host</Label>
+            <Input
+              id="smtp-host"
+              value={host}
+              onChange={(event) => setHost(event.target.value)}
+              placeholder="smtp.gmail.com"
+              autoComplete="off"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="smtp-port">Port</Label>
+            <Input
+              id="smtp-port"
+              type="number"
+              value={port}
+              onChange={(event) => setPort(event.target.value)}
+              min={1}
+              max={65535}
+            />
           </div>
         </div>
-        <Skeleton className="h-px w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-px w-full" />
-        <Skeleton className="h-10 w-full" />
+        <div className="space-y-1.5">
+          <Label htmlFor="smtp-user">Username</Label>
+          <Input
+            id="smtp-user"
+            value={user}
+            onChange={(event) => setUser(event.target.value)}
+            placeholder="you@example.com"
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="smtp-pass">Password</Label>
+          <Input
+            id="smtp-pass"
+            type="password"
+            value={pass}
+            onChange={(event) => setPass(event.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="smtp-from">From address</Label>
+          <Input
+            id="smtp-from"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+            placeholder="DevSummary <you@example.com>"
+            autoComplete="off"
+          />
+        </div>
+        <Button type="submit" disabled={update.isPending}>
+          {update.isPending ? "Verifying…" : "Save and verify"}
+        </Button>
+      </form>
+
+      <div className="mt-6 max-w-md space-y-1.5 border-t pt-4">
+        <Label htmlFor="smtp-test-to">Send a test email</Label>
+        <div className="flex gap-2">
+          <Input
+            id="smtp-test-to"
+            type="email"
+            value={testTo}
+            onChange={(event) => setTestTo(event.target.value)}
+            placeholder="you@example.com"
+          />
+          <Button
+            variant="outline"
+            onClick={() => void handleTest()}
+            disabled={!testTo.trim() || testEmail.isPending}
+          >
+            <Send className="size-3.5" />
+            {testEmail.isPending ? "Sending…" : "Send"}
+          </Button>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+function NotificationsSection({ enabled }: { enabled: boolean }) {
+  const update = useUpdateLocalCredentials();
+
+  const handleToggle = async (next: boolean) => {
+    try {
+      await update.mutateAsync({ desktopNotifications: next });
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Desktop</CardTitle>
+        <CardDescription>
+          How this machine behaves once a brief is ready.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium">Desktop notifications</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              A delivered brief counts as landing here even when email and Slack
+              both fail.
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={(next) => void handleToggle(next)}
+            disabled={update.isPending}
+            aria-label="Desktop notifications"
+          />
+        </div>
+
+        <div className="h-px bg-border" />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-medium">Theme</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              Applies to this app only.
+            </div>
+          </div>
+          <ThemePicker />
+        </div>
+
+        <div className="h-px bg-border" />
+
+        <div>
+          <div className="text-sm font-medium">Data directory</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            The database, logs and encrypted secrets live in this app&rsquo;s
+            user-data folder. Nothing exposes the path to this screen yet — see
+            the Phase 9 receipt.
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
 export function SettingsPage() {
-  const sessionQuery = useAuthSession();
-  const accountsQuery = useAuthAccounts();
-  const sessionsQuery = useAuthSessions();
-  const updateUser = useUpdateUser();
-  const { theme } = useTheme();
+  const settings = useLocalSettings();
+  const github = useGithubInstallations();
+  const slack = useSlackInstallations();
+  const [slackTestOpen, setSlackTestOpen] = useState(false);
 
-  const [name, setName] = useState<string | null>(null);
-  const [devicesOpen, setDevicesOpen] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
-
-  const user = sessionQuery.data?.data?.user;
-  const currentToken = sessionQuery.data?.data?.session.token;
-  // `null` means untouched — the input mirrors the session until it's edited,
-  // so a name saved in another tab still shows up here.
-  const nameValue = name ?? user?.name ?? "";
-  const isDirty = user ? nameValue.trim() !== user.name : false;
-  const isEmpty = nameValue.trim().length === 0;
-
-  const providers = (accountsQuery.data ?? []).map((account) =>
-    PROVIDER_LABELS[account.providerId] ?? account.providerId,
-  );
-  const hasPassword = (accountsQuery.data ?? []).some(
-    (account) => account.providerId === "credential",
-  );
-  const deviceCount = sessionsQuery.data?.length ?? 0;
-
-  const handleSave = async () => {
-    if (!isDirty || isEmpty) return;
-    try {
-      await updateUser.mutateAsync({ name: nameValue.trim() });
-      setName(null);
-      toast.success("Name updated");
-    } catch (err) {
-      toast.error(extractErrorMessage(err));
-    }
-  };
+  const status = settings.data?.data;
+  // GitHub status comes from the installation row rather than the credential
+  // booleans: the PAT is stored by the integrations endpoint, which is what
+  // ingest actually reads.
+  const githubConnected = (github.data?.data ?? []).length > 0;
+  const slackConnected = (slack.data?.data ?? []).length > 0;
 
   const header = (
-    <PageHeader title="Settings" description="Your account." />
+    <PageHeader
+      title="Settings"
+      description="Credentials live in this machine's keychain. Nothing is ever read back into the app."
+    />
   );
 
-  if (sessionQuery.isLoading || accountsQuery.isLoading) {
+  if (settings.isPending) {
     return (
       <>
         {header}
-        <SettingsSkeleton />
-      </>
-    );
-  }
-
-  if (!user) {
-    return (
-      <>
-        {header}
-        <div className="flex items-start gap-3 rounded-2xl border border-dashed border-destructive/45 bg-destructive/6 p-4">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-destructive/12 text-destructive">
-            <AlertTriangle className="size-4" />
-          </span>
-          <div className="flex-1">
-            <div className="text-sm font-medium">
-              We couldn&apos;t load your account
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {extractErrorMessage(sessionQuery.error)} Nothing was changed.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void sessionQuery.refetch()}
-          >
-            Try again
-          </Button>
-        </div>
+        <SkeletonList rows={4} rowHeight={160} />
       </>
     );
   }
@@ -162,145 +388,88 @@ export function SettingsPage() {
     <div className="mx-auto max-w-[720px]">
       {header}
 
-      <Card>
-        <CardContent className="space-y-5">
-          <div className="flex items-center gap-4">
-            <span className="grid size-14 shrink-0 place-items-center rounded-[19px] bg-brand/12 text-xl font-semibold text-brand">
-              {user.name?.charAt(0).toUpperCase() || "U"}
-            </span>
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="account-name">Name</Label>
-              <Input
-                id="account-name"
-                value={nameValue}
-                onChange={(event) => setName(event.target.value)}
-                aria-invalid={isEmpty ? true : undefined}
-                disabled={updateUser.isPending}
-              />
-              {isEmpty ? (
-                <p className="text-xs text-destructive" role="alert">
-                  Name can&apos;t be empty.
-                </p>
-              ) : (
-                // Email is read-only on purpose: `changeEmail` isn't enabled on
-                // the backend, and a greyed-out input reads as broken rather
-                // than deliberate.
-                <p className="text-xs text-muted-foreground">
-                  {user.email}
-                  {" · "}
-                  {user.emailVerified ? (
-                    "verified"
-                  ) : (
-                    <span className="font-semibold text-gb-status-at-risk">
-                      unverified
-                    </span>
-                  )}
-                  {providers.length > 0 ? ` · ${providers.join(", ")}` : null}
-                </p>
-              )}
-            </div>
+      <div className="space-y-8">
+        <SectionCard
+          title="GitHub"
+          description="A fine-grained personal access token is the only way in — DevSummary reads commits through your own access."
+          configured={githubConnected}
+        >
+          {githubConnected ? (
+            <p className="text-sm text-muted-foreground">
+              Connected. Manage repositories, branches and disconnect on the{" "}
+              <Link
+                to="/integrations/github"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                integrations page
+              </Link>
+              . Pasting a new token below replaces the stored one.
+            </p>
+          ) : null}
+          <div className={githubConnected ? "mt-4" : undefined}>
+            <GithubPatForm onConnected="stay" />
           </div>
+        </SectionCard>
 
-          <div className="h-px bg-border" />
+        <OpenAiSection configured={status?.openai ?? false} />
 
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-medium">Password</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  {hasPassword
-                    ? "Signs you out of other devices when you change it"
-                    : "You sign in with Google, so this account has no password"}
-                </div>
-              </div>
-              {hasPassword ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPasswordOpen(true)}
+        <SmtpSection
+          configured={status?.smtp ?? false}
+          fromConfigured={status?.emailFrom ?? false}
+        />
+
+        <SectionCard
+          title="Slack"
+          description="A bot token posts briefs into a channel. The channel is chosen per schedule."
+          configured={slackConnected}
+        >
+          {slackConnected ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Connected. Channel membership and disconnect live on the{" "}
+                <Link
+                  to="/integrations/slack"
+                  className="underline underline-offset-4 hover:text-foreground"
                 >
-                  Change
-                </Button>
-              ) : null}
+                  integrations page
+                </Link>
+                .
+              </p>
+              <Button variant="outline" onClick={() => setSlackTestOpen(true)}>
+                <Send className="size-3.5" />
+                Post a test message
+              </Button>
             </div>
+          ) : (
+            <SlackTokenForm />
+          )}
+        </SectionCard>
 
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-medium">Devices</div>
-                <div
-                  className={cn(
-                    "mt-0.5 text-xs",
-                    sessionsQuery.isError
-                      ? "text-destructive"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {sessionsQuery.isError
-                    ? "We couldn't load your devices"
-                    : sessionsQuery.isLoading
-                      ? "Counting your devices…"
-                      : deviceCount === 1
-                        ? "Signed in on 1 device, this one"
-                        : `Signed in on ${deviceCount} devices, including this one`}
-                </div>
-              </div>
-              {sessionsQuery.isError ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void sessionsQuery.refetch()}
-                >
-                  Retry
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDevicesOpen(true)}
-                >
-                  View
-                </Button>
-              )}
-            </div>
-          </div>
+        <NotificationsSection
+          enabled={status?.desktopNotifications ?? false}
+        />
 
-          <div className="h-px bg-border" />
+        <Card>
+          <CardHeader>
+            <CardTitle>Workspace</CardTitle>
+            <CardDescription>
+              Projects, teams, schedules and briefs are scoped to a workspace.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link to="/settings/organization">Workspace settings</Link>
+            </Button>
+            <Button asChild variant="ghost">
+              <Link to="/organizations/new">New workspace</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-medium">Theme</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                This browser only — currently {theme}
-              </div>
-            </div>
-            <ThemePicker />
-          </div>
-        </CardContent>
-
-        <CardFooter className="flex flex-col-reverse gap-3 border-t bg-muted/50 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <Link
-            to="/settings/organization"
-            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            Organization settings →
-          </Link>
-          <Button
-            disabled={!isDirty || isEmpty || updateUser.isPending}
-            onClick={() => void handleSave()}
-          >
-            {updateUser.isPending ? "Saving…" : "Save"}
-          </Button>
-        </CardFooter>
-      </Card>
-
-      <DevicesDialog
-        open={devicesOpen}
-        onOpenChange={setDevicesOpen}
-        currentToken={currentToken}
-      />
-      <ChangePasswordDialog
-        open={passwordOpen}
-        onOpenChange={setPasswordOpen}
+      <SlackTestMessageDialog
+        open={slackTestOpen}
+        onOpenChange={setSlackTestOpen}
       />
     </div>
   );

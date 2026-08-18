@@ -14,12 +14,15 @@ export const SlackAPI = {
     return response.data as ApiResponse<SlackInstallation[]>;
   },
 
-  start: async (): Promise<ApiResponse<{ installUrl: string }>> => {
+  connectToken: async (
+    token: string,
+  ): Promise<ApiResponse<SlackInstallation>> => {
     const response = await axiosInstance.request({
-      url: `${BASE}/start`,
+      url: `${BASE}/token`,
       method: "POST",
+      data: { token },
     });
-    return response.data as ApiResponse<{ installUrl: string }>;
+    return response.data as ApiResponse<SlackInstallation>;
   },
 
   disconnect: async (installationId: string): Promise<void> => {

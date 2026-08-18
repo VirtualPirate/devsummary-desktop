@@ -172,8 +172,8 @@ function DisconnectSlackDialog({
                 will fail until a workspace is connected again.{" "}
               </>
             ) : null}
-            The bot token is revoked with Slack, so reconnecting means running
-            the install flow again.
+            The bot token is revoked with Slack, so reconnecting means pasting a
+            fresh one.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

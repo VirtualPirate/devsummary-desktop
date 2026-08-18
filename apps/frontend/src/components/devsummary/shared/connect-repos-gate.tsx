@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { GithubMark } from "@/components/integrations/provider-marks";
-import { useStartGithubConnect } from "@/hooks/api/use-github-integrations";
 
 const STEPS = ["Connect", "Schedule", "Read"];
 
@@ -19,7 +18,6 @@ export function ConnectReposGate({
 }: {
   variant?: "connect" | "configure";
 }) {
-  const connect = useStartGithubConnect();
   const configure = variant === "configure";
 
   return (
@@ -37,7 +35,7 @@ export function ConnectReposGate({
         <p className="mx-auto max-w-sm text-sm text-muted-foreground">
           {configure
             ? "Your repositories are connected, but none of them has a branch selected — so no commits are being read. Choose one to start collecting activity."
-            : "Install the DevSummary GitHub App to sync repositories and start collecting commit activity."}
+            : "Connect GitHub with a personal access token to sync repositories and start collecting commit activity."}
         </p>
       </div>
 
@@ -46,9 +44,11 @@ export function ConnectReposGate({
           <Link to="/integrations/github/setup">Choose a branch</Link>
         </Button>
       ) : (
-        <Button onClick={() => connect.mutate()} disabled={connect.isPending}>
-          <GithubMark className="size-4" />
-          {connect.isPending ? "Redirecting…" : "Install GitHub App"}
+        <Button asChild>
+          <Link to="/integrations/github">
+            <GithubMark className="size-4" />
+            Connect GitHub
+          </Link>
         </Button>
       )}
 

@@ -32,11 +32,19 @@ export function useSlackAvailable(): boolean {
   return (query.data?.data ?? []).length > 0;
 }
 
-export function useStartSlackConnect() {
+/**
+ * Pastes an `xoxb-…` bot token. Validated with `auth.test` before it is stored,
+ * so a bad paste is a 400 here rather than a brief that silently fails to post.
+ */
+export function useConnectSlackToken() {
+  const queryClient = useQueryClient();
+  const orgId = useActiveOrganizationStore((s) => s.activeOrganizationId);
   return useMutation({
-    mutationFn: () => SlackAPI.start(),
-    onSuccess: (res) => {
-      window.location.href = res.data.installUrl;
+    mutationFn: (token: string) => SlackAPI.connectToken(token),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: slackKeys.installations(orgId),
+      });
     },
   });
 }
