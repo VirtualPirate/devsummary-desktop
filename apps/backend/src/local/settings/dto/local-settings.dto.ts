@@ -12,6 +12,8 @@ export const UpdateLocalCredentialsSchema = z
     emailFrom: z.string().trim(),
     slackBotToken: z.string().trim(),
     desktopNotifications: z.boolean(),
+    commitAnalysisModel: z.string().trim().max(100),
+    briefModel: z.string().trim().max(100),
   })
   .partial();
 
@@ -24,10 +26,3 @@ export const TestEmailSchema = z.object({
 });
 
 export type TestEmailBody = z.infer<typeof TestEmailSchema>;
-
-export const TestSlackMessageSchema = z.object({
-  channelId: z.string().trim().min(1),
-  text: z.string().trim().min(1).optional(),
-});
-
-export type TestSlackMessageBody = z.infer<typeof TestSlackMessageSchema>;

@@ -3,6 +3,7 @@ import { openGithubToken } from '../credentials';
 import { GithubInstallationsService } from '../services/installations.service';
 
 import { JOB } from '../../../jobs';
+import type { SecretsService } from '../../../local/settings/secrets.service';
 
 const USER = {
   id: 4242,
@@ -98,7 +99,19 @@ function makeMocks() {
     enqueue: jest.fn(async () => 'job-id'),
   } as any;
 
-  return { installsRepo, reposRepo, trackedBranches, client, db, queue };
+  const secrets = {
+    update: jest.fn(),
+  } as unknown as SecretsService;
+
+  return {
+    installsRepo,
+    reposRepo,
+    trackedBranches,
+    client,
+    db,
+    queue,
+    secrets,
+  };
 }
 
 function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
@@ -111,6 +124,7 @@ function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
       m.client,
       m.db,
       m.queue,
+      m.secrets,
     ),
     mocks: m,
   };
@@ -120,7 +134,9 @@ describe('GithubInstallationsService', () => {
   beforeEach(() => {
     (Octokit as unknown as { __reset: () => void }).__reset();
     kit().request.mockResolvedValue({ data: USER });
-    kit().iterator.mockImplementation(repoPage({ id: 10, full_name: 'acme/api' }));
+    kit().iterator.mockImplementation(
+      repoPage({ id: 10, full_name: 'acme/api' }),
+    );
   });
 
   describe('connect', () => {
@@ -254,7 +270,9 @@ describe('GithubInstallationsService', () => {
 
       await expect(
         svc.connect({ orgId: 'org-1', token: 't' }),
-      ).rejects.toMatchObject({ code: 'GITHUB_INSTALLATION_ALREADY_CONNECTED' });
+      ).rejects.toMatchObject({
+        code: 'GITHUB_INSTALLATION_ALREADY_CONNECTED',
+      });
       expect(mocks.reposRepo.reconcileForInstallation).not.toHaveBeenCalled();
     });
   });

@@ -2,22 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Also see the root [CLAUDE.md](../../CLAUDE.md) for monorepo-wide commands and the **DevSummary product spec** (user flows, AI usage, frontend screens). This file covers the backend implementation.
+Also see the root [AGENTS.md](../../AGENTS.md) for monorepo-wide commands and the **DevSummary product spec** (user flows, AI usage, frontend screens), and `docs/MIGRATION-PLAN.md` + `docs/DELTAS.md` for how this backend got here from the cloud original. This file covers the backend implementation.
 
 ## Commands
 
 All commands run from `apps/backend/`:
 
 ```bash
-pnpm start:dev              # Watch mode (port 3000) — Temporal client only, runs no worker
+pnpm start:dev              # Watch mode. Headless: no Electron shell, so no keychain and no port handoff
 pnpm start:debug            # Debug + watch mode
-pnpm start:worker:dev       # Temporal worker (watch mode) — polls the task queue, runs activities
-pnpm dev:dashboard          # Prints the Temporal UI URL (http://localhost:8080); UI itself comes from `docker compose up -d`
-pnpm test                   # Unit tests (Jest) + email render integration (tsx)
-pnpm exec jest --testPathPatterns=<pattern>  # Single test file (note: `pnpm test -- <args>` won't filter — the test script chains `jest && tsx`, so args land on tsx)
-pnpm test:email             # Email render integration only (real react-email, outside Jest)
+pnpm test                   # Unit tests (Jest)
+pnpm exec jest --testPathPatterns=<pattern>  # Single test file
 pnpm test:watch             # Jest watch mode
-pnpm test:e2e               # E2E tests (Vitest + testcontainers; needs Docker)
+pnpm test:e2e               # E2E tests (Vitest + in-memory PGlite). No Docker, no network
 pnpm test:e2e:watch         # E2E watch mode
 pnpm exec vitest run --config vitest.e2e.config.ts <path>  # Single e2e file
 pnpm test:cov               # Coverage report
@@ -25,52 +22,65 @@ pnpm lint                   # Lint + autofix
 pnpm format                 # Prettier on src/ and test/
 ```
 
-### Database (requires `docker compose up -d` from repo root)
+Normal operation is `pnpm dev` from the repo root, which builds the packages and starts Vite plus the Electron shell; the shell forks this backend as a utility process and hands it `API_TOKEN`, `DATA_DIR` and the decrypted secret bundle. A bare `pnpm start:dev` runs against `./.data` with no credentials — useful for wiring work, useless for anything that talks to GitHub or OpenAI.
+
+### Database (a local PGlite directory — no Docker, no server)
+
+Migrations are applied **at boot** by `KyselyModule`, so these scripts exist only for authoring new ones. `kysely.config.ts` points kysely-ctl at the same `createAppDatabase()` the app uses, against `DATA_DIR` (default `./.data`).
 
 ```bash
 pnpm db:generate            # Scaffold a blank Kysely migration (kysely migrate:make)
-pnpm db:up                  # Apply migrations (kysely migrate:latest)
-pnpm db:down                # Rollback last migration (kysely migrate:down)
-pnpm db:status              # List migrations (kysely migrate:list)
-pnpm db:fresh               # Reset DB: rollback all + re-apply (destructive)
+pnpm db:up                  # Apply migrations (normally redundant — boot does this)
+pnpm db:down                # Rollback last migration
+pnpm db:status              # List migrations
+pnpm db:fresh               # Reset: rollback all + re-apply (destructive)
 ```
+
+A new migration must also be added to `src/databases/kysely/migrations-index.ts` — the boot path uses a **static array**, not a directory listing, because a packaged asar cannot be listed reliably.
 
 ## Architecture
 
 ### Module Graph
 
 ```
-AppModule (applies RequestIdMiddleware to all routes)
+AppModule (RequestIdMiddleware + LocalSessionMiddleware on all routes)
 ├── ConfigModule (global)
 ├── LoggerModule ──────────── nestjs-pino
-├── KyselyModule (global) ─── provides KYSELY_DB token
-├── TemporalModule.forRoot() (global) ── Temporal client + TemporalProducerService
-├── AppAuthModule ─────────── Better Auth + custom EmailOtpController
-├── OrganizationsModule ───── registers OrgContextGuard as global APP_GUARD
-├── GithubIntegrationsModule ─ GitHub App install, webhooks, repo sync
-├── SlackIntegrationsModule ── Slack OAuth install, message posting
+├── KyselyModule (global) ─── PGlite + KYSELY_DB token; runs migrations in onModuleInit
+├── JobsModule ────────────── jobs table + in-process runner + scheduler (replaces Temporal)
+├── LocalSettingsModule ───── @Global: SecretsService, LocalSettingsRepository, settings API
+├── OrganizationsModule ───── registers OrgContextGuard as an APP_GUARD
+├── GithubIntegrationsModule ─ PAT connect, repo reconcile, branch tracking
+├── SlackIntegrationsModule ── bot-token paste, channel/member listing, message posting
 ├── CommitAnalysisModule ───── commit ingestion + OpenAI analysis
 ├── GithubCollaboratorsModule ─ repo collaborator sync
 ├── BriefsModule ───────────── projects, teams, schedules, generation, delivery
-└── QueueModule ────────────── noop smoke-test activity/controller
+├── AnalyticsModule ────────── dashboard activity buckets
+├── JobActivityModule ──────── the background-jobs toast, backed by the jobs table
+└── HealthModule ──────────── readiness (PGlite ping) + liveness
 ```
 
-Note: this graph is `AppModule`, which the NestJS **API** process (`src/main.ts`) bootstraps. A separate **worker** process (`src/worker.ts`) boots the same `AppModule` via `NestFactory.createApplicationContext()` (DI only, no HTTP listener) to discover `@Activity` providers and run them against the app DB — see "Background jobs (Temporal)" below.
+**One process.** The API/worker split is gone with Temporal: `src/main.ts` boots this graph *and* runs the job runner. `src/worker.ts` does not exist.
+
+`LocalTokenGuard` is registered as a root-module `APP_GUARD` so Nest's scan order puts it ahead of `OrgContextGuard` — the loopback token is checked before anything reads a workspace.
 
 ### Entry Point & Body Parsing
 
-**`src/main.ts`** — Bootstrap with `bodyParser: false` and `bufferLogs: true`. Wires the pino logger, CORS (`origin: true`, credentials), the global `AllExceptionsFilter`, and shutdown hooks (`enableShutdownHooks()`, for graceful Nest lifecycle teardown). Port from `PORT` env (default 3000). The API process is a Temporal **client** only — it never runs Temporal activities; that's the separate `src/worker.ts` process.
+**`src/main.ts`** — pins `process.env.TZ ??= 'UTC'` as its first statement, boots with `bufferLogs: true`, calls `configureApp(app)` (shared with the e2e harness), then `app.listen(0, '127.0.0.1')` and posts the OS-assigned port back over `process.parentPort` so the Electron main process knows where to point the window. Binding port 0 on loopback is deliberate: nothing on the LAN can reach it, and there is no fixed port to collide with.
 
-**Body parsing is opt-in per controller** because the global parser is disabled for Better Auth:
+**`configureApp`** (`src/bootstrap/configure-app.ts`) wires the pino logger, CORS, the global `AllExceptionsFilter`, and shutdown hooks. **CORS is dev-only** (`origin: http://localhost:5173`): a packaged renderer loads from `file://`, which sends no meaningful origin and is not subject to CORS anyway, so production emits no CORS headers at all. The real trust boundary is `LocalTokenGuard`.
 
-- The Better Auth wrapper is configured with `bodyParser: { rawBody: true }` (`src/auth/auth.module.ts`), which also populates `req.rawBody` — the GitHub webhook controller depends on this for HMAC signature verification.
-- Any controller that accepts a JSON body must have `express.json()` applied in its module's `configure()`. Existing examples: `AppAuthModule` (EmailOtpController), `OrganizationsModule`, `BriefsModule`, `QueueModule`. **If you add a new controller with a `@Body()` param and forget this, the body arrives `undefined`.**
+**Body parsing is global** (Better Auth was the only reason it was ever disabled), but several modules still apply `express.json()` in their own `configure()`. Those calls are harmless and were left in place.
 
 ### Graceful-degradation config pattern
 
-Integrations load config from env at module init; when required vars are missing the module provides a **stub client whose methods reject with `AppError.*_NOT_CONFIGURED()`** instead of failing boot. Used by: GitHub App (`github.module.ts`), OpenAI briefs client (`briefs.module.ts`), Slack (config nullable). Follow this pattern for new integrations.
+Integrations must not fail boot when a credential is missing — on a desktop install the user has not pasted one yet, and the app has to open so they can.
 
-### Database (Kysely)
+**Read credentials live, do not snapshot them at module init.** `loadCommitAnalysisConfig` and `loadBriefsConfig` return objects whose `apiKey` and `model` are **getters** over `ConfigService`, and `SecretsService.update()` writes into `process.env`, which `ConfigService.get` falls through to. That is what makes a key pasted into the settings screen take effect on the next job instead of the next launch. An empty `apiKey` is the not-configured signal, checked at call time (`OpenAIClient.getSdk`, `BriefGeneratorService.generate`) and surfaced as `AppError.OPENAI_NOT_CONFIGURED`. There is no not-configured stub provider any more; a factory that decides "configured" once at boot is the bug this replaced.
+
+GitHub is the same shape by a different route: the PAT is a stored row, not env, so `GithubAppClient`'s token resolver throws `GITHUB_APP_NOT_CONFIGURED` when there is nothing to open — which covers every method, where the old stub covered only some.
+
+### Database (Kysely over PGlite)
 
 The `KyselyModule` (`src/databases/kysely/kysely.module.ts`) is a **global** module. Inject via the `KYSELY_DB` token:
 
@@ -78,49 +88,45 @@ The `KyselyModule` (`src/databases/kysely/kysely.module.ts`) is a **global** mod
 constructor(@Inject(KYSELY_DB) private db: AppDatabase) {}
 ```
 
-`AppDatabase` is `Kysely<Database>`; both come from the `src/databases/kysely` barrel. The instance runs **`CamelCasePlugin`** — code uses camelCase identifiers (`deletedAt`, `github.commitAnalyses`), SQL gets snake_case. Key conventions:
+`AppDatabase` is `Kysely<Database>`; both come from the `src/databases/kysely` barrel. Postgres is **PGlite** — real Postgres compiled to WASM, in a directory, no server and no Docker. `resolveDataDir()` returns `$DATA_DIR/data` (the Electron `userData` folder) or `./.data` headless. The instance runs **`CamelCasePlugin`** — code uses camelCase identifiers (`deletedAt`, `github.commitAnalyses`), SQL gets snake_case. Key conventions:
 
-- **Table keys** in the `Database` interface (`src/databases/kysely/database.types.ts`) are camelCase and schema-qualified: `organizations`, `auth.user`, `github.commitAnalyses`, `briefs.briefSchedules`, …
+- **Table keys** in the `Database` interface (`src/databases/kysely/database.types.ts`) are camelCase and schema-qualified: `organizations`, `auth.user`, `github.commitAnalyses`, `briefs.briefSchedules`, `jobs`, `localSettings`, …
 - **`updatedAt` is NOT auto-touched** — every `updateTable().set({...})` on a table with `updatedAt` must include `updatedAt: new Date()` (including upsert `doUpdateSet`).
-- **jsonb columns** (`raw`, `changes`) are typed `Json<T>`: reads are parsed values, writes must be `JSON.stringify(...)` strings.
-- **int8/bigint columns** (GitHub ids) come back as JS `BigInt` (pg type parser in `kysely.module.ts`); un-cast `count(*)` / `sum(int8)` aggregates do too — cast `::int` in SQL or wrap `Number()`.
+- **jsonb columns** (`raw`, `changes`, `args`) are typed `Json<T>`: reads are parsed values, writes must be `JSON.stringify(...)` strings.
+- **int8/bigint columns** (GitHub ids) come back as JS `BigInt` (`parsers: { 20: BigInt }` on the PGlite instance); un-cast `count(*)` / `sum(int8)` aggregates do too — cast `::int` in SQL or wrap `Number()`.
 - **text[] columns** (`emailRecipients`, `deliveryEmails`) are plain `string[]` both directions.
 - Row types keep the `*Select`/`*Insert` names (`ProjectSelect`, `BriefInsert`, …), exported from the same barrel.
+- **PGlite has exactly one connection.** A `db.transaction()` holds it for its whole lifetime, blocking the other job loop and every HTTP request — which is why `JobRunnerService` claims a job with a single `update … returning` statement instead of a transaction. Keep transactions short and never open one around a network call.
 
-PG schema namespaces: `public` (`demo`, `organizations`, `organization_members`, `organization_invites`), `auth` (Better Auth: `user`, `session`, `account`, `verification`), `github` (`installations`, `repositories`, `repository_branches`, `commits`, `commit_branches`, `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`), `slack` (`installations`), `briefs` (`briefs`, `brief_commits`, `brief_schedules`, `projects`, `project_repositories`, `teams`, `team_collaborators`), `marketing` (`waitlist`).
+PG schema namespaces: `public` (`demo`, `organizations`, `organization_members`, `organization_invites`, `jobs`, `local_settings`), `auth` (`user`, `session`, `account`, `verification` — Better Auth's tables, now holding one seeded user row; the shipped migrations are frozen so they stay), `github` (`installations`, `repositories`, `repository_branches`, `commits`, `commit_branches`, `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`), `slack` (`installations`), `briefs` (`briefs`, `brief_commits`, `brief_schedules`, `projects`, `project_repositories`, `teams`, `team_collaborators`), `marketing` (`waitlist`). Several of those tables are now unused (`organization_invites`, `webhook_events`, `marketing.waitlist`, most of `auth`) — the migrations that create them are shipped and **never edited**, so the tables stay and nothing reads them.
 
-Migrations live in `migrations/` and are run by **kysely-ctl** (`kysely.config.ts`); `migrations/00001_init.ts` creates the whole schema with Kysely's schema builder (one `create*` helper per PG namespace, `down` drops in dependency order). There is no schema auto-diffing — write DDL by hand and mirror it in `database.types.ts`. Migrations must stay independent of application code: import only from `kysely` and write **literal snake_case** identifiers, since `CamelCasePlugin` is not installed on the migration connection. Temporal's own `temporal`/`temporal_visibility` state lives in **separate databases** on the same Postgres server (provisioned by the `temporalio/auto-setup` container) — not in a schema of this app's database, so there's nothing to reference or avoid in migrations here.
+Migrations live in `migrations/`; `00001–00014` are copied verbatim from the cloud original and must never be edited. `00015_jobs.ts` adds the `jobs` and `local_settings` tables; `00016_seed_local_singleton.ts` seeds the one user row and the default workspace with the fixed UUIDs in `src/local/local-identity.ts`. Migrations must stay independent of application code: import only from `kysely` and write **literal snake_case** identifiers, since `CamelCasePlugin` is not installed on the migration connection.
 
 Domain tables use UUID PKs, `created_at`/`updated_at`, and **soft deletes** (`deleted_at`) almost everywhere — repository queries must filter `deletedAt IS NULL`.
 
-### Multi-tenancy (Organizations)
+### Workspaces (`organizationId`)
 
-Custom implementation (not Better Auth's organization plugin) in `src/organizations/`.
+Multi-tenancy survives the desktop port as local **workspaces** (`docs/DELTAS.md` D-A). `organizationId` is threaded through every table, query, guard and DTO; only its *source* changed.
 
-- Org-scoped requests carry the **`x-organization-id` header**. `OrgContextGuard` (registered as a global `APP_GUARD`) activates on routes decorated with `@RequireOrgRole(level)`: verifies session, membership, and role rank, then attaches the membership to the request.
-- Role levels for `@RequireOrgRole`: `'owner' | 'admin' | 'member'` — `member` means *any* role. DB roles are `owner | admin | viewer` (`organization_role` enum).
-- `@OrgMembership()` parameter decorator injects `{ organizationId, userId, role }` in controllers.
-- Controllers: `api/organizations` (CRUD, `/me`, `/current`, transfer-ownership), `api/organizations/current/members`, invites under both `api/organizations/current/invites` (admin side) and `api/invites/*` (invitee side: list/accept/decline/preview). Invite emails sent by `InviteMailer` via Resend; invite tokens stored hashed.
+- Org-scoped requests carry the **`x-organization-id` header**. `OrgContextGuard` (a global `APP_GUARD`) activates on routes decorated with `@RequireOrgRole(level)`: validates the header as a UUID, **falls back to `LOCAL_ORG_ID` when it is absent**, verifies membership and role rank, then attaches the membership to the request.
+- Role levels for `@RequireOrgRole`: `'owner' | 'admin' | 'member'` — `member` means *any* role. DB roles are `owner | admin | viewer`. The seeded local user is `owner` of the default workspace and of every workspace it creates, so the checks are real but never fail in practice.
+- `@OrgMembership()` injects `{ organizationId, userId, role }` in controllers.
+- Controller: `api/organizations` — create, `/me`, `/current` (get/patch/delete). Members, invites and transfer-ownership are **deleted**: there is one user on this machine and no one to invite or transfer to.
 
-### Auth (Better Auth)
+### Identity and the API token (`src/local/`)
 
-Auth uses [Better Auth](https://www.better-auth.com/) v1.6.x via the `@thallesp/nestjs-better-auth` wrapper. Better Auth skills are in `.agents/skills/` and a docs index is in `.claude/docs/better-auth.md` (repo root).
+Better Auth is gone. There is no sign-in, no session store, no OAuth.
 
-**Config:** `src/auth/auth.config.ts` — factory `createAuth()` builds the instance with:
+- **`local-identity.ts`** — `LOCAL_USER_ID` / `LOCAL_ORG_ID`, the fixed UUIDs migration `00016` seeds. Import these rather than hardcoding.
+- **`local-session.middleware.ts`** — sets `request.session = { user: <seeded local user> }` on every request, so the ~40 controllers and services that read `request.session.user.id` compile and run untouched. `@Session()` comes from `src/local/session.decorator.ts`, not from a package.
+- **`local-token.guard.ts`** — the actual trust boundary. The Electron main process generates a per-boot `API_TOKEN` (`randomBytes(32).toString('hex')`) and passes it to both the backend (env) and the renderer (preload bridge); every request must carry it as `x-desktop-token`. Registered as a root-module `APP_GUARD`, exempting only `/api/health*`. Loopback alone is not a boundary — any local process can reach 127.0.0.1.
+- **`auth/crypto.ts`** — `encrypt()` / `decrypt()` / `deriveKey()`, AES-256-GCM. Still used for the stored GitHub PAT (`integrations/github/credentials.ts`) and the Slack bot token (`SlackInstallationsRepository`). The key derives from `DB_ENCRYPTION_KEY`, generated once by the shell and kept stable; changing it costs the user a re-paste and nothing else.
 
-- A dedicated `pg` Pool (`search_path=auth`) with per-model `fields` mappings to the snake_case columns; email + password auth
-- Google OAuth (optional — enabled when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` set). Account linking enabled with Google as a trusted provider.
-- Token encryption via `databaseHooks` — OAuth access/refresh tokens encrypted at rest (AES-256-GCM, key derived from `BETTER_AUTH_SECRET` via scrypt). **Changing `BETTER_AUTH_SECRET` makes existing encrypted tokens unreadable.**
-- Email OTP plugin (6-digit codes, 5-min expiry, sent via Resend using the react-email templates in `src/emails/`)
-- OpenAPI plugin (non-production only)
+### Secrets (`src/local/settings/`)
 
-**Crypto:** `src/auth/crypto.ts` — `encrypt()`/`decrypt()` utility. Use `decrypt()` when reading OAuth tokens from the `auth.account` table.
+`SecretsService` holds the credential bundle (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `DB_ENCRYPTION_KEY`, the five `SMTP_*`/`EMAIL_FROM` fields, `SLACK_BOT_TOKEN`, and the two OpenAI model overrides) in memory, seeded from env at construction. `update(partial)` writes memory **and** `process.env`, then posts `{ type: 'secrets:save', bundle }` over `process.parentPort` — the Electron main process encrypts it into `userData/secrets.bin` with `safeStorage`. Outside Electron there is no parent port, so an update is memory-only for the boot, which is right for headless dev.
 
-**Routes:** Better Auth endpoints at `/api/auth/*` (handled by the wrapper; the exception filter passes these through untouched). A custom `POST /api/email-otp/send-verification` endpoint lives in `src/auth/email-otp.controller.ts`.
-
-**Decorators** (from `@thallesp/nestjs-better-auth`): `@AllowAnonymous()`, `@OptionalAuth()`, `@Session()`.
-
-**Flow docs:** `docs/auth-signup-flow.md`, `docs/google-oauth-flow.md`, `docs/auth-api.md`.
+**Nothing is ever read back out.** `GET /api/local-settings` answers booleans for the credentials, plus the data directory and the two effective model names, which are not secrets. Anything that needs a value asks `SecretsService` inside the process.
 
 ### Errors
 
@@ -139,121 +145,94 @@ All in `src/common/errors/`:
 - Transports: dev = pretty console + rolling file; production = file only. File via `pino-roll` at `LOG_FILE_PATH` (default `../../logs/app.log`, i.e. `<repo-root>/logs/`), max size/retention via `LOG_FILE_MAX_SIZE`/`LOG_FILE_KEEP_FILES`.
 - Use the standard NestJS `Logger` class in services/handlers — it routes through pino (`app.useLogger(app.get(Logger))` in main.ts).
 
-### Background jobs (Temporal)
+### Background jobs (`src/jobs/`)
 
-Background jobs run on [Temporal](https://temporal.io/) via a thin in-house bridge layer in `src/temporal/` (replaces the old pg-boss integration; `src/queue/` now only holds the `noop` smoke-test activity/controller).
+Temporal is gone. Background work is a `jobs` table plus an in-process poll loop, in **one** process with the API.
 
-**Topology.** A single fused Temporal server (`temporalio/auto-setup:1.25.2`) runs alongside the app's existing Postgres (port 11753), using **Postgres advanced visibility** (`DB=postgres12`, `ENABLE_ES=false` — no Elasticsearch). It provisions its own `temporal` and `temporal_visibility` databases on that same Postgres instance; only the Temporal server process talks to them. The **Temporal Web UI** (`temporalio/ui:2.34.0`) is at **http://localhost:8080**, and `temporalio/admin-tools:1.25.2-tctl-1.18.1-cli-1.1.2` provides the `temporal` CLI used for search-attribute setup (below). All four services (`postgres`, `temporal`, `temporal-ui`, `temporal-admin-tools`) are defined in the repo-root `docker-compose.yaml`.
+**The table.** `public.jobs`: `id`, `type`, `args` (jsonb), `state` (`pending|running|failed`), `attempts`, `max_attempts`, `run_at`, `phase`, `organization_id`, `error`. A **succeeded job is deleted**, so the table is a work queue, not a history — "drained" means empty.
 
-**Two processes.** The NestJS **API** (`src/main.ts`) is a Temporal client only: it starts workflows and queries visibility, and runs no worker. A separate **worker** process (`src/worker.ts`) polls the task queue and executes activities against the app DB via Kysely — it holds zero Temporal-DB connections, only app-DB ones. Run it with `pnpm start:worker:dev` (or `pnpm dev:worker` from the repo root); production runs `pnpm start:worker` (`node dist/worker.js`) or the root `pnpm start:prod:worker`. The repo-root `pnpm dev` runs frontend + API + worker + packages together.
+**`JobQueueService.enqueue(type, args, opts)`** — the producer. `opts.id` is a stable dedup key (`on conflict do nothing`), which is what `startDeduped` / `workflowIdConflictPolicy: USE_EXISTING` bought: `scan:<repositoryId>:<branch>`, `analyze:<repositoryId>:<branch>:<sinceISO>`, `brief:<briefId>`, `sweep:<repositoryId>:<branch>:<runDate>`, `dispatch:<YYYY-MM-DDTHH:mm>`. `opts.phase` and `opts.organizationId` are the old `Phase` / `OrganizationId` search attributes, now columns.
 
-**Build output & plain-`node` launch.** `tsconfig.build.json` pins `rootDir` to `./src` (excluding `kysely.config.ts`, `migrations/`, and `docs/`, the only non-`src` `.ts` files in this package) so `nest build` emits a flat `dist/` — `dist/main.js` and `dist/worker.js` directly, not nested under `dist/src/`. This is what makes `start:prod`/`start:worker` (`node dist/main`/`node dist/worker.js`) and the root `start:prod:backend`/`start:prod:worker` scripts resolve correctly. `express` is a **direct** dependency (not just transitive via `@nestjs/platform-express`) so `auth.module.ts`/`queue.module.ts`'s `import * as express from 'express'` resolves under a plain `node dist/...` launch with no `NODE_PATH` needed.
+**`JobRunnerService`** — two loops, 1 s idle poll. A claim is a single `update … where id = (select … limit 1) returning *` statement: atomic without a transaction, which matters because PGlite has one connection and a transaction would block the other loop and every HTTP request. `attempts` increments **at claim time**, so a job that kills the process still burns its budget. On boot, `update jobs set state='pending' where state='running'` requeues whatever the dead process was holding.
 
-**Bridge layer (`src/temporal/`):** `TemporalModule.forRoot()` is global and provides `TEMPORAL_CLIENT` (a `@temporalio/client` `Client`) and `TemporalProducerService`.
+**A handler is the whole workflow body** — one call, one attempt. Returning succeeds (the row is deleted); throwing hands the job to its retry profile. `continueAsNew` became `while (cursor)`; `startChild(…, ABANDON)` became another `enqueue` with a stable id.
 
-**Producer API (`TemporalProducerService`):** inject anywhere and call:
+**Retry profiles** (`job-profiles.ts`), carried over verbatim from `temporal/workflows/activity-proxies.ts` since the existing code was tuned against them:
 
-- `start(workflowType, opts)` — starts a new workflow execution (auto-generates a `workflowId` unless `opts.workflowId` is given); resolves to the `workflowId` — the `{ jobId }` value returned by async endpoints.
-- `startDeduped(workflowType, opts)` — same, but requires `opts.workflowId` and sets `workflowIdConflictPolicy: 'USE_EXISTING'` (singleton/dedup semantics, replacing pg-boss's `sendOnce`).
-- `opts` also takes `args`, `searchAttributes`, and `startDelay` (replacing pg-boss's `sendAfter`).
+| Profile | maxAttempts | initial delay | backoff | Used by |
+|---|---|---|---|---|
+| `standard` | 4 | 30s | ×2 | brief generation, collaborator sync |
+| `slow` | 4 | 60s | ×2 | loc-stats, brief backfill, sweep |
+| `twice` | 3 | 1s | ×2 | analyze-repo planning |
+| `once` | 1 | — | — | due-brief dispatch |
+| `ingest` | 4 | 30s | ×2 | scan / backfill / incremental ingest |
 
-**Defining an activity:** mark a DI-bound method with `@Activity('name')`; `activity-registry.ts` discovers all `@Activity`-decorated providers via NestJS's `DiscoveryService`, and `src/worker.ts` binds the result into `Worker.create({ activities })` on boot.
+`startToCloseTimeout` and `heartbeatTimeout` are dropped: they existed to stop a worker sitting on a task while the server waited, and in-process there is no scheduler to defeat.
+
+**Registering a handler.** Each feature registers its own in `onModuleInit`, so no module has to import every feature:
 
 ```ts
-// some feature's activities provider
 @Injectable()
-export class MyThingActivities {
-  @Activity('feature.myThing')
-  async myThing(input: { id: string }): Promise<void> {
-    // business logic — runs in the worker process, against the app DB
+export class MyThingJobs implements OnModuleInit {
+  constructor(private readonly registry: JobHandlerRegistry) {}
+  onModuleInit(): void {
+    this.registry.register(JOB.myThing, (args) => this.run(args as MyThingInput));
   }
 }
 ```
 
-Workflows live in `src/temporal/workflows/*.ts` — pure, deterministic TypeScript with **no NestJS imports**, using `proxyActivities<Activities>()` (see `workflows/activity-proxies.ts` for the five shared retry profiles: `standard`/`slow`/`twice`/`once`/`ingest`), `startChild()`, `continueAsNew()`, and `sleep()`.
+An unregistered type is not a crash — the runner fails that job terminally, the honest outcome for a row enqueued by an older build.
 
-**Task queue:** a single queue, `TEMPORAL_TASK_QUEUE` (env, default `launchstack`).
+**`SchedulerService`** replaces the two Temporal Schedules with `setInterval`, both deduped on a clock-derived id (the old `ScheduleOverlapPolicy.SKIP`):
 
-**Search attributes:** two custom Keyword attributes — `OrganizationId` and `Phase` (`fetching|analyzing|generating`) — power the frontend's background-jobs toast. They're set on every org-scoped workflow start (child workflows inherit `OrganizationId` from the parent's args); LOC-stats workflows omit both (system-scoped work, never surfaced per-org). **Registration is a prerequisite for these starts, not just for querying**: Temporal rejects `StartWorkflowExecution` outright if it carries a custom search attribute that isn't registered on the namespace, so on a fresh cluster every org-scoped workflow start (collaborator sync, commit backfill, analysis, brief generation) would fail until this runs. `SchedulesBootstrap` (`src/temporal/schedules.bootstrap.ts`) now **auto-registers both attributes on API boot** via `client.connection.operatorService.addSearchAttributes()`, idempotently (an `ALREADY_EXISTS` gRPC error is logged and swallowed, like the schedule-create call it runs alongside) and gated the same way (`TEMPORAL_MANAGE_SCHEDULES`). `apps/backend/scripts/register-search-attributes.sh` remains as a manual fallback (e.g. to register ahead of first API boot, or against a cluster with schedule management disabled) — wraps `temporal operator search-attribute create` against the `temporal-admin-tools` container, safe to re-run. `JobActivityService` (`src/jobs-activity/`) counts Running workflows per phase via Temporal Visibility (`client.workflow.count`); the `JobActivityResponse { active, fetching, analyzing, generating }` contract is unchanged, so the frontend needed no changes.
+- **due-brief dispatch** every 60 s, id `dispatch:<YYYY-MM-DDTHH:mm>`.
+- **repository sweep** every 15 min **and once on boot**, id `sweep:<YYYY-MM-DD>`. On boot because a desktop app is launched *because* the user wants current data.
 
-**Workflow / activity catalog:**
+Neither is catch-up machinery: `claimDue` claims on `nextRunAt <= now` and the sweep re-derives its window from what is stored, so a laptop closed for a week resolves in one run, not 10,080.
 
-| Workflow | Activities | Phase SA | Purpose |
+**Job catalog:**
+
+| Type (`JOB.*`) | Handler | Phase | Purpose |
 | --- | --- | --- | --- |
-| `NoopWorkflow` | `noop.run` | — | Smoke test |
-| `SyncRepoCollaboratorsWorkflow` | `collaborators.syncRepo` | `fetching` | Syncs repo collaborators (on connect, webhook, or manual) |
-| `ScanRepositoryWorkflow` | `commits.backfillFromLatest` (+ starts `AnalyzeRepoWorkflow`) | `fetching` | One per (repository, branch); started when a branch becomes tracked, kicks off backfill + analysis |
-| `BackfillCommitsWorkflow` | `commits.backfill` | `fetching` | Pulls a specific commit range for one (repository, branch) from the GitHub API |
-| `IngestNewCommitsWorkflow` | `commits.planIngest`, then `commits.backfill` (resume) or `commits.backfillFromLatest` (adopt) (+ starts `AnalyzeRepoWorkflow`) | `fetching` | One incremental read of a (repository, branch): plans the window, fetches the tail, analyses it. Started by the `push` webhook and by the nightly sweep |
-| `SweepRepositoriesWorkflow` | `commits.listSweepTargets` (+ starts `IngestNewCommitsWorkflow` per tracked pair) | — (system-scoped; children carry the org) | Fired nightly by the `github-sweep-daily` Schedule; one incremental read per tracked (repository, branch), pages of 200 with continue-as-new |
-| `AnalyzeRepoWorkflow` | `analysis.planRepoAnalysis`, `analysis.analyzeCommit` | `analyzing` | Fans out per-commit OpenAI analysis in bounded batches; continues-as-new past a size threshold |
-| `GenerateBriefWorkflow` | `briefs.markGenerating`, `briefs.generateContent`, `briefs.deliver` | `generating` | Generates one brief (scope → commits → OpenAI), then delivers |
-| `BackfillBriefsWorkflow` | `briefs.planBackfill` (+ starts `GenerateBriefWorkflow` per id) | `generating` | On schedule creation, creates historical briefs (no delivery) |
-| `DispatchDueBriefsWorkflow` | `briefs.claimDue` (+ starts `GenerateBriefWorkflow` per due brief) | `generating` | Fired by the `briefs-dispatch-due` Schedule; finds due schedules, creates pending briefs |
-| `BackfillLocStatsWorkflow` | `loc.zeroFillAndFindMissing` (+ starts `BackfillRepoLocStatsWorkflow` per repo) | — (system-scoped) | Defined but **not started from application code** — trigger manually via the Temporal CLI/UI if a LOC backfill is ever needed again |
-| `BackfillRepoLocStatsWorkflow` | `loc.pageRepo` | — | Pages LOC stats per repo; continues-as-new until history is exhausted |
+| `collaborators.syncRepo` | `CollaboratorJobs` | `fetching` | Syncs repo collaborators on connect/disconnect or on demand |
+| `github.scanRepository` | `CommitAnalysisJobs` | `fetching` | One per (repository, branch), started when a branch becomes tracked; first read + analysis |
+| `github.backfillCommits` | `CommitAnalysisJobs` | `fetching` | Pulls a specific commit range for one (repository, branch) |
+| `github.ingestNewCommits` | `CommitAnalysisJobs` | `fetching` | One incremental read: plan the window, fetch the tail, analyse it |
+| `github.sweep` | `CommitAnalysisJobs` | — (system-scoped) | Fans out one `ingestNewCommits` per tracked pair, 200 per page |
+| `analysis.analyzeRepo` | `CommitAnalysisJobs` | `analyzing` | Per-commit OpenAI analysis, `BATCH = 5` concurrent (was 50 on a pooled org key; this is the user's own quota from one laptop) |
+| `briefs.generate` | `BriefJobs` | `generating` | `markGenerating` → `generateContent` → `deliver` |
+| `briefs.backfill` | `BriefJobs` | `generating` | On schedule creation, creates historical briefs (never delivered) |
+| `briefs.dispatchDue` | `BriefJobs` | `generating` | `claimDue`, then one `briefs.generate` per due brief |
+| `loc.backfill`, `loc.backfillRepo` | `CommitAnalysisJobs` | — | LOC-stats backfill; defined but not started from application code |
 
-**Schedules:** two, both created idempotently on API boot by `SchedulesBootstrap`, both gated by `TEMPORAL_MANAGE_SCHEDULES` (default `true`; `src/worker.ts` sets it to `false` so only one process creates them):
-
-- **`briefs-dispatch-due`** — interval `BRIEFS_DISPATCHER_INTERVAL_SECONDS` (default 60s), overlap policy `SKIP` (only one dispatch run in flight at a time), action = start `DispatchDueBriefsWorkflow`. Replaces the old self-rescheduling dispatch loop.
-- **`github-sweep-daily`** — cron `55 23 * * *` in `Etc/UTC`, overlap `SKIP`, action = start `SweepRepositoriesWorkflow`. The nightly catch-up behind the `push` webhook. Both values are the `SWEEP_CRON`/`SWEEP_TIMEZONE` constants in `schedules.bootstrap.ts`, not env vars — editing them is the whole change, since the spec is synced on boot for an existing cluster.
-
-Both are **synced when they already exist**, because `schedule.create` is a no-op on an existing Schedule and a changed interval or cron would otherwise never reach a running cluster. The interval is patched in place; the sweep's spec is *replaced* wholesale, since a described cron comes back normalised into `structuredCalendar` and writing `cronExpressions` alongside it would leave both in the spec.
-
-**Retry / dedup / delay mapping** (from the old pg-boss job defs; see `activity-proxies.ts` for the concrete retry profiles):
-
-| pg-boss | Temporal |
-| --- | --- |
-| `retryLimit N` | `RetryPolicy.maximumAttempts = N + 1` |
-| `retryDelay` | `initialInterval` |
-| `retryBackoff: true` | `backoffCoefficient: 2` (else `1`) |
-| `sendOnce(key)` | `startDeduped(type, { workflowId: key })` → `workflowIdConflictPolicy: 'USE_EXISTING'` |
-| `sendAfter(delaySeconds)` | `start(type, { startDelay })`, or an in-workflow `sleep()` before `continueAsNew()` for self-rescheduling loops |
-
-**Smoke test:**
-
-```bash
-curl -X POST http://localhost:3000/api/_internal/queue/noop \
-  -H "Content-Type: application/json" \
-  -H "X-Internal-Token: $INTERNAL_API_TOKEN" \
-  -d '{"message":"hello"}'
-```
-
-Returns `201 { data: { jobId: "NoopWorkflow:..." }, message: "enqueued", success: true }`. Watch the workflow run to Completed in the Temporal UI at http://localhost:8080.
-
-**Operational notes:**
-
-- **First-run setup.** `temporalio/auto-setup` provisions the `temporal`/`temporal_visibility` databases on first boot. Search attributes are auto-registered on API boot by `SchedulesBootstrap` before org-scoped workflows can start (Temporal rejects a start carrying an unregistered custom search attribute); `apps/backend/scripts/register-search-attributes.sh` is a manual fallback for the same registration (safe to re-run).
-- **Concurrency.** A single task queue (`launchstack`) with worker-level concurrency caps (`maxConcurrentActivityTaskExecutions`/`maxConcurrentWorkflowTaskExecutions`, both 20 in `src/worker.ts`) stands in for pg-boss's per-queue `localConcurrency`. If a specific activity type needs a hard cap, split it onto its own task queue with a dedicated worker.
-- **Legacy cleanup.** The old `pgboss` Postgres schema (from the pre-migration system) is orphaned after cutover; dropping it is a separate manual step, not automated by anything here.
+`JobActivityService` (`src/jobs-activity/`) counts running jobs per phase straight off the table (`select phase, count(*) … where state = 'running' group by phase`). The `JobActivityResponse { active, fetching, analyzing, generating }` contract is unchanged, so the frontend needed no changes.
 
 ## DevSummary Domain
 
 ### HTTP route map
 
-All org-scoped routes require the `x-organization-id` header and pass through `OrgContextGuard`.
+Every route except `/api/health*` requires the `x-desktop-token` header. Org-scoped routes read `x-organization-id` and fall back to the default workspace when it is absent.
 
 | Prefix | Controller | Notes |
 | --- | --- | --- |
-| `api/organizations` | organizations | create, `/me`, `/current` (get/patch/delete), transfer-ownership |
-| `api/organizations/current/members` | members | list, role update, leave, remove |
-| `api/organizations/current/invites` + `api/invites/*` | invites | admin side + invitee side; `/invites/preview` is public |
+| `api/organizations` | organizations | create, `/me`, `/current` (get/patch/delete) |
 | `api/organizations/current/projects` | briefs/projects | CRUD + `PUT /:id/repositories` |
 | `api/organizations/current/teams` | briefs/teams | CRUD + `PUT /:id/collaborators` |
 | `api/organizations/current/brief-schedules` | briefs/schedules | CRUD + pause/resume |
-| `api/organizations/current/briefs` | briefs/generation | list (cursor pagination + filters), get (with commit-type counts), `GET /:id/commits`, `POST /generate` (202 + jobId) |
-| `api/organizations/current/collaborators` | github/collaborators | org-wide collaborator list |
-| `api/integrations/github/installations` | github | list, `POST /start` (install URL), `GET /callback`, sync, disconnect |
-| `api/integrations/github/webhook` | github | public; HMAC-verified, events stored idempotently (delivery UUID PK), jobs enqueued (`member` → collaborator sync, `push` → incremental commit ingestion) |
-| `api/integrations/github/repositories` | github | `GET /:repoId/branches` (live from GitHub), `POST /branches` (batch: set each repo's branch **once** + start ingestion, 202; 409 on an already-configured repo) |
+| `api/organizations/current/briefs` | briefs/generation | list (cursor pagination + filters), get, `GET /:id/commits`, `GET /:id/report`, `POST /generate` (202 + jobId), `POST /:id/deliver` |
+| `api/organizations/current/collaborators` | github/collaborators | workspace-wide collaborator list |
+| `api/organizations/current/analytics` | analytics | dashboard commit-activity buckets |
+| `api/organizations/current/jobs` | jobs-activity | background-job counts per phase |
+| `api/integrations/github` | github | `GET` status, `POST /token` (paste a PAT), `DELETE` disconnect, `POST /installations/:id/sync` |
+| `api/integrations/github/repositories` | github | `GET ingest-status`, `GET /:repoId/branches` (live from GitHub), `POST /branches` (batch: set each repo's branch **once** + start ingestion, 202; 409 on an already-configured repo) |
 | `api/integrations/github/repositories/:id/collaborators` | github/collaborators | list, `POST /sync` |
 | `api/integrations/github/repositories/:repoId/commits` | github/commit-analysis | commit/analysis endpoints, backfill triggers |
-| `api/integrations/slack/installations` | slack | list, `POST /start`, `GET /callback`, disconnect (revokes token) |
+| `api/integrations/slack/installations` | slack | `GET`, `POST /token` (paste a bot token), `GET /scopes`, `DELETE /:id` (revokes) |
 | `api/integrations/slack` | slack | `GET /channels`, `GET /members`, `POST /messages` |
-| `api/email-otp` | auth | `POST /send-verification` |
-| `api/waitlist` | waitlist | public; `POST /` stores the email in `marketing.waitlist` (unique index dedupes a repeat), rate limited to 5/min per IP in process memory |
-| `api/_internal/queue` | queue | noop smoke test (`x-internal-token`) |
-| `api/health` | health | public; `GET /` readiness (Postgres + Temporal, 200/503), `GET /live` liveness (no dependencies, always 200) |
+| `api/local-settings` | local/settings | `GET` status (booleans + dataDir + effective models), `GET /usage` (token totals), `PUT /credentials`, `POST /test-email` |
+| `api/health` | health | public; `GET /` readiness (PGlite ping, 200/503), `GET /live` liveness |
+
+There is no webhook receiver, no OAuth callback and no internal queue endpoint — all three are deleted.
 
 ### Briefs pipeline (`src/briefs/`)
 
@@ -261,7 +240,7 @@ Scope types: **project** (repo group), **team** (collaborator group), **collabor
 
 A **repository** scope is validated against the tracked set at the boundary — both `BriefSchedulesService.assertScopeInOrg` and `BriefsService.assertScopeInOrg` reject a repository with no branch chosen (`GITHUB_REPOSITORY_BRANCH_NOT_CONFIGURED`) and a `branch` that is not the one it reads (`GITHUB_REPOSITORY_BRANCH_NOT_TRACKED`). Without that, a schedule over an inert repository generates and *delivers* an empty brief on every tick forever with nothing pointing at the cause. Project and team scopes are deliberately not blocked the same way — their membership changes independently of the schedule — so the frontend labels unconfigured repositories in the project picker instead.
 
-1. **Schedule** (`schedules/`) — CRUD with cadence (daily/weekly/monthly at a time in a timezone). `CadenceService` computes period windows and `nextRunAt`. Creating a schedule starts a `BackfillBriefsWorkflow`.
+1. **Schedule** (`schedules/`) — CRUD with cadence (daily/weekly/monthly at a time in a timezone). `CadenceService` computes period windows and `nextRunAt`. Creating a schedule enqueues `briefs.backfill`.
 
    **`CadenceService` deliberately uses no date library.** `date-fns-tz` was removed from it: `toZonedTime`, `formatInTimeZone` and `fromZonedTime` all probe the offset by reading a server-local `Date`'s fields, so every result depended on the *server's* zone — under `TZ=America/New_York` an `Asia/Kolkata` 02:30 schedule fired at 03:30 on the US spring-forward day, and under `TZ=America/Santiago` (which transitions at midnight) period boundaries lost their first hour and `windowsInRange` looped forever on the doubled local midnight. In its place: `wallClockIn` (a cached `Intl.DateTimeFormat('en-CA', { hourCycle: 'h23' })` per zone), `offsetAt`, and `zonedInstant` (two-pass offset resolution, rounding a spring-forward gap up to the first valid local instant), with calendar arithmetic on `YYYY-MM-DD` keys. `@date-fns/tz@1.5` — date-fns v4's companion, a genuinely different design from `date-fns-tz@3` — was re-evaluated against this file in August 2026 and **also loses**, on two of four correctness checks. It resolves a nonexistent wall clock to *requested + gap width* (Lord Howe 02:15 → 02:45, want 02:30, the transition), wrong on 392 of 522 probes across all 130 forward transitions in tzdata 2026; and it still reads the system `getTimezoneOffset()` to compensate for the process zone, so `America/Santiago` 23:45 moves an hour between `TZ=UTC` and `TZ=America/New_York`, and `Pacific/Chatham` local midnight — i.e. `zonedStartOfDay`, which stored period boundaries depend on — moves with the host. It passes the "window is exactly the local day" check only by coincidence: day boundaries ask for 00:00 and every midnight gap starts *at* 00:00, so requested + gap width happens to equal the transition there and nowhere else.
 
@@ -274,13 +253,13 @@ A **repository** scope is validated against the tracked set at the boundary — 
    - The brief-list filters compare against the stored exclusive end with `period_end > from` and `period_end <= to`, and the frontend sends both bounds as exclusive local midnights. `>=` on `from` would wrongly match the brief covering the previous day, which now ends at exactly that instant.
 
    The exclusive end is `startOfDay(nextCalendarKey, tz)` — the *next key's* midnight, never `+24h` and never `+1ms`. That makes tiling structural rather than arithmetic: a window's `end` and the next window's `start` are the same expression on the same key, so whatever the two-pass resolution decides for an ambiguous or nonexistent local midnight, both sides get the identical instant. Verified across all 418 IANA zones × 3 cadences × a year: 180,524 windows, zero gaps or overlaps.
-2. **Dispatch** (`temporal/` + `generation/activities/`) — a Temporal **Schedule** (`briefs-dispatch-due`, created on API boot by `SchedulesBootstrap`, interval `BRIEFS_DISPATCHER_INTERVAL_SECONDS` default 60s, overlap policy `SKIP`) fires `DispatchDueBriefsWorkflow`, which runs the `briefs.claimDue` activity (`BriefActivities.claimDue`), then starts a `GenerateBriefWorkflow` per returned brief.
+2. **Dispatch** (`jobs/scheduler.service.ts` + `generation/activities/`) — a 60 s `setInterval`, deduped on `dispatch:<YYYY-MM-DDTHH:mm>` (the old overlap policy `SKIP`), enqueues `briefs.dispatchDue`, whose handler runs `BriefActivities.claimDue` and then enqueues one `briefs.generate` per returned brief.
 
    `claimDue` runs in **two phases, one transaction per schedule** — never one transaction for the whole batch. Phase 1 reads up to `BRIEFS_DISPATCH_BATCH_SIZE` due schedule ids; phase 2 opens a transaction per id that re-locks that single row (`FOR UPDATE SKIP LOCKED`, re-checking the same due predicates), creates the brief rows, and advances `nextRunAt`. **Preserve the per-schedule transaction boundary**: a batch-wide transaction means one bad row aborts every tenant's dispatch while the per-row `catch` logs success, because Postgres answers `COMMIT` with `ROLLBACK` without raising.
 
-   Three related guarantees live here: missed periods are all created but only the most recent one gets `deliver: true` (the rest are backfill-style, so a week of downtime cannot fan out a week of emails); briefs left `pending` past `BRIEFS_PENDING_REAP_MINUTES` are re-dispatched, covering a worker that died after the claim committed; and a schedule that fails dispatch repeatedly accumulates `dispatch_failure_count` and is auto-paused at 5, so it stops holding the oldest `next_run_at` and starving healthy schedules. `briefs_schedule_period_active_unique` makes a duplicate claim a `23505` the claim path treats as "already claimed".
-3. **Generate** — `GenerateBriefWorkflow` runs `briefs.markGenerating` then `briefs.generateContent` (`BriefActivities`, backed by `BriefGeneratorService`) → `BriefScopeResolver` (scope → repo IDs + optional author filter) → fetch commits + their analyses → `buildBriefUserPrompt()` (truncates to `BRIEFS_MAX_PROMPT_CHARS`, default 30k) → `OpenAIBriefClient` (OpenAI `responses.parse()` with Zod `BriefOutputSchema` → `{ title, summary }`; model `OPENAI_BRIEF_MODEL`, default gpt-4o-mini). Stores title/summary/token counts and links commits via `brief_commits` (`BriefCommitsRepository.replaceForBrief()`). Zero-commit periods produce "no activity" briefs without an LLM call.
-4. **Deliver** (`delivery/`) — `BriefDelivererService` sends email (Resend, HTML from `BriefRenderService`) and Slack (markdown via `SlackMessagesService`) in parallel, then sets brief status `delivered`/`failed` (+ `failureReason`) and `schedule.lastSentAt`. Backfilled briefs skip delivery.
+   Three related guarantees live here: missed periods are all created but only the most recent one gets `deliver: true` (the rest are backfill-style, so a week of downtime cannot fan out a week of emails); briefs left `pending` past `BRIEFS_PENDING_REAP_MINUTES` are re-dispatched, covering a process that died after the claim committed; and a schedule that fails dispatch repeatedly accumulates `dispatch_failure_count` and is auto-paused at 5, so it stops holding the oldest `next_run_at` and starving healthy schedules. `briefs_schedule_period_active_unique` makes a duplicate claim a `23505` the claim path treats as "already claimed".
+3. **Generate** — the `briefs.generate` handler runs `markGenerating` then `generateContent` (`BriefActivities`, backed by `BriefGeneratorService`) → `BriefScopeResolver` (scope → repo IDs + optional author filter) → fetch commits + their analyses → `buildBriefUserPrompt()` (truncates to `BRIEFS_MAX_PROMPT_CHARS`, default 30k) → `OpenAIBriefClient` (OpenAI `responses.parse()` with Zod `BriefOutputSchema` → `{ title, summary }`; model `OPENAI_BRIEF_MODEL`, default gpt-4o-mini). Stores title/summary/token counts and links commits via `brief_commits` (`BriefCommitsRepository.replaceForBrief()`). Zero-commit periods produce "no activity" briefs without an LLM call.
+4. **Deliver** (`delivery/`) — `BriefDelivererService` sends email (SMTP, HTML from `BriefRenderService`), Slack (markdown via `SlackMessagesService`) and, when enabled, a desktop notification, in parallel; then sets brief status `delivered`/`failed` (+ `failureReason`) and `schedule.lastSentAt`. Backfilled briefs skip delivery.
 
 Brief listing uses base64url cursor pagination with filters (scheduleId, scopeType, period, excludeNoActivity).
 
@@ -294,38 +273,44 @@ Brief listing uses base64url cursor pagination with filters (scheduleId, scopeTy
 
 Two things deliberately left on author date: `analytics/` dashboard buckets (a live-queried surface where nothing can be lost, and switching would shift every historical chart), and, unavoidably, teams that merge with `--no-ff` — those branch commits keep their original committer dates, so their landing date is off by the branch's lifetime. The exact fix for that is a landing timestamp stored at ingest time, resolved differently for a historical read than an incremental one.
 
+
 ### GitHub integration (`src/integrations/github/`)
 
-- Uses a **GitHub App** (`@octokit/app`), not user OAuth tokens. `GithubAppClient` wraps installation-scoped API calls (repos, commits, collaborators).
-- Install flow: `POST /start` returns the GitHub install URL with a JWT state token (signed with `BETTER_AUTH_SECRET` by `StateTokenService`); `GET /callback` verifies state, reconciles repos (upsert + soft-delete missing), starts `SyncRepoCollaboratorsWorkflow` per connected repo, and redirects to `<FRONTEND_URL>/integrations/github/setup?connected=1`.
-- **Commit ingestion is never started by connect or sync.** A repository is read only on the branch it is tracked on — `github.repository_branches`, partial-unique on `(repository_id, branch) where deleted_at is null`. No live row = the repo is inert (no fetch, no analysis, no contribution to briefs). `RepositoryBranchesService.setBranches` (`POST /api/integrations/github/repositories/branches`, admin) sets each repository's branch and is the only caller that starts `ScanRepositoryWorkflow`, with the request's `lookbackDays` (30/90) instead of the old hardcoded 365. `MAX_HISTORY_DAYS` (90, in `@launchstack/api-interfaces`) is the ceiling on history *everywhere* — this window, the manual backfill endpoint's `days`, and a schedule's brief backfill, which `planBackfill` clamps to it. Widening it means widening the up-front OpenAI bill for connecting a repository, which is a pricing decision, not a config tweak. **One repository reads one branch**: the request carries a single `branch` per repository, and nothing writes a second row. The table stays a set (and the queries stay branch-filtered) so a multi-branch mode can arrive without a migration or a data backfill.
-- **The choice is write-once.** `RepositoryBranchesRepository.setBranchOnce` refuses any second write for a repository — no swapping, no second branch — and the service turns that into `GITHUB_REPOSITORY_BRANCHES_LOCKED` (409). It is deliberately restrictive for now: changing it re-reads history and spends OpenAI tokens, and because attribution lives in `commit_branches` the old branch's commits would stay behind and keep appearing in briefs. The check and the insert run in one transaction behind a `SELECT … FOR UPDATE` on the repository row, because two admins pressing Start at once would otherwise both read an empty set and insert *different* branches, which no unique index catches. `deleted_at` stays on the table so untracking has somewhere to land when it is designed.
-- **Branch is an argument, never a lookup.** `ScanRepositoryWorkflow` / `BackfillCommitsWorkflow` and the `commits.backfillFromLatest` / `commits.backfill` activities all carry `branch`; `CommitBackfillService` verifies it is still tracked and throws `GITHUB_REPOSITORY_BRANCH_NOT_TRACKED` otherwise (a stale workflow must not resurrect an untracked branch). Workflow dedup keys are `scan:<repositoryId>:<branch>` and `backfill:<repositoryId>:<branch>:<sinceDate>`. `POST /repositories/:repoId/commits/backfill` fans out one workflow per tracked branch (or takes an explicit `branch`), and refuses with `GITHUB_REPOSITORY_BRANCH_NOT_CONFIGURED` when none are tracked.
-- **Commit attribution:** `github.commit_branches` records which branches a commit was seen on — one row per `(commit_id, branch)`, many per commit, because branches share ancestry. `CommitsRepository.upsertMany` returns ids for already-present commits too (`DO UPDATE` + `RETURNING`, not `DO NOTHING`) so a commit first ingested from another branch still gets attributed; `linkToBranch` is idempotent. Adding a second branch is therefore cheap: shared commits keep their cached analyses, and only divergent commits cost OpenAI tokens.
-- Branch lists come from `GithubAppClient.listBranches` (GraphQL `refs` ordered by commit date, capped at 3 pages, `truncated` flag) — `GET /api/integrations/github/repositories/:repoId/branches`. REST's `/branches` carries no commit date, which is why this is GraphQL.
-- There is no untrack path yet. If one is added, it must keep the commits and their `commit_branches` rows — `briefs.brief_commits` references commits from briefs already delivered — and re-tracking should revive the soft-deleted row rather than re-fetch from scratch.
-- Webhooks: HMAC-SHA256 verified (`WebhookVerifierService`, raw body required), stored in `github.webhook_events` keyed by GitHub delivery UUID for idempotency, then dispatched to jobs (`member` events → collaborator sync, `push` events → commit ingestion).
-- **`push` is the ongoing-ingest trigger.** Branch setup reads the history window *once*; every commit after it arrives via a `push` delivery (a PR merge included — it lands as a push to the base branch). The GitHub App is subscribed to `push` (deliveries have been arriving in `github.webhook_events` since before this was handled); the subscription is dashboard config, not code, so a new App registration has to carry it or the repository stops updating after its initial read and briefs for later periods report no activity. A gap costs nothing to recover: the window is derived from the newest commit stored on the branch, not from the delivery, so the next push re-reads everything missed while nothing was consuming the event. `parsePushEvent` (`services/push-event.ts`) drops tag pushes, branch deletions, and payloads naming no commit before anything is routed; the rest start `IngestNewCommitsWorkflow`, deduped on `push:<repositoryId>:<branch>:<headSha>` so a redelivery reuses the run.
-- **A nightly sweep is the backstop.** The `github-sweep-daily` Schedule fires `SweepRepositoriesWorkflow` at 23:55 UTC, which starts one `IngestNewCommitsWorkflow` per tracked (repository, branch) — deduped on `sweep:<repositoryId>:<branch>:<runDate>` — regardless of whether a webhook arrived. It covers what a webhook cannot: a delivery GitHub never sent or we rejected, a stretch where the worker was down, an App registration missing the `push` subscription, commits pushed while the branch was being configured. It is cheap by construction: every child runs the same gate, so a repository with nothing new costs two indexed queries and no GitHub call. Fan-out pages 200 pairs per run and continues as new; the run date is stamped by the activity (a workflow cannot read a clock) and carried across the boundary so every child of one sweep shares an id namespace. The sweep itself carries **no** `OrganizationId` (it spans tenants); each child carries its own.
-- **Both triggers fetch only what is missing**, decided by `commits.planIngest` (`CommitBackfillService.planIngest`) on the worker rather than in the webhook request. Two gates: the named shas are checked against what is already attributed to that branch (join to `commit_branches`, not `commits` alone — a commit stored from another branch is not yet in this branch's briefs), and the window starts at `min(newest committedAt on the branch, earliest named timestamp)` rather than a lookback window. `committedAt` because that is what GitHub's `since` filters; the `min` because a force-push can rewind the branch to an older base. The sha gate is skipped when the caller names no shas (the sweep) or when GitHub truncated the payload, since the shas it *didn't* name prove nothing. A push or sweep for a branch the repository does not read is a no-op — one repository reads one branch.
-- **A branch with no stored history is adopted, not skipped.** `planIngest` returns `mode: 'adopt'` (there is no high-water mark to resume from) and `IngestNewCommitsWorkflow` runs `commits.backfillFromLatest` with `ADOPT_LOOKBACK_DAYS` (30, a workflow constant) — the same lookback-bounded first read branch setup performs. That is what recovers a repository whose setup scan failed, one tracked while the worker was down, or one inert since before ingestion existed. Adoption is keyed on "nothing stored", **not** on the trigger, on purpose: a push arriving at a never-read branch would otherwise store only the commits it named and resume from that mark forever, hiding the older history with no signal. A genuinely empty repository costs one `getLatestCommitDate` call per sweep (null window → no analysis child, nothing stored, so it is adopted again next night).
+- Uses a **fine-grained personal access token** the user pastes, not a GitHub App and not OAuth: an Electron app has no public callback URL. `GithubAppClient` keeps its name (it is the DI token every consumer injects) and its whole method surface; only authentication changed — one user PAT instead of per-installation App tokens. As a bonus it sees repositories through the *user's* access, which fixes the fork-inherited-collaborator gap the App had.
+- **Connect:** `POST /api/integrations/github/token` validates the token against `GET /user` and `GET /user/repos` with a throwaway client *before* anything is stored, then writes the row (token sealed with AES-256-GCM into `installations.raw` — there is no dedicated column and shipped migrations are frozen), reconciles repositories (upsert + soft-delete missing), updates `SecretsService` so the keychain bundle and `GET /api/local-settings` agree, and fans out collaborator sync. Re-pasting a rotated token updates the row in place; deleting and recreating it would orphan every repository and commit under it.
+- **Commit ingestion is never started by connect or sync.** A repository is read only on the branch it is tracked on — `github.repository_branches`, partial-unique on `(repository_id, branch) where deleted_at is null`. No live row = the repo is inert (no fetch, no analysis, no contribution to briefs). `RepositoryBranchesService.setBranches` (`POST /api/integrations/github/repositories/branches`, admin) is the only caller that enqueues `github.scanRepository`, with the request's `lookbackDays` (30/90). `MAX_HISTORY_DAYS` (90, in `@launchstack/api-interfaces`) is the ceiling on history *everywhere*. **One repository reads one branch**: the request carries a single `branch` per repository, and nothing writes a second row.
+- **The choice is write-once.** `RepositoryBranchesRepository.setBranchOnce` refuses any second write for a repository — no swapping, no second branch — and the service turns that into `GITHUB_REPOSITORY_BRANCHES_LOCKED` (409). It is deliberately restrictive: changing it re-reads history and spends OpenAI tokens, and because attribution lives in `commit_branches` the old branch's commits would stay behind and keep appearing in briefs. The check and the insert run in one transaction behind a `SELECT … FOR UPDATE` on the repository row, because two concurrent Starts would otherwise both read an empty set and insert *different* branches, which no unique index catches.
+- **Branch is an argument, never a lookup.** `github.scanRepository` / `github.backfillCommits` and the `backfillFromLatest` / `backfillCommits` activities all carry `branch`; `CommitBackfillService` verifies it is still tracked and throws `GITHUB_REPOSITORY_BRANCH_NOT_TRACKED` otherwise. `POST /repositories/:repoId/commits/backfill` fans out one job per tracked branch (or takes an explicit `branch`).
+- **Commit attribution:** `github.commit_branches` records which branches a commit was seen on — one row per `(commit_id, branch)`, many per commit, because branches share ancestry. `CommitsRepository.upsertMany` returns ids for already-present commits too (`DO UPDATE` + `RETURNING`, not `DO NOTHING`) so a commit first ingested from another branch still gets attributed; `linkToBranch` is idempotent.
+- Branch lists come from `GithubAppClient.listBranches` (GraphQL `refs` ordered by commit date, capped at 3 pages, `truncated` flag). REST's `/branches` carries no commit date, which is why this is GraphQL.
+- **There are no webhooks.** A desktop machine has no public URL, so `push` deliveries cannot arrive; the webhook controller, the signature verifier and the push-event parser are all deleted, and `github.webhook_events` is a dead table. **Polling is the only ingest path**: `SchedulerService` enqueues `github.sweep` on boot and every 15 minutes, which fans out one `github.ingestNewCommits` per tracked (repository, branch). It is cheap by construction — a repository with nothing new costs two indexed queries and no GitHub call.
+- **A read fetches only what is missing**, decided by `CommitBackfillService.planIngest`. The window starts at `min(newest committedAt on the branch, earliest named timestamp)` rather than a lookback window — `committedAt` because that is what GitHub's `since` filters, the `min` because a force-push can rewind the branch to an older base.
+- **A branch with no stored history is adopted, not skipped.** `planIngest` returns `mode: 'adopt'` and the handler runs `backfillFromLatest` with `ADOPT_LOOKBACK_DAYS` (30) — the same lookback-bounded first read branch setup performs. That recovers a repository whose setup scan failed, or one tracked while the app was closed. Adoption is keyed on "nothing stored", **not** on the trigger.
 - **Commit analysis** (`commit-analysis/`): each non-merge commit's message + diff (capped at 60k chars) goes to OpenAI (`OPENAI_COMMIT_ANALYSIS_MODEL`) with a Zod structured output: `commit_type` (`fix|feature|optimization|refactor|docs|test|chore`), `summary`, `changes[]`. Results cached per commit in `github.commit_analyses` with token counts, truncation flag, and status (`analyzed|skipped_merge|skipped_empty|failed`).
 
 ### Slack integration (`src/integrations/slack/`)
 
-OAuth v2 flow mirroring GitHub's (state token → `GET /callback` → code exchange). One active installation per org (partial unique index where `deleted_at IS NULL`); bot token stored in `slack.installations` with the raw OAuth response. `SlackClient` wraps `@slack/web-api` (postMessage, paginated channel/member listing, token revoke on disconnect). Default scopes: `chat:write,channels:read,groups:read,users:read,channels:join`.
+No OAuth. The user creates a Slack app, grants the bot scopes, and pastes the `xoxb-` token into settings; `SlackInstallationsService.connectToken` validates it with `auth.test` and stores it encrypted in `slack.installations` (one active installation per workspace, partial unique index where `deleted_at IS NULL`). Re-pasting replaces it — rotating a bot token is the normal reason to come back. `SlackClient` wraps `@slack/web-api` (postMessage, paginated channel/member listing, token revoke on disconnect); `auth.revoke` runs only when this row is the last active holder of the Slack team, since it would otherwise kill delivery for another workspace. Required bot scopes are `SLACK_BOT_SCOPES` in `@launchstack/api-interfaces` — one source for the backend and the settings screen.
 
-### Emails (`src/emails/`)
+### Email delivery
 
-React Email templates rendered to `{ subject, html, text }` via `@react-email/render`: `otp-email.tsx` (verification / sign-in / password-reset variants) and `invite-email.tsx`. Sent through Resend. Because react-email is mocked in Jest, `pnpm test` also runs `src/emails/__tests__/render-integration.ts` with tsx to exercise real rendering.
+Resend is gone; there is no hosted email provider and no verified sending domain to arrange. `BriefEmailService` sends over **SMTP** with the user's own mailbox credentials (a Gmail app password, Fastmail, a company relay) via `nodemailer`, through the single `createTransport` call site in `src/local/settings/smtp.ts`. Credentials come from `SecretsService`, read **inside** the send path — nothing is loaded at construction, so booting with no SMTP settings cannot fail.
+
+`PUT /api/local-settings/credentials` runs `transporter.verify()` (connect + AUTH, no message sent) before storing, so a typo'd app password is a red field rather than a failed brief days later.
+
+The brief's HTML is rendered by `BriefRenderService` from the React Email template in `briefs/delivery/` — that is the only React Email left; the auth (OTP, invite) templates went with Better Auth, and `src/emails/` no longer exists.
+
+**A third channel: desktop notification.** `BriefDesktopService` posts `{ type: 'notification', title, body, briefId }` over `process.parentPort` and the Electron main process shows a native notification. It is `@Optional()` in `BriefDelivererService` and gated on a toggle in `local_settings`; outside Electron it fails with "desktop channel unavailable" rather than pretending. It deliberately does **not** appear in `delivered_channels`, whose union is `'email' | 'slack'` in both the DTO and the database types.
 
 ## Testing
 
-**Unit tests**: `*.spec.ts` under `src/` (convention: colocated `__tests__/` dirs). ESM-only packages don't work with Jest (CJS), so manual mocks in `src/__mocks__/` are wired via `moduleNameMapper` in package.json for: `@octokit/app`, `@slack/web-api`, `@thallesp/nestjs-better-auth`, `better-auth` (+ `/api`, `/plugins`), `openai` (+ `/helpers/zod`), `resend`, `@react-email/render`, `@react-email/components`.
+**Unit tests**: `*.spec.ts` under `src/` (convention: colocated `__tests__/` dirs). ESM-only packages don't work with Jest (CJS), so manual mocks in `src/__mocks__/` are wired via `moduleNameMapper` in package.json for: `@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`, `nodemailer`, `openai` (+ `/helpers/zod`), `@react-email/render`, `@react-email/components`.
 
-Activities (the migrated business logic, e.g. `BriefActivities`, `NoopActivity`) are unit-tested as plain NestJS providers — most current `*.spec.ts` files under `src/temporal/`, `src/briefs/generation/activities/`, etc. exercise them directly. Workflow orchestration itself (`src/temporal/workflows/__tests__/`) is tested with `@temporalio/testing`'s `TestWorkflowEnvironment` (time-skipping), mocking activities, for the orchestration-critical paths: `GenerateBriefWorkflow` (deliver on/off, empty, scope-deleted) and `AnalyzeRepoWorkflow` (fan-out + continue-as-new boundary).
+The `openai` mock's `responses.parse` dispatches on the schema name already carried in the request (`commit_analysis` vs `brief_output`), because the two callers' Zod schemas disagree and a commit analysis validated against `BriefOutputSchema` fails.
 
-When adding a new ESM-only dependency used in tested code, add a mock + `moduleNameMapper` entry.
+Job handlers and the activities behind them are unit-tested as plain NestJS providers. There is no workflow-orchestration test layer any more — a handler *is* the orchestration, so `commit-analysis.jobs.spec.ts` and `brief.jobs.spec.ts` cover what `@temporalio/testing` used to.
+
+When adding a new ESM-only dependency used in tested code, add a mock + `moduleNameMapper` entry — and the matching `resolve.alias` entry in `vitest.e2e.config.ts`, which is Vitest's equivalent (it does not read `moduleNameMapper`).
 
 **Timezone-sensitive tests** must pin the *process* zone, and `process.env.TZ = …` inside a spec does not do it — under Jest 30 the sandboxed `process.env` never reaches V8's timezone cache, so the assignment silently no-ops and the test runs in the boot zone. Use the 25-line custom environment instead, selected per file by docblock:
 
@@ -338,38 +323,42 @@ When adding a new ESM-only dependency used in tested code, add a mock + `moduleN
 
 Pick a zone and a date that actually transition, or the test proves nothing — the whole suite passed under `TZ=America/Santiago` while the cadence bug was live. `cadence.service.server-tz-new-york.spec.ts` (gap at 02:00, `2026-03-08`) and `cadence.service.server-tz-santiago.spec.ts` (gap at 00:00, `2026-09-06`) are the worked examples, and each asserts the harness itself first.
 
-**E2E tests** (`test/e2e/`): Vitest, not Jest — `better-auth` is ESM-only and cannot load in Jest's CJS runtime, which is why the unit tests mock it. The e2e suite runs the real thing against a `postgres:18` testcontainer (schema built by `kysely migrate:latest`, cloned per test file via `CREATE DATABASE … TEMPLATE`) and a real Temporal CLI dev server from `@temporalio/testing`. `resend` is the only mocked module. Note that each booted app holds **two** pg pools — the application Kysely pool and Better Auth's own from `createAuth()` — and only the first is closed by DI, so the harness ends the second explicitly. Config: `vitest.e2e.config.ts`; env: `.env.test`; details: `test/e2e/README.md`.
+**E2E tests** (`test/e2e/`): Vitest, not Jest — the suite renders brief HTML with the real ESM-only `@react-email/render`, which Jest's CJS runtime cannot load. **No Docker, no Postgres server, no network.** Each file builds its own `new PGlite()` with no data directory (`createTestDatabase()`), replays the migration chain, and boots the real `AppModule` with the `KYSELY_DB` token overridden to that instance (`createTestApp(db)`) — an in-memory PGlite lives inside one object, so the harness and the app must share it. Every outbound module is aliased to the same `src/__mocks__/` files Jest uses; `setup-file.ts` sets `globalThis.jest = vi` before they load.
+
+**Close exactly once.** `KyselyModule.onModuleDestroy` destroys the injected handle, so a spec that boots an app calls `testApp.close()` and nothing else; a DB-only spec calls the `close()` from `createTestDatabase()`. Kysely's `destroy()` is not idempotent.
+
+**The job runner and the scheduler are live in every booted e2e app.** Never `sleep()` to wait for background work — poll with `waitForJobs(db)` from `test/e2e/harness/wait-for-jobs.ts`, which drains on the empty table and re-throws a failed job's own error instead of timing out silently. `pipeline.e2e.spec.ts` is the end-to-end example: PAT connect → branch pick → scan/backfill/analyze → project → brief generated and delivered over the mocked SMTP transport.
+
+Config: `vitest.e2e.config.ts`; env: `.env.test`; details: `test/e2e/README.md`.
 
 ## API Conventions
 
-- All non-auth responses use `ApiResponse<T>` from `@launchstack/api-interfaces`: `{ data, message, success }`. Errors use the `ApiError` shape (`code`, `message`, `details?`) produced by `ApiException`.
-- Async work returns **202** with `{ jobId }` (e.g. brief generation, collaborator sync).
-- Example requests live in Requestly collections at the repo root: `requestly/apis/<Collection>/<Request>/` (collections: App, Auth, Briefs, Github, Internal, Invites, Organizations, Slack). Protected requests keep Bearer auth via `__auth.json`.
+- All responses use `ApiResponse<T>` from `@launchstack/api-interfaces`: `{ data, message, success }`. Errors use the `ApiError` shape (`code`, `message`, `details?`) produced by `ApiException`.
+- Async work returns **202** with `{ jobId }` (e.g. brief generation, branch setup, collaborator sync).
 
 ## Environment Variables
 
-See `.env.example` for the full template.
+See `.env.example` for the full template. In normal operation **the Electron main process supplies all of these** — it generates `API_TOKEN` and `DB_ENCRYPTION_KEY` on first launch, resolves `DATA_DIR` from `app.getPath('userData')`, and decrypts the rest out of `userData/secrets.bin`. A `.env` is only for headless development.
 
-**Required:**
+**Supplied by the shell:**
 
-- `DATABASE_URL` — PostgreSQL connection string (default port 11753 via Docker)
-- `BETTER_AUTH_SECRET` — Auth signing secret (`openssl rand -base64 32`); also derives the token-encryption key and signs integration state tokens
-- `BETTER_AUTH_URL` — Backend base URL (e.g., `http://localhost:3000`)
-- `FRONTEND_URL` — Frontend origin for trusted origins
-- `RESEND_API_KEY`, `EMAIL_FROM` — Email sending
+- `API_TOKEN` — per-boot bearer token for `LocalTokenGuard`. Absent means every request 401s.
+- `DATA_DIR` — the PGlite directory's parent (the database lands in `$DATA_DIR/data`). Defaults to `./.data`.
+- `DB_ENCRYPTION_KEY` — the passphrase AES-256-GCM keys derive from, protecting the stored GitHub PAT and Slack bot token. Generated once and then **stable**; `SecretsService` falls back to an ephemeral per-boot key with a warning rather than a hardcoded default.
+- `FRONTEND_URL` — used to build the "view in app" link in brief emails and Slack posts. Both leaf senders `getOrThrow` it.
 
-**Process timezone:** `TZ` (defaulted to `UTC` by `process.env.TZ ??= 'UTC'` as the first statement of both `src/main.ts` and `src/worker.ts`). The `auth` schema stores naive `timestamp` columns on purpose (Better Auth owns them — see the comment at `migrations/00001_init.ts:39-41`), and those round-trip consistently only while every process shares one zone; the API and the worker both boot `AppAuthModule`, so a deploy where their `TZ` differs shifts session and OTP expiry. Application logic no longer *depends* on the pin — `CadenceService` is process-zone independent by construction — so treat it as the safety net for the naive columns, not as the reason the rest is correct.
+**The secret bundle** (all optional — pasted in the settings screen, persisted by the shell, and writable at runtime through `PUT /api/local-settings/credentials`):
 
-**Temporal:** `TEMPORAL_ADDRESS` (default `localhost:7233`), `TEMPORAL_NAMESPACE` (default `default`), `TEMPORAL_TASK_QUEUE` (default `launchstack`), `TEMPORAL_MANAGE_SCHEDULES` (default `true`; the API process manages the `briefs-dispatch-due` and `github-sweep-daily` Schedules, `src/worker.ts` forces this `false`), `INTERNAL_API_TOKEN` (noop endpoint).
+- `GITHUB_TOKEN` — the fine-grained PAT. The authoritative copy is the encrypted `github.installations` row; this mirrors it so `GET /api/local-settings` has one source.
+- `OPENAI_API_KEY` — shared by commit analysis and brief generation.
+- `OPENAI_COMMIT_ANALYSIS_MODEL`, `OPENAI_BRIEF_MODEL` — both default `gpt-4o-mini`. Read live, so a change applies to the next job.
+- `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` — email delivery. Host, user and password are all required for the channel to count as configured.
+- `SLACK_BOT_TOKEN` — mirrors the encrypted `slack.installations` row, same as `GITHUB_TOKEN`.
 
-**GitHub App** (omit to run with a stub that rejects `GITHUB_APP_NOT_CONFIGURED`): `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
-
-**OpenAI** (required for commit analysis + briefs): `OPENAI_API_KEY` (shared), `OPENAI_COMMIT_ANALYSIS_MODEL`, `OPENAI_BRIEF_MODEL` (both default `gpt-4o-mini`).
+**Process timezone:** `TZ`, defaulted to `UTC` by `process.env.TZ ??= 'UTC'` as the first statement of `src/main.ts`. The `auth` schema stores naive `timestamp` columns (see `migrations/00001_init.ts:39-41`), so the pin is the safety net for those; application logic does not depend on it — `CadenceService` is process-zone independent by construction.
 
 **Briefs tuning:** `BRIEFS_DISPATCHER_INTERVAL_SECONDS` (60), `BRIEFS_MAX_PROMPT_CHARS` (30000), `BRIEFS_BACKFILL_MAX_BRIEFS` (100 — a backstop; the binding limit is the 90-day `MAX_HISTORY_DAYS` clamp), `BRIEFS_DISPATCH_BATCH_SIZE` (100), `BRIEFS_PENDING_REAP_MINUTES` (15), `BRIEFS_MAX_SCHEDULES_PER_ORG` (20).
 
-**Slack** (optional — omit any to disable): `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_REDIRECT_URI`, `SLACK_SCOPES`.
+**Logging:** `LOG_LEVEL` (info), `LOG_FILE_PATH` (`../../logs/app.log`), `LOG_FILE_MAX_SIZE` (50M), `LOG_FILE_KEEP_FILES` (7). `pino-http` logs request headers, so `authorization`, `cookie`, `set-cookie` and `x-desktop-token` are redacted; request **bodies** are never serialized, which is what keeps a pasted credential out of the log.
 
-**Google OAuth** (optional): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
-
-**Logging:** `LOG_LEVEL` (info), `LOG_FILE_PATH` (`../../logs/app.log`), `LOG_FILE_MAX_SIZE` (50M), `LOG_FILE_KEEP_FILES` (7).
+**Gone:** `DATABASE_URL`, `BETTER_AUTH_*`, `GOOGLE_*`, `RESEND_API_KEY`, `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET`, `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_REDIRECT_URI`/`SLACK_SCOPES`, `TEMPORAL_*`, `INTERNAL_API_TOKEN`.

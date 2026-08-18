@@ -7,8 +7,19 @@ function makeConfig(values: Record<string, string | undefined>) {
 }
 
 describe('loadCommitAnalysisConfig', () => {
-  it('returns null when OPENAI_API_KEY is missing', () => {
-    expect(loadCommitAnalysisConfig(makeConfig({}) as never)).toBeNull();
+  it('reports an empty apiKey when OPENAI_API_KEY is missing', () => {
+    expect(loadCommitAnalysisConfig(makeConfig({}) as never).apiKey).toBe('');
+  });
+
+  it('reads apiKey and model live, so a key pasted after boot takes effect', () => {
+    const values: Record<string, string | undefined> = {};
+    const cfg = loadCommitAnalysisConfig(makeConfig(values) as never);
+    expect(cfg.apiKey).toBe('');
+
+    values.OPENAI_API_KEY = 'sk-late';
+    values.OPENAI_COMMIT_ANALYSIS_MODEL = 'gpt-4.1';
+    expect(cfg.apiKey).toBe('sk-late');
+    expect(cfg.model).toBe('gpt-4.1');
   });
 
   it('returns config with hardcoded tunables when only OPENAI_API_KEY is set', () => {

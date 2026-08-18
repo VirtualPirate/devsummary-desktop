@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, Monitor, Moon, Send, Sun } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
 import {
   useLocalSettings,
+  useLocalSettingsUsage,
   useSendTestEmail,
   useUpdateLocalCredentials,
 } from "@/hooks/api/use-local-settings";
@@ -102,9 +103,56 @@ function SectionCard({
   );
 }
 
-function OpenAiSection({ configured }: { configured: boolean }) {
+const tokens = new Intl.NumberFormat();
+
+function TokenTotals() {
+  const usage = useLocalSettingsUsage();
+  const data = usage.data?.data;
+  if (!data) return null;
+
+  const rows = [
+    ["Commit analysis", data.analysisPromptTokens, data.analysisCompletionTokens],
+    ["Briefs", data.briefPromptTokens, data.briefCompletionTokens],
+  ] as const;
+
+  return (
+    <div className="mt-6 border-t pt-4">
+      <div className="text-sm font-medium">Tokens used</div>
+      <div className="mt-0.5 text-xs text-muted-foreground">
+        Everything this workspace has spent on your key, from the counts stored
+        on each commit analysis and brief.
+      </div>
+      <dl className="mt-3 grid max-w-md grid-cols-[1fr_auto_auto] gap-x-6 gap-y-1.5 text-xs">
+        <dt className="text-muted-foreground" />
+        <dd className="text-right text-muted-foreground">Prompt</dd>
+        <dd className="text-right text-muted-foreground">Completion</dd>
+        {rows.map(([label, prompt, completion]) => (
+          <Fragment key={label}>
+            <dt>{label}</dt>
+            <dd className="text-right font-mono">{tokens.format(prompt)}</dd>
+            <dd className="text-right font-mono">
+              {tokens.format(completion)}
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function OpenAiSection({
+  configured,
+  commitAnalysisModel,
+  briefModel,
+}: {
+  configured: boolean;
+  commitAnalysisModel: string;
+  briefModel: string;
+}) {
   const update = useUpdateLocalCredentials();
   const [key, setKey] = useState("");
+  const [analysisModel, setAnalysisModel] = useState("");
+  const [summaryModel, setSummaryModel] = useState("");
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -114,6 +162,24 @@ function OpenAiSection({ configured }: { configured: boolean }) {
       await update.mutateAsync({ openaiApiKey: value });
       setKey("");
       toast.success("OpenAI key saved");
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  // Blank submits nothing rather than clearing: an empty field here means "not
+  // editing", and the two models are saved together so one form does both.
+  const handleModels = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const payload: { commitAnalysisModel?: string; briefModel?: string } = {};
+    if (analysisModel.trim()) payload.commitAnalysisModel = analysisModel.trim();
+    if (summaryModel.trim()) payload.briefModel = summaryModel.trim();
+    if (Object.keys(payload).length === 0) return;
+    try {
+      await update.mutateAsync(payload);
+      setAnalysisModel("");
+      setSummaryModel("");
+      toast.success("Models saved");
     } catch (err) {
       toast.error(extractErrorMessage(err));
     }
@@ -143,13 +209,52 @@ function OpenAiSection({ configured }: { configured: boolean }) {
           {update.isPending ? "Saving…" : "Save key"}
         </Button>
       </form>
-      <p className="mt-4 text-xs text-muted-foreground">
-        Model overrides and running token totals aren&rsquo;t editable here yet —
-        both need a backend endpoint that does not exist. Models come from
-        <span className="font-mono"> OPENAI_COMMIT_ANALYSIS_MODEL</span> and
-        <span className="font-mono"> OPENAI_BRIEF_MODEL</span>; token counts are
-        recorded per brief and per commit analysis in the database.
-      </p>
+
+      <form
+        className="mt-6 max-w-md space-y-4 border-t pt-4"
+        onSubmit={handleModels}
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="openai-analysis-model">Commit analysis model</Label>
+          <Input
+            id="openai-analysis-model"
+            autoComplete="off"
+            spellCheck={false}
+            value={analysisModel}
+            onChange={(event) => setAnalysisModel(event.target.value)}
+            placeholder={commitAnalysisModel}
+            className="font-mono"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="openai-brief-model">Brief model</Label>
+          <Input
+            id="openai-brief-model"
+            autoComplete="off"
+            spellCheck={false}
+            value={summaryModel}
+            onChange={(event) => setSummaryModel(event.target.value)}
+            placeholder={briefModel}
+            className="font-mono"
+          />
+        </div>
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={
+            (!analysisModel.trim() && !summaryModel.trim()) || update.isPending
+          }
+        >
+          {update.isPending ? "Saving…" : "Save models"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          In effect now: <span className="font-mono">{commitAnalysisModel}</span>{" "}
+          for commits, <span className="font-mono">{briefModel}</span> for
+          briefs. A saved model applies to the next job — no restart.
+        </p>
+      </form>
+
+      <TokenTotals />
     </SectionCard>
   );
 }
@@ -292,7 +397,13 @@ function SmtpSection({
   );
 }
 
-function NotificationsSection({ enabled }: { enabled: boolean }) {
+function NotificationsSection({
+  enabled,
+  dataDir,
+}: {
+  enabled: boolean;
+  dataDir: string;
+}) {
   const update = useUpdateLocalCredentials();
 
   const handleToggle = async (next: boolean) => {
@@ -345,9 +456,10 @@ function NotificationsSection({ enabled }: { enabled: boolean }) {
         <div>
           <div className="text-sm font-medium">Data directory</div>
           <div className="mt-0.5 text-xs text-muted-foreground">
-            The database, logs and encrypted secrets live in this app&rsquo;s
-            user-data folder. Nothing exposes the path to this screen yet — see
-            the Phase 9 receipt.
+            The database, logs and encrypted secrets live here.
+          </div>
+          <div className="mt-2 rounded-md border bg-muted/40 px-2.5 py-1.5 font-mono text-xs break-all">
+            {dataDir}
           </div>
         </div>
       </CardContent>
@@ -362,9 +474,12 @@ export function SettingsPage() {
   const [slackTestOpen, setSlackTestOpen] = useState(false);
 
   const status = settings.data?.data;
-  // GitHub status comes from the installation row rather than the credential
-  // booleans: the PAT is stored by the integrations endpoint, which is what
-  // ingest actually reads.
+  // GitHub status stays on the installation row, not on `status.github`.
+  // `POST /integrations/github/token` now writes the credential flag too, so
+  // both are right inside the shell — but the flag is seeded from env at boot,
+  // and a headless `pnpm dev:frontend` against an already-connected database has
+  // no keychain to seed it from. The row is what ingest actually reads, and this
+  // screen already fetches it for the Slack-style card below.
   const githubConnected = (github.data?.data ?? []).length > 0;
   const slackConnected = (slack.data?.data ?? []).length > 0;
 
@@ -411,7 +526,11 @@ export function SettingsPage() {
           </div>
         </SectionCard>
 
-        <OpenAiSection configured={status?.openai ?? false} />
+        <OpenAiSection
+          configured={status?.openai ?? false}
+          commitAnalysisModel={status?.commitAnalysisModel ?? ""}
+          briefModel={status?.briefModel ?? ""}
+        />
 
         <SmtpSection
           configured={status?.smtp ?? false}
@@ -447,6 +566,7 @@ export function SettingsPage() {
 
         <NotificationsSection
           enabled={status?.desktopNotifications ?? false}
+          dataDir={status?.dataDir ?? ""}
         />
 
         <Card>

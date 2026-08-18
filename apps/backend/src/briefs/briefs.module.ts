@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as express from 'express';
-import { AppError } from '../common/errors';
 import { GithubIntegrationsModule } from '../integrations/github';
 import { GithubCollaboratorsModule } from '../integrations/github/collaborators/collaborators.module';
 import { CommitAnalysisModule } from '../integrations/github/commit-analysis/commit-analysis.module';
@@ -46,12 +45,6 @@ import { BriefSlackService } from './delivery/services/brief-slack.service';
 import { BriefDesktopService } from './delivery/services/brief-desktop.service';
 import { BriefDelivererService } from './delivery/services/brief-deliverer.service';
 
-function makeOpenAIStub(): OpenAIBriefClient {
-  return {
-    generate: () => Promise.reject(AppError.OPENAI_NOT_CONFIGURED()),
-  } as unknown as OpenAIBriefClient;
-}
-
 @Module({
   imports: [
     GithubIntegrationsModule,
@@ -73,9 +66,11 @@ function makeOpenAIStub(): OpenAIBriefClient {
     },
     {
       provide: OpenAIBriefClient,
+      // No not-configured stub: the config reads the key live, so "configured"
+      // is a per-call question now — `BriefGeneratorService` throws
+      // `OPENAI_NOT_CONFIGURED` when the key is still empty.
       inject: [BRIEFS_CONFIG_TOKEN],
-      useFactory: (cfg: BriefsConfig | null) =>
-        cfg ? new OpenAIBriefClient(cfg) : makeOpenAIStub(),
+      useFactory: (cfg: BriefsConfig) => new OpenAIBriefClient(cfg),
     },
 
     ProjectsRepository,

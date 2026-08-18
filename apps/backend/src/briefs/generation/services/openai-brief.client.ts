@@ -60,21 +60,25 @@ export interface GenerateBriefResult {
 }
 
 export class OpenAIBriefClient {
-  private sdkPromise: Promise<{
+  /** Keyed on the api key so a rotation in settings re-authenticates. */
+  private sdk: {
+    apiKey: string;
     client: OpenAIInstance;
     zodTextFormat: ZodTextFormatFn;
-  }> | null = null;
+  } | null = null;
 
   constructor(private readonly config: BriefsConfig) {}
 
   private async getSdk() {
-    if (!this.sdkPromise) {
-      this.sdkPromise = loadSdk().then(({ OpenAI, zodTextFormat }) => ({
-        client: new OpenAI({ apiKey: this.config.apiKey }),
-        zodTextFormat,
-      }));
+    // Read live: the key can be pasted into the settings screen at any point
+    // after boot, and there is no stub provider to swap out any more.
+    const apiKey = this.config.apiKey;
+    if (!apiKey) throw AppError.OPENAI_NOT_CONFIGURED();
+    if (this.sdk?.apiKey !== apiKey) {
+      const { OpenAI, zodTextFormat } = await loadSdk();
+      this.sdk = { apiKey, client: new OpenAI({ apiKey }), zodTextFormat };
     }
-    return this.sdkPromise;
+    return this.sdk;
   }
 
   async generate(args: GenerateBriefArgs): Promise<GenerateBriefResult> {

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AppError } from '../../../common/errors';
 import { GithubCollaboratorsModule } from '../collaborators/collaborators.module';
 import { GithubIntegrationsModule } from '../github.module';
 import { CommitAnalysisController } from './controllers/commit-analysis.controller';
@@ -30,30 +29,18 @@ import { COMMIT_ANALYSIS_CONFIG_TOKEN } from './tokens';
       useFactory: (config: ConfigService) => loadCommitAnalysisConfig(config),
     },
     {
+      // No not-configured stub: the config reads the key live, so "configured"
+      // is a per-call question now. `OpenAIClient` throws
+      // `OPENAI_NOT_CONFIGURED` itself when the key is still empty.
       provide: OpenAIClient,
       inject: [COMMIT_ANALYSIS_CONFIG_TOKEN],
-      useFactory: (cfg: CommitAnalysisConfig | null) => {
-        if (!cfg) {
-          return {
-            analyze: () => Promise.reject(AppError.OPENAI_NOT_CONFIGURED()),
-          };
-        }
-        return new OpenAIClient(cfg);
-      },
+      useFactory: (cfg: CommitAnalysisConfig) => new OpenAIClient(cfg),
     },
     {
       provide: CommitAnalyzerService,
       inject: [OpenAIClient, COMMIT_ANALYSIS_CONFIG_TOKEN],
-      useFactory: (openai: OpenAIClient, cfg: CommitAnalysisConfig | null) => {
-        const effective: CommitAnalysisConfig = cfg ?? {
-          apiKey: '',
-          model: '',
-          maxDiffChars: 60_000,
-          teamSize: 4,
-          teamConcurrency: 2,
-        };
-        return new CommitAnalyzerService(openai, effective);
-      },
+      useFactory: (openai: OpenAIClient, cfg: CommitAnalysisConfig) =>
+        new CommitAnalyzerService(openai, cfg),
     },
     CommitBackfillService,
     CommitsRepository,

@@ -48,10 +48,6 @@ export interface GithubInstallationWithRepos extends GithubInstallation {
   repositories: GithubRepository[];
 }
 
-export interface StartGithubConnectResponse {
-  installUrl: string;
-}
-
 export interface CommitBackfillEnqueueResponse {
   jobId: string;
 }

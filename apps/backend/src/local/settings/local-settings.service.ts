@@ -1,11 +1,15 @@
+import { resolve } from 'node:path';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type {
   LocalSettingsStatus,
   LocalSettingsTestResult,
+  LocalSettingsUsage,
   UpdateLocalCredentialsRequest,
 } from '@launchstack/api-interfaces';
+import { DEFAULT_BRIEF_MODEL } from '../../briefs/briefs-config';
+import { resolveDataDir } from '../../databases/kysely/kysely.module';
+import { DEFAULT_COMMIT_ANALYSIS_MODEL } from '../../integrations/github/commit-analysis/commit-analysis.config';
 import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
-import { SlackMessagesService } from '../../integrations/slack/services/messages.service';
 import { LocalSettingsRepository } from './local-settings.repository';
 import { SecretsService, type SecretBundle } from './secrets.service';
 import { smtpTransport } from './smtp';
@@ -18,14 +22,24 @@ export class LocalSettingsService {
     private readonly secrets: SecretsService,
     private readonly settings: LocalSettingsRepository,
     private readonly slackInstalls: SlackInstallationsService,
-    private readonly slackMessages: SlackMessagesService,
   ) {}
 
   async status(): Promise<LocalSettingsStatus> {
     return {
       ...this.secrets.status(),
       desktopNotifications: await this.settings.desktopNotificationsEnabled(),
+      // Absolute, because the headless fallback is the relative `./.data` and a
+      // path the user cannot paste into Finder is not an answer.
+      dataDir: resolve(resolveDataDir()),
+      commitAnalysisModel:
+        this.secrets.get('OPENAI_COMMIT_ANALYSIS_MODEL') ??
+        DEFAULT_COMMIT_ANALYSIS_MODEL,
+      briefModel: this.secrets.get('OPENAI_BRIEF_MODEL') ?? DEFAULT_BRIEF_MODEL,
     };
+  }
+
+  usage(organizationId: string): Promise<LocalSettingsUsage> {
+    return this.settings.tokenTotals(organizationId);
   }
 
   /**
@@ -47,6 +61,10 @@ export class LocalSettingsService {
     if (body.smtpUser !== undefined) overlay.SMTP_USER = body.smtpUser;
     if (body.smtpPass !== undefined) overlay.SMTP_PASS = body.smtpPass;
     if (body.emailFrom !== undefined) overlay.EMAIL_FROM = body.emailFrom;
+    if (body.commitAnalysisModel !== undefined)
+      overlay.OPENAI_COMMIT_ANALYSIS_MODEL = body.commitAnalysisModel;
+    if (body.briefModel !== undefined)
+      overlay.OPENAI_BRIEF_MODEL = body.briefModel;
 
     const touchesSmtp = [
       body.smtpHost,
@@ -107,37 +125,8 @@ export class LocalSettingsService {
     this.logger.log(`Test email sent to=${to}`);
     return { ok: true, detail: `Sent to ${to}` };
   }
-
-  async testSlackMessage(
-    orgId: string,
-    channelId: string,
-    text?: string,
-  ): Promise<LocalSettingsTestResult> {
-    try {
-      await this.slackMessages.postMessage(
-        orgId,
-        channelId,
-        text ?? 'DevSummary test message — Slack delivery is working.',
-      );
-    } catch (err) {
-      throw new BadRequestException(
-        `Test message failed: ${slackHint(describe(err))}`,
-      );
-    }
-    return { ok: true, detail: `Posted to ${channelId}` };
-  }
 }
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * `not_in_channel` is the single most common Slack delivery failure and the raw
- * string tells the user nothing about the fix (R13).
- */
-function slackHint(reason: string): string {
-  return /not_in_channel|channel_not_found/.test(reason)
-    ? `${reason} — invite the bot to the channel from inside Slack`
-    : reason;
 }

@@ -20,15 +20,20 @@ export const SECRET_KEYS = [
   'SMTP_PASS',
   'EMAIL_FROM',
   'SLACK_BOT_TOKEN',
+  // Not secrets, but they ride the same bundle: it is the only thing the shell
+  // persists, so an override set in settings has nowhere else to survive a
+  // restart. `status()` deliberately ignores them — models are not credentials.
+  'OPENAI_COMMIT_ANALYSIS_MODEL',
+  'OPENAI_BRIEF_MODEL',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];
 export type SecretBundle = Partial<Record<SecretKey, string>>;
 
-/** The credential half of `LocalSettingsStatus`; the toggle lives in the DB. */
-export type CredentialStatus = Omit<
+/** The credential half of `LocalSettingsStatus`; the rest is the DB and env. */
+export type CredentialStatus = Pick<
   LocalSettingsStatus,
-  'desktopNotifications'
+  'github' | 'openai' | 'smtp' | 'slack' | 'emailFrom'
 >;
 
 const DEFAULT_SMTP_PORT = 587;
@@ -59,14 +64,25 @@ export class SecretsService {
    * whole bundle into `userData/secrets.bin` via `safeStorage`. Outside Electron
    * there is no parent port, so the update is memory-only for this boot — which
    * is exactly right for headless dev.
+   *
+   * `process.env` is written alongside because env is the seam every consumer
+   * already reads through: `ConfigService.get` falls through to `process.env`
+   * live, so `loadBriefsConfig` / `loadCommitAnalysisConfig` see a key pasted
+   * mid-session without a restart. Skipping this is what made a freshly pasted
+   * OpenAI key silently do nothing until the app was relaunched.
    */
   update(partial: SecretBundle): void {
     for (const [key, value] of Object.entries(partial) as Array<
       [SecretKey, string | undefined]
     >) {
       const clean = blankToUndefined(value);
-      if (clean) this.bundle[key] = clean;
-      else delete this.bundle[key];
+      if (clean) {
+        this.bundle[key] = clean;
+        process.env[key] = clean;
+      } else {
+        delete this.bundle[key];
+        delete process.env[key];
+      }
     }
 
     const port = parentPort();

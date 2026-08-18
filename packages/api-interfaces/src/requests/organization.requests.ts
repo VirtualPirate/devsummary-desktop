@@ -23,11 +23,6 @@ export const UpdateOrganizationSchema = z
   });
 export type UpdateOrganizationRequest = z.infer<typeof UpdateOrganizationSchema>;
 
-export const TransferOwnershipSchema = z.object({
-  newOwnerUserId: z.string().min(1),
-});
-export type TransferOwnershipRequest = z.infer<typeof TransferOwnershipSchema>;
-
 export const UpdateMemberRoleSchema = z.object({
   role: z.enum(["admin", "viewer"]),
 });

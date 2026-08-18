@@ -3,6 +3,7 @@ import type {
   ApiResponse,
   LocalSettingsStatus,
   LocalSettingsTestResult,
+  LocalSettingsUsage,
 } from '@launchstack/api-interfaces';
 import {
   OrgMembership,
@@ -12,10 +13,8 @@ import { RequireOrgRole } from '../../organizations/decorators/require-org-role.
 import { ZodValidationPipe } from '../../organizations/dto/zod-validation.pipe';
 import {
   TestEmailSchema,
-  TestSlackMessageSchema,
   UpdateLocalCredentialsSchema,
   type TestEmailBody,
-  type TestSlackMessageBody,
   type UpdateLocalCredentialsBody,
 } from './dto/local-settings.dto';
 import { LocalSettingsService } from './local-settings.service';
@@ -33,6 +32,16 @@ export class LocalSettingsController {
   @RequireOrgRole('member')
   async status(): Promise<ApiResponse<LocalSettingsStatus>> {
     return { data: await this.svc.status(), message: 'OK', success: true };
+  }
+
+  /** Running OpenAI token spend for this workspace. Read-only. */
+  @Get('usage')
+  @RequireOrgRole('member')
+  async usage(
+    @OrgMembership() membership: OrgMembershipContext,
+  ): Promise<ApiResponse<LocalSettingsUsage>> {
+    const data = await this.svc.usage(membership.organizationId);
+    return { data, message: 'OK', success: true };
   }
 
   @Put('credentials')
@@ -55,21 +64,6 @@ export class LocalSettingsController {
     @Body(new ZodValidationPipe(TestEmailSchema)) body: TestEmailBody,
   ): Promise<ApiResponse<LocalSettingsTestResult>> {
     const data = await this.svc.testEmail(body.to);
-    return { data, message: 'OK', success: true };
-  }
-
-  @Post('test-slack-message')
-  @RequireOrgRole('admin')
-  async testSlack(
-    @OrgMembership() membership: OrgMembershipContext,
-    @Body(new ZodValidationPipe(TestSlackMessageSchema))
-    body: TestSlackMessageBody,
-  ): Promise<ApiResponse<LocalSettingsTestResult>> {
-    const data = await this.svc.testSlackMessage(
-      membership.organizationId,
-      body.channelId,
-      body.text,
-    );
     return { data, message: 'OK', success: true };
   }
 }

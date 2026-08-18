@@ -12,10 +12,17 @@ import { AllExceptionsFilter } from '../common/errors/all-exceptions.filter';
  */
 export function configureApp(app: INestApplication): void {
   app.useLogger(app.get(Logger));
-  app.enableCors({
-    origin: true, // Accept requests from everywhere
-    credentials: true,
-  });
+
+  // CORS exists here for exactly one caller: the Vite dev server on :5173,
+  // which is a different origin from the backend's loopback port. A packaged
+  // build loads the renderer from `file://`, which sends no meaningful origin
+  // and is not subject to CORS anyway — so production gets no CORS headers at
+  // all rather than `origin: true`, which handed them to any page the user
+  // happened to have open. The real boundary is `LocalTokenGuard`; this just
+  // stops the browser from being a second way in.
+  if (process.env.NODE_ENV !== 'production') {
+    app.enableCors({ origin: 'http://localhost:5173' });
+  }
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new AllExceptionsFilter(httpAdapter));
   app.enableShutdownHooks();

@@ -22,7 +22,8 @@ const SOURCE_METHODS = [
 /** Private helpers the port added — anything else new is a surface change. */
 const PRIVATE_METHODS = ['kit'];
 
-const kit = () => Octokit as unknown as { request: jest.Mock; iterator: jest.Mock };
+const kit = () =>
+  Octokit as unknown as { request: jest.Mock; iterator: jest.Mock };
 
 function makeClient(token = 'github_pat_x') {
   return new GithubAppClient(() => Promise.resolve(token));
@@ -43,11 +44,13 @@ describe('GithubAppClient', () => {
 
   describe('method surface', () => {
     it('exposes exactly the methods SOURCE exposed', () => {
-      const own = Object.getOwnPropertyNames(
-        GithubAppClient.prototype,
-      ).filter((name) => name !== 'constructor');
+      const own = Object.getOwnPropertyNames(GithubAppClient.prototype).filter(
+        (name) => name !== 'constructor',
+      );
 
-      expect(own.sort()).toEqual([...SOURCE_METHODS, ...PRIVATE_METHODS].sort());
+      expect(own.sort()).toEqual(
+        [...SOURCE_METHODS, ...PRIVATE_METHODS].sort(),
+      );
     });
 
     it('keeps every SOURCE method callable on an instance', () => {
@@ -64,9 +67,9 @@ describe('GithubAppClient', () => {
 
     await client.getInstallation(7n);
 
-    expect(
-      (Octokit as unknown as { __auths: unknown[] }).__auths,
-    ).toEqual(['github_pat_abc']);
+    expect((Octokit as unknown as { __auths: unknown[] }).__auths).toEqual([
+      'github_pat_abc',
+    ]);
   });
 
   it('re-authenticates when the stored token is rotated', async () => {
@@ -322,9 +325,9 @@ describe('GithubAppClient', () => {
       },
     }));
 
-    await expect(
-      client.listRepoCollaborators(9n, 'acme', 'api'),
-    ).rejects.toBe(err);
+    await expect(client.listRepoCollaborators(9n, 'acme', 'api')).rejects.toBe(
+      err,
+    );
   });
 
   it('fetches a single commit with file patches', async () => {
@@ -411,7 +414,11 @@ describe('GithubAppClient', () => {
           parents: [],
           commit: {
             author: { name: 'A', email: 'a@x', date: '2026-05-01T00:00:00Z' },
-            committer: { name: 'C', email: 'c@x', date: '2026-05-02T00:00:00Z' },
+            committer: {
+              name: 'C',
+              email: 'c@x',
+              date: '2026-05-02T00:00:00Z',
+            },
             message: 'latest',
           },
           author: { id: 1, login: 'a' },
@@ -489,10 +496,18 @@ describe('GithubAppClient', () => {
         ),
       )
       .mockResolvedValueOnce(
-        page([{ name: 'staging', date: '2026-08-01T00:00:00.000Z' }], true, 'cur-2'),
+        page(
+          [{ name: 'staging', date: '2026-08-01T00:00:00.000Z' }],
+          true,
+          'cur-2',
+        ),
       )
       .mockResolvedValueOnce(
-        page([{ name: 'old', date: '2026-01-01T00:00:00.000Z' }], true, 'cur-3'),
+        page(
+          [{ name: 'old', date: '2026-01-01T00:00:00.000Z' }],
+          true,
+          'cur-3',
+        ),
       );
 
     const list = await client.listBranches(9n, 'acme/api');
@@ -539,6 +554,8 @@ describe('GithubAppClient', () => {
     const client = makeClient();
     kit().request.mockResolvedValue({ data: { default_branch: 'trunk' } });
 
-    await expect(client.getDefaultBranch(9n, 'acme/api')).resolves.toBe('trunk');
+    await expect(client.getDefaultBranch(9n, 'acme/api')).resolves.toBe(
+      'trunk',
+    );
   });
 });

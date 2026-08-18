@@ -95,9 +95,15 @@ ESM through swc. `tsc --noEmit -p test/e2e/tsconfig.json` is clean.
 - Each file gets its own database, so nothing is shared and nothing needs
   namespacing — but a file's specs run in order against one instance, and the
   suites here rely on that.
-- The job runner and the scheduler are live in every booted app. The boot sweep
-  finds no tracked branches and stops at one indexed query; if a future spec
-  seeds tracked branches, it will also enqueue ingest work.
+- The job runner and the scheduler are live in every booted app, so background
+  work starts on its own and finishes on its own schedule. **Never `sleep()` to
+  wait for it** — use `waitForJobs(db)` from `harness/wait-for-jobs.ts`, which
+  polls until the `jobs` table is empty (the runner deletes a job row on
+  success) and re-throws a failed job's own error instead of timing out
+  silently. `specs/pipeline.e2e.spec.ts` is the worked example.
+- The boot sweep finds no tracked branches in most files and stops at one
+  indexed query. `pipeline.e2e.spec.ts` does seed one, so its sweep enqueues
+  real ingest work against the mocked Octokit — which is the point of it.
 - `organization_members` has no `updated_at` column. Do not add one to a `set()`.
 - `DELETE /api/organizations/current` runs `OrganizationTeardownService`, which
   swallows its own integration failures, so it never fails the delete.

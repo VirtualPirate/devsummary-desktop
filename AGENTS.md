@@ -18,12 +18,12 @@ DevSummary is an AI-powered engineering activity reporter. It connects to a GitH
 
 ### Core User Flows
 
-1. **Connect GitHub** — An org admin installs the DevSummary GitHub App via OAuth (`/api/integrations/github/*`). Repositories are synced on install, but ingest nothing yet: a repository is read only on the branches it is *tracked* on (`github.repository_branches`), and a fresh one tracks none. Tokens are encrypted at rest (AES-256-GCM).
-2. **Choose a branch** — The install callback redirects to `/integrations/github/setup`, which lists every repository with no branch, pre-selects its GitHub default, and takes a history window (30/90/365 days). **One repository reads one branch.** Pressing Start writes that choice and is what begins commit ingestion + AI analysis — nothing is fetched or spent on OpenAI before that. After that first read, new commits arrive incrementally from `push` webhooks, with a nightly sweep per tracked repository as the catch-up — both fetch only what is not already stored on that branch. **The choice is write-once**: a repository that already has a branch is frozen (no swapping, no second branch) until changing it is designed, so it never reappears in setup and the API answers 409. Repositories left unconfigured stay inert and are surfaced by a banner on the integrations page (GitHub's own "Configure" flow can add repos at any time, through a callback with no session to redirect).
+1. **Connect GitHub** — The user pastes a fine-grained personal access token (`POST /api/integrations/github/token`; Contents + Metadata, read-only). Electron has no public callback URL, so there is no App install and no OAuth. Repositories are reconciled on connect, but ingest nothing yet: a repository is read only on the branch it is *tracked* on (`github.repository_branches`), and a fresh one tracks none. The token is encrypted at rest (AES-256-GCM).
+2. **Choose a branch** — Connecting leads to `/integrations/github/setup`, which lists every repository with no branch, pre-selects its GitHub default, and takes a history window (30/90 days). **One repository reads one branch.** Pressing Start writes that choice and is what begins commit ingestion + AI analysis — nothing is fetched or spent on OpenAI before that. After that first read, new commits arrive from a **sweep** that runs on launch and every 15 minutes, fetching only what is not already stored on that branch; there are no webhooks, because a desktop machine has no public URL to deliver them to. **The choice is write-once**: a repository that already has a branch is frozen (no swapping, no second branch) until changing it is designed, so it never reappears in setup and the API answers 409. Repositories left unconfigured stay inert and are surfaced by a banner on the integrations page.
 3. **Organize** — Users create **projects** (groupings of repositories) and **teams** (groupings of GitHub collaborators) to scope briefs.
 4. **Schedule** — Users create a **brief schedule**: scope (project/team/collaborator/repo, optionally narrowed to one branch for a repository scope) + cadence (daily/weekly/monthly at a time in a timezone) + delivery channels (email addresses, Slack channel). Schedules can be paused/resumed; creating one backfills up to 366 days of historical briefs.
-5. **Generate** — On schedule (a Temporal Schedule fires a dispatch workflow that polls due schedules every ~60s) or on demand, the backend gathers commits in the period, uses per-commit AI analyses, builds a prompt, and calls OpenAI to produce a non-technical title + summary.
-6. **Deliver** — Briefs are sent via email (React Email + Resend) and/or Slack (bot token). Delivery failures are recorded on the brief.
+5. **Generate** — On schedule (an in-process scheduler enqueues a dispatch job every ~60s, which claims due schedules) or on demand, the backend gathers commits in the period, uses per-commit AI analyses, builds a prompt, and calls OpenAI to produce a non-technical title + summary.
+6. **Deliver** — Briefs are sent via email (React Email over the user's own SMTP mailbox), Slack (a pasted bot token), and/or a desktop notification. At least one channel succeeding marks the brief `delivered`; per-channel failures accumulate on `failureReason`.
 7. **View** — A dashboard lists briefs with filters (scope type, date range, collaborator, exclude no-activity periods) and pagination. A brief detail view shows the summary, a commit-type distribution bar, and links to a granular per-brief commit list.
 
 ### AI / LLM Usage
@@ -41,17 +41,18 @@ DevSummary is an AI-powered engineering activity reporter. It connects to a GitH
 | Schedules | `src/briefs/schedules/` | CRUD + pause/resume for recurring brief configs; `CadenceService` computes `nextRunAt` in the user's timezone |
 | Projects | `src/briefs/projects/` | Repo groupings (org-scoped, soft-deleted) |
 | Teams | `src/briefs/teams/` | Collaborator groupings (org-scoped, soft-deleted) |
-| GitHub integration | `src/integrations/github/` | OAuth app install, webhook receiver (signature-validated, queued; `push` drives ongoing commit ingestion, with a nightly sweep as backstop), repo/commit sync |
+| GitHub integration | `src/integrations/github/` | PAT connect + validate, repo reconcile, branch tracking, repo/commit sync (a periodic sweep drives ongoing ingestion — there are no webhooks) |
 | Commit analysis | `src/integrations/github/commit-analysis/` | AI classification of commits |
-| Slack integration | `src/integrations/slack/` | Slack OAuth install + message posting |
-| Queue | `src/queue/`, `src/temporal/` | Temporal-backed background jobs: workflows for brief dispatch/generation/backfill, GitHub commit ingestion + analysis, collaborator sync, and LOC-stats backfill (see backend AGENTS.md for the full workflow/activity catalog) |
+| Slack integration | `src/integrations/slack/` | Bot-token paste + message posting |
+| Jobs | `src/jobs/` | A `jobs` table plus an in-process poll loop (replaces Temporal): brief dispatch/generation/backfill, GitHub commit ingestion + analysis, collaborator sync, LOC-stats backfill (see backend AGENTS.md for the full job catalog) |
+| Local settings | `src/local/` | Seeded identity, the per-boot API token guard, the credential bundle, and the settings API |
 
-All DevSummary endpoints are multi-tenant: org-scoped via the global `OrgContextGuard` with role checks (`RequireOrgRole('admin'|'member')`).
+All DevSummary endpoints are workspace-scoped via the global `OrgContextGuard` with role checks (`RequireOrgRole('admin'|'member')`); the guard falls back to the seeded default workspace when the `x-organization-id` header is absent. Every request outside `/api/health*` must also carry the per-boot `x-desktop-token`.
 
 ### Database (DevSummary schemas)
 
 - **`briefs` schema**: `briefs` (generated summaries, status, token usage, delivery metadata), `brief_commits` (brief ↔ commit junction for drill-down), `brief_schedules`, `projects` + `project_repositories`, `teams` + `team_collaborators`.
-- **`github` schema**: `installations`, `repositories`, `repository_branches` (the branch a repository is read on — one row per repository today, write-once; no live row = repo is inert), `commits` (incl. raw diff data), `commit_branches` (which branches a commit was seen on — many per commit, since branches share ancestry), `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`.
+- **`github` schema**: `installations`, `repositories`, `repository_branches` (the branch a repository is read on — one row per repository today, write-once; no live row = repo is inert), `commits` (incl. raw diff data), `commit_branches` (which branches a commit was seen on — many per commit, since branches share ancestry), `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events` (dead — no webhook receiver; the migration is shipped and never edited).
 
 ### Frontend Screens (DevSummary)
 
@@ -60,7 +61,8 @@ Components live in `src/components/devsummary/`. Routes:
 - `/briefs` — dashboard with filters and pagination; `/briefs/$briefId` — detail with commit-type bar (`commit-type-bar.tsx`) and retry-on-failure; `/briefs/$briefId/commits` — granular commit list with analysis details and GitHub links
 - `/schedules`, `/schedules/new`, `/schedules/$scheduleId` — schedule management (scope picker, cadence, delivery channels)
 - `/projects`, `/projects/$projectId` and `/teams`, `/teams/$teamId` — grouping management
-- `/integrations/github` — GitHub App install flow, connected accounts + repositories with their branch; banners a count of repositories that have no branch and therefore read nothing
+- `/integrations/github` — PAT connect form, connected account + repositories with their branch; banners a count of repositories that have no branch and therefore read nothing
+- `/settings` — local settings: GitHub PAT, OpenAI key + model overrides + token totals, SMTP, Slack bot token, desktop notifications, data directory
 - `/integrations/github/setup` — post-connect branch selection (`integrations-github-setup.tsx` + `components/integrations/branch-setup-list.tsx`, `branch-picker.tsx`, `history-window-picker.tsx`); admin-only, re-enterable, and the only place ingestion is started
 
 Briefs covering periods with zero commits get a distinct "no activity" badge/treatment.
@@ -94,7 +96,7 @@ pnpm db:status              # List migrations and their status
 cd apps/backend
 pnpm test                   # Run unit tests (Jest)
 pnpm test:watch             # Watch mode
-pnpm test:e2e               # E2E tests
+pnpm test:e2e               # E2E tests (Vitest + in-memory PGlite; no Docker, no network)
 pnpm exec jest --testPathPatterns=<pattern>  # Run a single test file
 ```
 

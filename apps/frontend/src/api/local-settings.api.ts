@@ -2,6 +2,7 @@ import type {
   ApiResponse,
   LocalSettingsStatus,
   LocalSettingsTestResult,
+  LocalSettingsUsage,
   TestEmailRequest,
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
@@ -17,6 +18,14 @@ export const LocalSettingsAPI = {
   status: async (): Promise<ApiResponse<LocalSettingsStatus>> => {
     const response = await axiosInstance.request({ url: BASE, method: "GET" });
     return response.data as ApiResponse<LocalSettingsStatus>;
+  },
+
+  usage: async (): Promise<ApiResponse<LocalSettingsUsage>> => {
+    const response = await axiosInstance.request({
+      url: `${BASE}/usage`,
+      method: "GET",
+    });
+    return response.data as ApiResponse<LocalSettingsUsage>;
   },
 
   updateCredentials: async (

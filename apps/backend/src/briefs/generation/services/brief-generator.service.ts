@@ -53,15 +53,15 @@ export class BriefGeneratorService {
     private readonly commits: CommitsRepository,
     private readonly scopeResolver: BriefScopeResolver,
     private readonly openai: OpenAIBriefClient,
-    @Inject(BRIEFS_CONFIG_TOKEN) private readonly config: BriefsConfig | null,
+    @Inject(BRIEFS_CONFIG_TOKEN) private readonly config: BriefsConfig,
   ) {}
 
   async generate(input: GenerateInput): Promise<GenerateOutput> {
-    // `loadBriefsConfig` returns null without OPENAI_API_KEY. Fail with the
-    // registered code up front rather than dereferencing null further down,
-    // where the TypeError would be retried and stored as the failure reason.
+    // `config.apiKey` is read live and is '' until the user pastes a key. Fail
+    // with the registered code up front rather than letting the OpenAI call
+    // throw it deep in the generation path, where the reason is less legible.
     const config = this.config;
-    if (!config) throw AppError.OPENAI_NOT_CONFIGURED();
+    if (!config.apiKey) throw AppError.OPENAI_NOT_CONFIGURED();
 
     const { repositoryIds, scopeLabel, authorFilter, branchFilter } =
       await this.scopeResolver.resolve(input);

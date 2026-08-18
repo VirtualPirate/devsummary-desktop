@@ -12,13 +12,11 @@ export interface UpdateLocalCredentialsRequest {
   emailFrom?: string;
   slackBotToken?: string;
   desktopNotifications?: boolean;
+  /** Empty string clears the override and restores the built-in default. */
+  commitAnalysisModel?: string;
+  briefModel?: string;
 }
 
 export interface TestEmailRequest {
   to: string;
-}
-
-export interface TestSlackMessageRequest {
-  channelId: string;
-  text?: string;
 }

@@ -1,15 +1,27 @@
+import type { ConfigService } from '@nestjs/config';
 import {
   loadBriefsConfig,
   DEFAULT_BACKFILL_MAX_BRIEFS,
 } from '../briefs-config';
 
-function makeConfig(map: Record<string, string | undefined>) {
-  return { get: (k: string) => map[k] } as any;
+function makeConfig(map: Record<string, string | undefined>): ConfigService {
+  return { get: (k: string) => map[k] } as unknown as ConfigService;
 }
 
 describe('loadBriefsConfig backfillMaxBriefs', () => {
-  it('returns null when OPENAI_API_KEY is absent', () => {
-    expect(loadBriefsConfig(makeConfig({}))).toBeNull();
+  it('reports an empty apiKey when OPENAI_API_KEY is absent', () => {
+    expect(loadBriefsConfig(makeConfig({})).apiKey).toBe('');
+  });
+
+  it('reads apiKey and model live, so a key pasted after boot takes effect', () => {
+    const env: Record<string, string | undefined> = {};
+    const cfg = loadBriefsConfig(makeConfig(env));
+    expect(cfg.apiKey).toBe('');
+
+    env.OPENAI_API_KEY = 'sk-late';
+    env.OPENAI_BRIEF_MODEL = 'gpt-4.1';
+    expect(cfg.apiKey).toBe('sk-late');
+    expect(cfg.model).toBe('gpt-4.1');
   });
 
   it('defaults backfillMaxBriefs when env is unset', () => {

@@ -66,8 +66,7 @@ describe('CommitAnalysisController', () => {
   });
 
   it('starts one backfill per tracked branch', async () => {
-    const { controller, reposRepo, queue, trackedBranches } =
-      makeController();
+    const { controller, reposRepo, queue, trackedBranches } = makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
     trackedBranches.listByRepository.mockResolvedValueOnce(['main', 'develop']);
     jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00Z'));
@@ -85,8 +84,7 @@ describe('CommitAnalysisController', () => {
   });
 
   it('refuses to pick a branch when the repository tracks none', async () => {
-    const { controller, reposRepo, queue, trackedBranches } =
-      makeController();
+    const { controller, reposRepo, queue, trackedBranches } = makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
     trackedBranches.listByRepository.mockResolvedValueOnce([]);
 

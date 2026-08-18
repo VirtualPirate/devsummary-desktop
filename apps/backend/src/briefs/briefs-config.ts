@@ -41,10 +41,14 @@ export interface BriefsConfig {
   backfillMaxBriefs: number;
 }
 
-export function loadBriefsConfig(config: ConfigService): BriefsConfig | null {
-  const apiKey = config.get<string>('OPENAI_API_KEY');
-  if (!apiKey) return null;
-
+/**
+ * `apiKey` and `model` are **getters** — see the same note on
+ * `loadCommitAnalysisConfig`. The settings screen writes both long after the
+ * module graph is built, so a snapshot would need an app restart to take
+ * effect. An empty `apiKey` is the "not configured" signal, checked by
+ * `BriefGeneratorService` at call time.
+ */
+export function loadBriefsConfig(config: ConfigService): BriefsConfig {
   const maxPromptChars = Number.parseInt(
     config.get<string>('BRIEFS_MAX_PROMPT_CHARS') ?? '',
     10,
@@ -59,8 +63,12 @@ export function loadBriefsConfig(config: ConfigService): BriefsConfig | null {
   );
 
   return {
-    apiKey,
-    model: config.get<string>('OPENAI_BRIEF_MODEL') || DEFAULT_BRIEF_MODEL,
+    get apiKey(): string {
+      return config.get<string>('OPENAI_API_KEY') ?? '';
+    },
+    get model(): string {
+      return config.get<string>('OPENAI_BRIEF_MODEL') || DEFAULT_BRIEF_MODEL;
+    },
     maxPromptChars:
       Number.isFinite(maxPromptChars) && maxPromptChars > 0
         ? maxPromptChars

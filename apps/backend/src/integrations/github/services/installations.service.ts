@@ -12,6 +12,7 @@ import type {
   GithubRepositorySelect,
 } from '../../../databases/kysely';
 import { JOB, JobQueueService } from '../../../jobs';
+import { SecretsService } from '../../../local/settings/secrets.service';
 import { sealGithubToken } from '../credentials';
 import { GithubAppClient } from '../github.client';
 import { GithubInstallationsRepository } from '../repositories/installations.repository';
@@ -63,6 +64,7 @@ export class GithubInstallationsService {
     private readonly client: GithubAppClient,
     @Inject(KYSELY_DB) private readonly db: AppDatabase,
     private readonly queue: JobQueueService,
+    private readonly secrets: SecretsService,
   ) {}
 
   /**
@@ -189,6 +191,11 @@ export class GithubInstallationsService {
         return row.id;
       });
 
+    // Same write Slack's `connectToken` makes: the bundle is what the Electron
+    // shell persists to the keychain, so the token survives a wiped data
+    // directory and `GET /api/local-settings` has one source for `github`.
+    this.secrets.update({ GITHUB_TOKEN: token });
+
     await this.syncCollaboratorsForDiff(orgId, installationRowId, beforeIds);
 
     const installation = await this.installs.findById(installationRowId);
@@ -279,6 +286,8 @@ export class GithubInstallationsService {
         await this.startCollaboratorSync(orgId, repo.id, 'disconnected');
       }
     }
+
+    this.secrets.update({ GITHUB_TOKEN: undefined });
   }
 
   private async withRepos(

@@ -30,11 +30,13 @@ const period = {
 };
 
 describe('BriefGeneratorService.generate', () => {
-  // loadBriefsConfig returns null without OPENAI_API_KEY. This used to die on
+  // `config.apiKey` is '' until the user pastes a key. This used to die on
   // `this.config.maxPromptChars` with a TypeError that got stored verbatim in
   // failure_reason and retried four times.
-  it('raises OPENAI_NOT_CONFIGURED when the briefs config is absent', async () => {
-    const { svc, scopeResolver, commits } = makeService({ config: null });
+  it('raises OPENAI_NOT_CONFIGURED when no OpenAI key is set', async () => {
+    const { svc, scopeResolver, commits } = makeService({
+      config: { apiKey: '', model: 'gpt-4o-mini', maxPromptChars: 30_000 },
+    });
     await expect(
       svc.generate({
         organizationId: 'o1',
