@@ -1,0 +1,220 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/hanken-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Hanken Grotesk Variable', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --color-brand: var(--brand);
+    --color-brand-foreground: var(--brand-foreground);
+    --color-border-strong: var(--border-strong);
+    --color-gb-chart-feature: var(--gb-chart-feature);
+    --color-gb-chart-optimization: var(--gb-chart-optimization);
+    --color-gb-chart-refactor: var(--gb-chart-refactor);
+    --color-gb-chart-bug: var(--gb-chart-bug);
+    --color-gb-chart-risk: var(--gb-chart-risk);
+    --color-gb-chart-accent: var(--gb-chart-accent);
+    --color-gb-chart-docs: var(--gb-chart-docs);
+    --color-gb-chart-test: var(--gb-chart-test);
+    --color-gb-chart-chore: var(--gb-chart-chore);
+    --color-gb-status-shipped: var(--gb-status-shipped);
+    --color-gb-status-at-risk: var(--gb-status-at-risk);
+    --color-gb-status-in-flight: var(--gb-status-in-flight);
+    --color-gb-status-on-hold: var(--gb-status-on-hold);
+    /* Canvas elevation — soft two-step. Shadow color is a theme token, so the
+       same utility reads right in light and dark. shadow-e1 = resting surface,
+       shadow-e2 = hover / raised / dialogs. */
+    --shadow-e1: 0 1px 2px var(--elev-penumbra), 0 10px 24px -14px var(--elev-umbra);
+    --shadow-e2: 0 2px 5px var(--elev-penumbra), 0 22px 42px -18px var(--elev-umbra);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    color-scheme: light;
+    --background: oklch(98.5% 0.004 250);
+    --foreground: oklch(22% 0.02 255);
+    --card: oklch(100% 0 0);
+    --card-foreground: oklch(22% 0.02 255);
+    --popover: oklch(100% 0 0);
+    --popover-foreground: oklch(22% 0.02 255);
+    --primary: oklch(22% 0.02 255);
+    --primary-foreground: oklch(100% 0 0);
+    --secondary: oklch(95% 0.005 250);
+    --secondary-foreground: oklch(22% 0.02 255);
+    --muted: oklch(96% 0.004 250);
+    --muted-foreground: oklch(46% 0.015 255);
+    --accent: oklch(95% 0.006 250);
+    --accent-foreground: oklch(22% 0.02 255);
+    --destructive: oklch(55% 0.20 25);
+    --border: oklch(91% 0.006 250);
+    --border-strong: oklch(83% 0.008 250);
+    --input: oklch(88% 0.007 250);
+    --ring: oklch(56% 0.17 255);
+    --brand: oklch(56% 0.17 255);
+    --brand-foreground: oklch(100% 0 0);
+    --chart-1: oklch(56% 0.17 255);
+    --chart-2: oklch(58% 0.15 145);
+    --chart-3: oklch(64% 0.14 75);
+    --chart-4: oklch(55% 0.18 305);
+    --chart-5: oklch(58% 0.18 25);
+    --radius: 0.625rem;
+    --sidebar: oklch(97% 0.004 250);
+    --sidebar-foreground: oklch(46% 0.015 255);
+    --sidebar-primary: oklch(56% 0.17 255);
+    --sidebar-primary-foreground: oklch(100% 0 0);
+    --sidebar-accent: oklch(95% 0.006 250);
+    --sidebar-accent-foreground: oklch(22% 0.02 255);
+    --sidebar-border: oklch(91% 0.006 250);
+    --sidebar-ring: oklch(56% 0.17 255);
+    --gb-chart-feature: oklch(56% 0.17 255);
+    --gb-chart-optimization: oklch(55% 0.18 305);
+    --gb-chart-refactor: oklch(64% 0.14 75);
+    --gb-chart-bug: oklch(58% 0.15 145);
+    --gb-chart-risk: oklch(58% 0.18 25);
+    --gb-chart-accent: oklch(56% 0.17 255);
+    --gb-chart-docs: oklch(56% 0.13 210);
+    --gb-chart-test: oklch(58% 0.11 175);
+    --gb-chart-chore: oklch(55% 0.02 255);
+    --gb-status-shipped: oklch(58% 0.15 145);
+    --gb-status-at-risk: oklch(64% 0.14 75);
+    --gb-status-in-flight: oklch(56% 0.17 255);
+    --gb-status-on-hold: oklch(60% 0.012 250);
+    --elev-umbra: oklch(45% 0.03 260 / 0.18);
+    --elev-penumbra: oklch(45% 0.03 260 / 0.06);
+    /* Auth backdrop animation. Its own scale because the chart tokens are tuned
+       for fills on a card, and here they sit as hairlines and 4px dots on the
+       page background — in light mode they need to go darker, not lighter. */
+    --auth-flow-line: oklch(76% 0.014 250);
+    --auth-flow-accent: oklch(65% 0.15 255);
+    --auth-flow-feature: oklch(65% 0.15 255);
+    --auth-flow-fix: oklch(64% 0.12 150);
+    --auth-flow-refactor: oklch(72% 0.11 75);
+    --auth-flow-optimization: oklch(64% 0.15 305);
+    --auth-flow-docs: oklch(66% 0.10 210);
+    --auth-flow-test: oklch(66% 0.09 175);
+    --auth-flow-chore: oklch(70% 0.02 255);
+}
+
+.dark {
+    color-scheme: dark;
+    --background: oklch(14% 0.008 250);
+    --foreground: oklch(96% 0.005 250);
+    --card: oklch(18% 0.010 250);
+    --card-foreground: oklch(96% 0.005 250);
+    --popover: oklch(18% 0.010 250);
+    --popover-foreground: oklch(96% 0.005 250);
+    --primary: oklch(96% 0.005 250);
+    --primary-foreground: oklch(14% 0.008 250);
+    --secondary: oklch(21% 0.011 250);
+    --secondary-foreground: oklch(96% 0.005 250);
+    --muted: oklch(21% 0.011 250);
+    --muted-foreground: oklch(68% 0.012 250);
+    --accent: oklch(24% 0.012 250);
+    --accent-foreground: oklch(96% 0.005 250);
+    --destructive: oklch(68% 0.18 25);
+    --border: oklch(26% 0.012 250);
+    --border-strong: oklch(36% 0.014 250);
+    --input: oklch(36% 0.014 250);
+    --ring: oklch(70% 0.18 255);
+    --brand: oklch(70% 0.18 255);
+    --brand-foreground: oklch(14% 0.02 255);
+    --chart-1: oklch(70% 0.18 255);
+    --chart-2: oklch(72% 0.14 145);
+    --chart-3: oklch(80% 0.14 90);
+    --chart-4: oklch(72% 0.16 305);
+    --chart-5: oklch(74% 0.18 25);
+    --sidebar: oklch(16% 0.009 250);
+    --sidebar-foreground: oklch(68% 0.012 250);
+    --sidebar-primary: oklch(70% 0.18 255);
+    --sidebar-primary-foreground: oklch(14% 0.02 255);
+    --sidebar-accent: oklch(21% 0.011 250);
+    --sidebar-accent-foreground: oklch(96% 0.005 250);
+    --sidebar-border: oklch(26% 0.012 250);
+    --sidebar-ring: oklch(70% 0.18 255);
+    --gb-chart-feature: oklch(64% 0.17 255);
+    --gb-chart-optimization: oklch(62% 0.18 305);
+    --gb-chart-refactor: oklch(66% 0.14 75);
+    --gb-chart-bug: oklch(63% 0.15 145);
+    --gb-chart-risk: oklch(64% 0.18 25);
+    --gb-chart-accent: oklch(64% 0.17 255);
+    --gb-chart-docs: oklch(62% 0.02 255);
+    --gb-chart-test: oklch(62% 0.02 255);
+    --gb-chart-chore: oklch(62% 0.02 255);
+    --gb-status-shipped: oklch(78% 0.14 145);
+    --gb-status-at-risk: oklch(82% 0.14 90);
+    --gb-status-in-flight: oklch(72% 0.18 255);
+    --gb-status-on-hold: oklch(65% 0.012 250);
+    --elev-umbra: oklch(0% 0 0 / 0.55);
+    --elev-penumbra: oklch(0% 0 0 / 0.40);
+    --auth-flow-line: oklch(40% 0.014 250);
+    --auth-flow-accent: oklch(70% 0.18 255);
+    --auth-flow-feature: oklch(72% 0.18 255);
+    --auth-flow-fix: oklch(78% 0.14 145);
+    --auth-flow-refactor: oklch(82% 0.14 90);
+    --auth-flow-optimization: oklch(72% 0.16 305);
+    --auth-flow-docs: oklch(74% 0.13 210);
+    --auth-flow-test: oklch(76% 0.11 175);
+    --auth-flow-chore: oklch(70% 0.02 255);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    font-size: 18px;
+    }
+  h1, h2, h3 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+  }
+  h1 { letter-spacing: -0.03em; line-height: 1.08; }
+  h2 { letter-spacing: -0.02em; line-height: 1.15; }
+  h3 { letter-spacing: -0.01em; line-height: 1.35; }
+}

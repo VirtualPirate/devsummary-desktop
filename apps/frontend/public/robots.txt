@@ -1,0 +1,6 @@
+# The dashboard is auth-gated — there is nothing here to index, on any host.
+# This file also stops /robots.txt from falling through to the SPA shell:
+# `not_found_handling: single-page-application` would otherwise answer it with
+# index.html and a 200.
+User-agent: *
+Disallow: /

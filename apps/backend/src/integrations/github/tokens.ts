@@ -1,0 +1,1 @@
+export const GITHUB_APP_CONFIG_TOKEN = Symbol('GITHUB_APP_CONFIG_TOKEN');

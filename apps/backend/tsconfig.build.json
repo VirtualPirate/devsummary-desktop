@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    // Keep the incremental cache inside dist/ so nest-cli's `deleteOutDir` wipes
+    // it along with the output. Otherwise tsc reads a stale tsbuildinfo, decides
+    // everything is up to date, emits nothing, and `node dist/main` 404s.
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
+  },
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "migrations",
+    "docs",
+    "**/*spec.ts",
+    "kysely.config.ts",
+    "vitest.e2e.config.ts"
+  ]
+}

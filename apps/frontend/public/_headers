@@ -1,0 +1,22 @@
+# Cloudflare static-asset response headers (same format Pages uses).
+#
+# Keep the Cloudflare-provided *.workers.dev URL out of search indexes so it never
+# competes with ${APP_DOMAIN} (app.devsummary.com).
+#
+# This is Cloudflare's documented pattern for workers.dev URLs. Host placeholders are
+# PERIOD-delimited (paths use slashes), so the two placeholders match the two labels in
+# both devsummary-app.<subdomain>.workers.dev and the per-version preview host
+# <version>-devsummary-app.<subdomain>.workers.dev.
+#
+# The rule is HOST-scoped, so the custom domain keeps its own robots policy
+# (public/robots.txt). Do NOT rewrite it as a path-only rule.
+https://:version.:subdomain.workers.dev/*
+  X-Robots-Tag: noindex, nofollow
+
+# Fingerprinted Vite assets — cache forever (parity with infra/nginx/frontend.conf).
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# SPA shell — always revalidate so a deploy is picked up immediately.
+/index.html
+  Cache-Control: no-cache

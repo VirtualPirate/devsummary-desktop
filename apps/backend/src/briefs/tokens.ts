@@ -1,0 +1,1 @@
+export const BRIEFS_CONFIG_TOKEN = Symbol('BRIEFS_CONFIG_TOKEN');

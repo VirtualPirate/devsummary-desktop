@@ -1,0 +1,25 @@
+{
+  "name": "devsummary-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm build:packages && concurrently \"pnpm dev:frontend\" \"pnpm dev:desktop\"",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:desktop": "pnpm --filter desktop dev",
+    "build:packages": "pnpm --filter @launchstack/api-interfaces --filter @launchstack/core build",
+    "build": "pnpm build:packages && pnpm --filter backend build && pnpm --filter frontend build && pnpm --filter desktop build",
+    "dist": "pnpm build && pnpm --filter desktop dist",
+    "db:generate": "pnpm --filter backend db:generate",
+    "db:up": "pnpm --filter backend db:up",
+    "db:down": "pnpm --filter backend db:down",
+    "db:status": "pnpm --filter backend db:status",
+    "lint": "pnpm -r lint",
+    "test": "pnpm --filter backend test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

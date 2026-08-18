@@ -1,0 +1,20 @@
+{
+  // The harness runs under Vitest as ESM, transformed by swc — never by tsc,
+  // and never by `nest build` (tsconfig.build.json excludes test/). The
+  // package tsconfig targets nodenext/CommonJS, under which `import.meta` is
+  // an error and relative imports demand `.js` extensions. Both are wrong for
+  // these files, so override the module settings for editors and any manual
+  // `tsc --noEmit` run.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node", "vitest/globals"],
+    "noEmit": true
+  },
+  // Harness files only. vitest.e2e.config.ts is deliberately excluded:
+  // unplugin-swc ships vite@6 types while Vitest 4 pulls vite@7, so the
+  // plugin call reports a spurious Plugin/PluginOption mismatch. The config is
+  // executed on every run, so a real error in it fails loudly anyway.
+  "include": ["**/*.ts"]
+}
