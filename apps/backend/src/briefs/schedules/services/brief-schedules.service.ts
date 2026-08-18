@@ -7,11 +7,7 @@ import type {
 } from '@launchstack/api-interfaces';
 import { AppError } from '../../../common/errors';
 import { isIanaTimeZone } from '../../../analytics/lib/timezone-aliases';
-import {
-  TemporalProducerService,
-  WORKFLOW,
-  buildSearchAttributes,
-} from '../../../temporal';
+import { JOB, JobQueueService } from '../../../jobs';
 import { GithubRepositoriesRepository } from '../../../integrations/github/repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../../integrations/github/repositories/repository-branches.repository';
 import { CollaboratorsRepository } from '../../../integrations/github/collaborators/repositories/collaborators.repository';
@@ -39,7 +35,7 @@ export class BriefSchedulesService {
     private readonly trackedBranches: RepositoryBranchesRepository,
     private readonly slack: SlackInstallationsRepository,
     private readonly cadence: CadenceService,
-    private readonly temporal: TemporalProducerService,
+    private readonly queue: JobQueueService,
     private readonly appConfig: ConfigService,
   ) {}
 
@@ -96,13 +92,11 @@ export class BriefSchedulesService {
     const backfillMonths = body.backfillMonths ?? DEFAULT_BACKFILL_MONTHS;
     if (backfillMonths > 0) {
       try {
-        await this.temporal.start(WORKFLOW.backfillBriefs, {
-          args: [{ scheduleId: row.id, organizationId, backfillMonths }],
-          searchAttributes: buildSearchAttributes({
-            organizationId,
-            phase: 'generating',
-          }),
-        });
+        await this.queue.enqueue(
+          JOB.backfillBriefs,
+          { scheduleId: row.id, organizationId, backfillMonths },
+          { phase: 'generating', organizationId },
+        );
       } catch (err) {
         this.logger.error(
           `Failed to enqueue backfill for schedule ${row.id}`,

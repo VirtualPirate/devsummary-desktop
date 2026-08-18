@@ -59,7 +59,7 @@ export type BriefStatus =
  */
 export type BriefCommitClock = 'authored' | 'committed';
 /** Mirrors `BriefDeliveryChannel` in @launchstack/api-interfaces. */
-export type BriefDeliveryChannel = 'email' | 'slack';
+export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 /**
  * Structurally identical to `BriefHighlight` in @launchstack/api-interfaces,
  * redeclared here because this file imports only from `kysely`.

@@ -1,5 +1,5 @@
 import { CommitAnalysisController } from '../controllers/commit-analysis.controller';
-import { WORKFLOW } from '../../../../temporal';
+import { JOB } from '../../../../jobs';
 
 function makeController() {
   const reposRepo = {
@@ -8,8 +8,8 @@ function makeController() {
   const commitsRepo = {
     countByRepositorySince: jest.fn(async () => 7),
   } as any;
-  const temporal = {
-    startDeduped: jest.fn(async () => 'queued-id'),
+  const queue = {
+    enqueue: jest.fn(async () => 'queued-id'),
   } as any;
   const trackedBranches = {
     listByRepository: jest.fn(async () => ['main']),
@@ -19,12 +19,12 @@ function makeController() {
     controller: new CommitAnalysisController(
       reposRepo,
       commitsRepo,
-      temporal,
+      queue,
       trackedBranches,
     ),
     reposRepo,
     commitsRepo,
-    temporal,
+    queue,
     trackedBranches,
   };
 }
@@ -41,7 +41,7 @@ describe('CommitAnalysisController', () => {
   });
 
   it('enqueues backfill with computed sinceISO and idempotency key', async () => {
-    const { controller, reposRepo, temporal } = makeController();
+    const { controller, reposRepo, queue } = makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
     jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00Z'));
 
@@ -51,26 +51,22 @@ describe('CommitAnalysisController', () => {
       { days: 30 },
     );
 
-    expect(temporal.startDeduped).toHaveBeenCalledWith(
-      WORKFLOW.backfillCommits,
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      JOB.backfillCommits,
       expect.objectContaining({
-        workflowId: 'backfill:r1:main:2026-04-16',
-        args: [
-          expect.objectContaining({
-            repositoryId: 'r1',
-            branch: 'main',
-            sinceISO: '2026-04-16T12:00:00.000Z',
-            organizationId: 'org-1',
-          }),
-        ],
+        repositoryId: 'r1',
+        branch: 'main',
+        sinceISO: '2026-04-16T12:00:00.000Z',
+        organizationId: 'org-1',
       }),
+      expect.objectContaining({ id: 'backfill:r1:main:2026-04-16' }),
     );
     expect(res.data.jobId).toBe('queued-id');
     jest.useRealTimers();
   });
 
   it('starts one backfill per tracked branch', async () => {
-    const { controller, reposRepo, temporal, trackedBranches } =
+    const { controller, reposRepo, queue, trackedBranches } =
       makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
     trackedBranches.listByRepository.mockResolvedValueOnce(['main', 'develop']);
@@ -78,8 +74,8 @@ describe('CommitAnalysisController', () => {
 
     await controller.backfill(membership, { repoId: 'r1' }, { days: 30 });
 
-    const ids = temporal.startDeduped.mock.calls.map(
-      (c: unknown[]) => (c[1] as { workflowId: string }).workflowId,
+    const ids = queue.enqueue.mock.calls.map(
+      (c: unknown[]) => (c[2] as { id: string }).id,
     );
     expect(ids).toEqual([
       'backfill:r1:main:2026-04-16',
@@ -89,7 +85,7 @@ describe('CommitAnalysisController', () => {
   });
 
   it('refuses to pick a branch when the repository tracks none', async () => {
-    const { controller, reposRepo, temporal, trackedBranches } =
+    const { controller, reposRepo, queue, trackedBranches } =
       makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
     trackedBranches.listByRepository.mockResolvedValueOnce([]);
@@ -99,11 +95,11 @@ describe('CommitAnalysisController', () => {
     ).rejects.toMatchObject({
       code: 'GITHUB_REPOSITORY_BRANCH_NOT_CONFIGURED',
     });
-    expect(temporal.startDeduped).not.toHaveBeenCalled();
+    expect(queue.enqueue).not.toHaveBeenCalled();
   });
 
   it('enqueues analyze with expectedCommitCount', async () => {
-    const { controller, reposRepo, commitsRepo, temporal } = makeController();
+    const { controller, reposRepo, commitsRepo, queue } = makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
     jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00Z'));
 
@@ -117,19 +113,15 @@ describe('CommitAnalysisController', () => {
       'r1',
       '2026-05-09T12:00:00.000Z',
     );
-    expect(temporal.startDeduped).toHaveBeenCalledWith(
-      WORKFLOW.analyzeRepo,
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      JOB.analyzeRepo,
       expect.objectContaining({
-        workflowId: 'analyze:r1:2026-05-09:true',
-        args: [
-          expect.objectContaining({
-            repositoryId: 'r1',
-            sinceISO: '2026-05-09T12:00:00.000Z',
-            force: true,
-            organizationId: 'org-1',
-          }),
-        ],
+        repositoryId: 'r1',
+        sinceISO: '2026-05-09T12:00:00.000Z',
+        force: true,
+        organizationId: 'org-1',
       }),
+      expect.objectContaining({ id: 'analyze:r1:2026-05-09:true' }),
     );
     expect(res.data.expectedCommitCount).toBe(7);
     jest.useRealTimers();
@@ -139,15 +131,15 @@ describe('CommitAnalysisController', () => {
   // id alone let a 90-day backfill be absorbed by a Running 7-day one via
   // USE_EXISTING, and the endpoint still answered 202.
   it('gives different backfill windows different dedup keys', async () => {
-    const { controller, reposRepo, temporal } = makeController();
+    const { controller, reposRepo, queue } = makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValue({ id: 'r1' });
     jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00Z'));
 
     await controller.backfill(membership, { repoId: 'r1' }, { days: 7 });
     await controller.backfill(membership, { repoId: 'r1' }, { days: 90 });
 
-    const ids = temporal.startDeduped.mock.calls.map(
-      (c: unknown[]) => (c[1] as { workflowId: string }).workflowId,
+    const ids = queue.enqueue.mock.calls.map(
+      (c: unknown[]) => (c[2] as { id: string }).id,
     );
     expect(ids).toEqual([
       'backfill:r1:main:2026-05-09',
@@ -157,7 +149,7 @@ describe('CommitAnalysisController', () => {
   });
 
   it('keeps the same dedup key for repeat requests inside the window bucket', async () => {
-    const { controller, reposRepo, temporal } = makeController();
+    const { controller, reposRepo, queue } = makeController();
     reposRepo.findByIdScopedToOrg.mockResolvedValue({ id: 'r1' });
     jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00Z'));
 
@@ -165,8 +157,8 @@ describe('CommitAnalysisController', () => {
     jest.setSystemTime(new Date('2026-05-16T13:00:00Z'));
     await controller.analyze(membership, { repoId: 'r1' }, { days: 7 });
 
-    const ids = temporal.startDeduped.mock.calls.map(
-      (c: unknown[]) => (c[1] as { workflowId: string }).workflowId,
+    const ids = queue.enqueue.mock.calls.map(
+      (c: unknown[]) => (c[2] as { id: string }).id,
     );
     expect(ids[0]).toBe(ids[1]);
     jest.useRealTimers();

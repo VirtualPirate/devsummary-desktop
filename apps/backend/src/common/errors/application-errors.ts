@@ -141,12 +141,6 @@ export const AppError = sealRegistry({
     status: HttpStatus.UNPROCESSABLE_ENTITY,
     message: 'Invite was sent to a different email',
   }),
-  INVITE_RESEND_FAILED: defineError<{ reason: string }>({
-    status: HttpStatus.BAD_GATEWAY,
-    message: ({ reason }) =>
-      `Failed to resend invite email. Previous invite link remains valid. ${reason}`,
-    details: ({ reason }) => ({ reason }),
-  }),
   INVITE_EMAIL_SEND_FAILED: defineError<{ reason: string }>({
     status: HttpStatus.BAD_GATEWAY,
     message: ({ reason }) => `Failed to send invite email: ${reason}`,
@@ -154,10 +148,13 @@ export const AppError = sealRegistry({
   }),
 
   // --- GitHub integration ---
+  // 409, not 500: "you have not connected GitHub yet" is a state the caller
+  // can fix, not a server fault. The code name is kept — it is matched by the
+  // frontend and by the credential layer.
   GITHUB_APP_NOT_CONFIGURED: defineError({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    status: HttpStatus.CONFLICT,
     message:
-      'GitHub App is not configured on this server. Set GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET.',
+      'No GitHub token is connected. Add a fine-grained personal access token in Settings to connect GitHub.',
   }),
   GITHUB_STATE_INVALID: defineError({
     status: HttpStatus.BAD_REQUEST,
@@ -246,27 +243,9 @@ export const AppError = sealRegistry({
     message:
       'Slack is not configured on this server. Set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_REDIRECT_URI.',
   }),
-  SLACK_STATE_INVALID: defineError({
-    status: HttpStatus.BAD_REQUEST,
-    message: 'Slack install state is invalid or expired',
-  }),
-  SLACK_STATE_USER_MISMATCH: defineError({
-    status: HttpStatus.FORBIDDEN,
-    message: 'Slack install state belongs to a different user',
-  }),
   SLACK_INSTALLATION_NOT_FOUND: defineError({
     status: HttpStatus.NOT_FOUND,
     message: 'Slack installation not found',
-  }),
-  SLACK_ORG_ALREADY_CONNECTED: defineError({
-    status: HttpStatus.CONFLICT,
-    message:
-      'This organization already has a Slack workspace connected; disconnect it first',
-  }),
-  SLACK_OAUTH_EXCHANGE_FAILED: defineError<{ reason: string }>({
-    status: HttpStatus.BAD_GATEWAY,
-    message: ({ reason }) => `Slack OAuth code exchange failed: ${reason}`,
-    details: ({ reason }) => ({ reason }),
   }),
   SLACK_API_FAILED: defineError<{ reason: string }>({
     status: HttpStatus.BAD_GATEWAY,

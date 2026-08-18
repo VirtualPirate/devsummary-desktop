@@ -1,5 +1,5 @@
 import { GithubCollaboratorsController } from '../controllers/collaborators.controller';
-import { WORKFLOW } from '../../../../temporal';
+import { JOB } from '../../../../jobs';
 
 function makeMocks() {
   return {
@@ -9,7 +9,7 @@ function makeMocks() {
     reposRepo: {
       findByIdScopedToOrg: jest.fn(async () => null),
     } as any,
-    temporal: { start: jest.fn(async () => 'wf-id') } as any,
+    queue: { enqueue: jest.fn(async () => 'job-id') } as any,
   };
 }
 
@@ -19,7 +19,7 @@ function makeCtrl(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
     ctrl: new GithubCollaboratorsController(
       m.repoCollabRepo,
       m.reposRepo,
-      m.temporal,
+      m.queue,
     ),
     mocks: m,
   };
@@ -80,21 +80,18 @@ describe('GithubCollaboratorsController', () => {
     it('enqueues the manual sync job and returns the job id', async () => {
       const { ctrl, mocks } = makeCtrl();
       mocks.reposRepo.findByIdScopedToOrg.mockResolvedValueOnce({ id: 'r1' });
-      mocks.temporal.start.mockResolvedValueOnce('queued-id-xyz');
+      mocks.queue.enqueue.mockResolvedValueOnce('queued-id-xyz');
 
       const res = await ctrl.sync({ id: 'r1' }, membership);
 
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'r1',
-              trigger: 'manual',
-              organizationId: 'o1',
-            },
-          ],
-        }),
+      expect(mocks.queue.enqueue).toHaveBeenCalledWith(
+        JOB.syncRepoCollaborators,
+        {
+          repositoryId: 'r1',
+          trigger: 'manual',
+          organizationId: 'o1',
+        },
+        expect.objectContaining({ phase: 'fetching', organizationId: 'o1' }),
       );
       expect(res.data).toEqual({ jobId: 'queued-id-xyz' });
       expect(res.success).toBe(true);

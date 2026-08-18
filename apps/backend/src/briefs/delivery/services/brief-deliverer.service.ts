@@ -16,7 +16,7 @@ import { BriefSlackService } from './brief-slack.service';
  * and the brief detail view's per-channel retry only know `email` and `slack`.
  */
 type ChannelResult = {
-  kind: BriefDeliveryChannel | 'desktop';
+  kind: BriefDeliveryChannel;
   ok: boolean;
   err?: string;
 };
@@ -160,12 +160,7 @@ export class BriefDelivererService {
         failureReason,
         deliveredChannels: union(
           brief.deliveredChannels,
-          results
-            .filter(
-              (r): r is ChannelResult & { kind: BriefDeliveryChannel } =>
-                r.ok && r.kind !== 'desktop',
-            )
-            .map((r) => r.kind),
+          results.filter((r) => r.ok).map((r) => r.kind),
         ),
       });
       if (brief.briefScheduleId) {
@@ -193,7 +188,7 @@ export class BriefDelivererService {
    */
   async deliverOne(
     briefId: string,
-    channel: BriefDeliveryChannel,
+    channel: Exclude<BriefDeliveryChannel, 'desktop'>,
   ): Promise<void> {
     const brief = await this.briefs.findById(briefId);
     if (!brief) throw AppError.BRIEF_NOT_FOUND();

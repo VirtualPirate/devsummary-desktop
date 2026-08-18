@@ -1,0 +1,12 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+/**
+ * The whole renderer surface. `apiConfig` resolves once the forked backend has
+ * announced its OS-assigned port, so the frontend can await it before its first
+ * request. Secrets are written renderer → backend (HTTP) → main (parent port);
+ * they deliberately do not travel through here.
+ */
+contextBridge.exposeInMainWorld('desktop', {
+  apiConfig: (): Promise<{ port: number; token: string }> => ipcRenderer.invoke('api:config'),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
+});

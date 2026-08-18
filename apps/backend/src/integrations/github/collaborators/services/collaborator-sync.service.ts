@@ -1,13 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppError } from '../../../../common/errors';
 import { KYSELY_DB, type AppDatabase } from '../../../../databases/kysely';
-import { GithubAppClient } from '../../github-app.client';
+import { GithubAppClient } from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { CollaboratorsRepository } from '../repositories/collaborators.repository';
 import { RepositoryCollaboratorsRepository } from '../repositories/repository-collaborators.repository';
 
-export type SyncTrigger = 'connected' | 'disconnected' | 'webhook' | 'manual';
+export type SyncTrigger = 'connected' | 'disconnected' | 'manual';
 
 @Injectable()
 export class CollaboratorSyncService {

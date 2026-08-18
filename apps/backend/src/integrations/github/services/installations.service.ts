@@ -11,11 +11,7 @@ import type {
   GithubInstallationSelect,
   GithubRepositorySelect,
 } from '../../../databases/kysely';
-import {
-  TemporalProducerService,
-  WORKFLOW,
-  buildSearchAttributes,
-} from '../../../temporal';
+import { JOB, JobQueueService } from '../../../jobs';
 import { sealGithubToken } from '../credentials';
 import { GithubAppClient } from '../github.client';
 import { GithubInstallationsRepository } from '../repositories/installations.repository';
@@ -66,7 +62,7 @@ export class GithubInstallationsService {
     private readonly trackedBranches: RepositoryBranchesRepository,
     private readonly client: GithubAppClient,
     @Inject(KYSELY_DB) private readonly db: AppDatabase,
-    private readonly temporal: TemporalProducerService,
+    private readonly queue: JobQueueService,
   ) {}
 
   /**
@@ -325,12 +321,10 @@ export class GithubInstallationsService {
     repositoryId: string,
     trigger: 'connected' | 'disconnected',
   ): Promise<void> {
-    await this.temporal.start(WORKFLOW.syncRepoCollaborators, {
-      args: [{ repositoryId, trigger, organizationId }],
-      searchAttributes: buildSearchAttributes({
-        organizationId,
-        phase: 'fetching',
-      }),
-    });
+    await this.queue.enqueue(
+      JOB.syncRepoCollaborators,
+      { repositoryId, trigger, organizationId },
+      { phase: 'fetching', organizationId },
+    );
   }
 }

@@ -9,6 +9,7 @@ import {
   type CommitAnalysisConfig,
 } from './commit-analysis.config';
 import { CommitAnalysisActivities } from './activities/commit-analysis.activities';
+import { CommitAnalysisJobs } from './activities/commit-analysis.jobs';
 import { LocStatsActivities } from './activities/loc-stats.activities';
 import { CommitAnalysesRepository } from './repositories/commit-analyses.repository';
 import { CommitsRepository } from './repositories/commits.repository';
@@ -59,6 +60,7 @@ import { COMMIT_ANALYSIS_CONFIG_TOKEN } from './tokens';
     CommitAnalysesRepository,
     CommitAnalysisActivities,
     LocStatsActivities,
+    CommitAnalysisJobs,
   ],
   exports: [CommitsRepository, CommitAnalysesRepository],
 })

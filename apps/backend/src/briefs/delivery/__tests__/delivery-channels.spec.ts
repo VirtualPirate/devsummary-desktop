@@ -264,9 +264,10 @@ describe('brief delivery over the desktop transports', () => {
       'b1',
       expect.objectContaining({
         status: 'delivered',
-        // `desktop` is not a stored channel — delivered_channels only knows the
-        // two the retry UI can re-send.
-        deliveredChannels: [],
+        // `desktop` counts toward "≥1 channel succeeded" *and* is recorded, so
+        // a brief that only landed on the machine is distinguishable from one
+        // that reached a stakeholder.
+        deliveredChannels: ['desktop'],
       }),
     );
   });

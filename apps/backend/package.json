@@ -111,7 +111,6 @@
       "^nodemailer$": "<rootDir>/__mocks__/nodemailer.ts",
       "^openai$": "<rootDir>/__mocks__/openai.ts",
       "^openai/helpers/zod$": "<rootDir>/__mocks__/openai/helpers/zod.ts",
-      "^resend$": "<rootDir>/__mocks__/resend.ts",
       "^@react-email/render$": "<rootDir>/__mocks__/@react-email/render.ts",
       "^@react-email/components$": "<rootDir>/__mocks__/@react-email/components.ts"
     },

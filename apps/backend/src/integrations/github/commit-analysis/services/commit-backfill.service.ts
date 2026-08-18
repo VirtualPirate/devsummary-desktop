@@ -4,7 +4,7 @@ import {
   CollaboratorsRepository,
   type UpsertCollaboratorInput,
 } from '../../collaborators/repositories/collaborators.repository';
-import { GithubAppClient, type GithubUserRef } from '../../github-app.client';
+import { GithubAppClient, type GithubUserRef } from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../repositories/repository-branches.repository';

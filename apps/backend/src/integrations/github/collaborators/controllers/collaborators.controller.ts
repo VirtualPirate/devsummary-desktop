@@ -7,11 +7,7 @@ import {
 } from '../../../../organizations/decorators/org-membership.decorator';
 import { RequireOrgRole } from '../../../../organizations/decorators/require-org-role.decorator';
 import { ZodValidationPipe } from '../../../../organizations/dto/zod-validation.pipe';
-import {
-  TemporalProducerService,
-  WORKFLOW,
-  buildSearchAttributes,
-} from '../../../../temporal';
+import { JOB, JobQueueService } from '../../../../jobs';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { RepositoryCollaboratorsRepository } from '../repositories/repository-collaborators.repository';
 import type { CollaboratorDto } from '../dto/collaborators.dto';
@@ -22,7 +18,7 @@ export class GithubCollaboratorsController {
   constructor(
     private readonly repoCollabs: RepositoryCollaboratorsRepository,
     private readonly repos: GithubRepositoriesRepository,
-    private readonly temporal: TemporalProducerService,
+    private readonly queue: JobQueueService,
   ) {}
 
   @Get()
@@ -80,19 +76,15 @@ export class GithubCollaboratorsController {
       throw AppError.GITHUB_REPOSITORY_NOT_FOUND();
     }
 
-    const jobId = await this.temporal.start(WORKFLOW.syncRepoCollaborators, {
-      args: [
-        {
-          repositoryId: params.id,
-          trigger: 'manual',
-          organizationId: membership.organizationId,
-        },
-      ],
-      searchAttributes: buildSearchAttributes({
+    const jobId = await this.queue.enqueue(
+      JOB.syncRepoCollaborators,
+      {
+        repositoryId: params.id,
+        trigger: 'manual',
         organizationId: membership.organizationId,
-        phase: 'fetching',
-      }),
-    });
+      },
+      { phase: 'fetching', organizationId: membership.organizationId },
+    );
 
     return { data: { jobId }, message: 'sync enqueued', success: true };
   }

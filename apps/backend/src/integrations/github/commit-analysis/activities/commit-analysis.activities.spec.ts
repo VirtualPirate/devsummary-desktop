@@ -1,4 +1,4 @@
-import type { GithubAppClient } from '../../github-app.client';
+import type { GithubAppClient } from '../../github.client';
 import type { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import type { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import type { RepositoryBranchesRepository } from '../../repositories/repository-branches.repository';
@@ -168,13 +168,14 @@ describe('CommitAnalysisActivities', () => {
 
       const result = await activities.backfillFromLatest({
         repositoryId: 'r1',
+        branch: 'main',
         lookbackDays: 30,
       });
 
-      // Second argument is the progress callback the activity heartbeats from;
-      // calling it outside an activity context must be harmless.
+      // Second argument is the progress callback; it now logs instead of
+      // heartbeating, and calling it must still be harmless.
       expect(mocks.backfill.runFromLatest).toHaveBeenCalledWith(
-        { repositoryId: 'r1', lookbackDays: 30 },
+        { repositoryId: 'r1', branch: 'main', lookbackDays: 30 },
         expect.any(Function),
       );
       const onProgress = mocks.backfill.runFromLatest.mock.calls[0][1] as (p: {
@@ -197,11 +198,16 @@ describe('CommitAnalysisActivities', () => {
 
       const result = await activities.backfillCommits({
         repositoryId: 'r1',
+        branch: 'main',
         sinceISO: '2026-01-01T00:00:00Z',
       });
 
       expect(mocks.backfill.run).toHaveBeenCalledWith(
-        { repositoryId: 'r1', sinceISO: '2026-01-01T00:00:00Z' },
+        {
+          repositoryId: 'r1',
+          branch: 'main',
+          sinceISO: '2026-01-01T00:00:00Z',
+        },
         expect.any(Function),
       );
       expect(result).toEqual({ inserted: 3 });

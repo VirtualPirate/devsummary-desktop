@@ -101,7 +101,7 @@ describe('CollaboratorSyncService', () => {
         deletedAt: new Date('2026-05-26T00:00:00Z'),
       });
 
-      await svc.syncRepo('r1', 'webhook');
+      await svc.syncRepo('r1', 'manual');
 
       expect(mocks.repoCollabRepo.softDeleteAllForRepo).toHaveBeenCalledWith(
         'r1',

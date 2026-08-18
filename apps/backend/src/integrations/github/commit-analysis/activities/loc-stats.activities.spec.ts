@@ -1,4 +1,4 @@
-import type { GithubAppClient } from '../../github-app.client';
+import type { GithubAppClient } from '../../github.client';
 import type { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import type { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import type { CommitAnalysesRepository } from '../repositories/commit-analyses.repository';

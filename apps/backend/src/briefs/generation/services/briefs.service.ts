@@ -17,11 +17,7 @@ import type {
 import { BRIEF_COMMIT_TYPES } from '@launchstack/api-interfaces';
 import { AppError } from '../../../common/errors';
 import { isIanaTimeZone } from '../../../analytics/lib/timezone-aliases';
-import {
-  TemporalProducerService,
-  WORKFLOW,
-  buildSearchAttributes,
-} from '../../../temporal';
+import { JOB, JobQueueService } from '../../../jobs';
 import { CollaboratorsRepository } from '../../../integrations/github/collaborators/repositories/collaborators.repository';
 import { GithubRepositoriesRepository } from '../../../integrations/github/repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../../integrations/github/repositories/repository-branches.repository';
@@ -55,7 +51,7 @@ export class BriefsService {
     private readonly repos: GithubRepositoriesRepository,
     private readonly trackedBranches: RepositoryBranchesRepository,
     private readonly slack: SlackInstallationsRepository,
-    private readonly temporal: TemporalProducerService,
+    private readonly queue: JobQueueService,
     private readonly scopes: BriefScopeResolver,
     private readonly report: BriefReportRepository,
     private readonly deliverer: BriefDelivererService,
@@ -258,13 +254,11 @@ export class BriefsService {
       deliverySlackChannelId: body.delivery?.slackChannelId ?? null,
     });
 
-    const jobId = await this.temporal.start(WORKFLOW.generateBrief, {
-      args: [{ briefId: briefRow.id, organizationId }],
-      searchAttributes: buildSearchAttributes({
-        organizationId,
-        phase: 'generating',
-      }),
-    });
+    const jobId = await this.queue.enqueue(
+      JOB.generateBrief,
+      { briefId: briefRow.id, organizationId },
+      { id: `brief:${briefRow.id}`, phase: 'generating', organizationId },
+    );
     return { briefId: briefRow.id, jobId };
   }
 

@@ -1,10 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Context } from '@temporalio/activity';
-import { Activity } from '../../../../temporal';
-import {
-  GithubAppClient,
-  type GithubCommitDetail,
-} from '../../github-app.client';
+import { GithubAppClient, type GithubCommitDetail } from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../repositories/repository-branches.repository';
@@ -29,26 +24,16 @@ export class CommitAnalysisActivities {
   ) {}
 
   /**
-   * Liveness for the two ingestion activities, which page a whole lookback
-   * window in one call. Without it a repository big enough to outrun the
-   * activity timeout is killed and retried from page 1 forever; with it the
-   * `ingest` proxy's `heartbeatTimeout` is the thing that notices a stuck
-   * worker, so the timeout can be generous.
-   *
-   * Best effort: `Context.current()` throws when there is no activity context,
-   * and these activities are exercised directly as plain providers in tests (the
-   * backfill service has non-worker callers too). A missing context means there
-   * is nothing to report liveness to — never a reason to fail the backfill.
+   * Progress for the two ingestion methods, which page a whole lookback window
+   * in one call. This was a Temporal `Context.current().heartbeat(details)`,
+   * whose job was to keep a long backfill from tripping `heartbeatTimeout`.
+   * In process there is no scheduler to reassure, so the only thing left worth
+   * keeping is the progress itself — a log line, not new machinery.
    */
   private heartbeat(details: unknown): void {
-    try {
-      Context.current().heartbeat(details);
-    } catch {
-      // Not inside an activity — no heartbeat sink.
-    }
+    this.logger.debug(`[commits.backfill] progress ${JSON.stringify(details)}`);
   }
 
-  @Activity('commits.backfillFromLatest')
   async backfillFromLatest(input: {
     repositoryId: string;
     branch: string;
@@ -65,7 +50,6 @@ export class CommitAnalysisActivities {
     return r;
   }
 
-  @Activity('commits.planIngest')
   async planIngest(input: {
     repositoryId: string;
     branch: string;
@@ -97,7 +81,6 @@ export class CommitAnalysisActivities {
    * re-run of the same night's sweep reuses the runs rather than starting a
    * second set).
    */
-  @Activity('commits.listSweepTargets')
   async listSweepTargets(input: {
     limit: number;
     after?: { repositoryId: string; branch: string } | null;
@@ -132,7 +115,6 @@ export class CommitAnalysisActivities {
     };
   }
 
-  @Activity('commits.backfill')
   async backfillCommits(input: {
     repositoryId: string;
     branch: string;
@@ -162,7 +144,6 @@ export class CommitAnalysisActivities {
    * already-analysed ones, so the caller's loop terminates even if a commit
    * never ends up with an analysis row.
    */
-  @Activity('analysis.planRepoAnalysis')
   async planRepoAnalysis(input: {
     repositoryId: string;
     sinceISO: string;
@@ -218,7 +199,6 @@ export class CommitAnalysisActivities {
     return { commitIds: toEnqueue, nextCursor };
   }
 
-  @Activity('analysis.analyzeCommit')
   async analyzeCommit(input: { commitId: string }): Promise<void> {
     const commit = await this.commits.findById(input.commitId);
     if (!commit) {

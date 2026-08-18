@@ -138,14 +138,13 @@ describe('AppError registry', () => {
       'INVITE_EXPIRED',
       'INVITE_TARGET_IS_MEMBER',
       'INVITE_EMAIL_MISMATCH',
-      'INVITE_RESEND_FAILED',
       'INVITE_EMAIL_SEND_FAILED',
       'GITHUB_INSTALLATION_ALREADY_CONNECTED',
     ];
     for (const code of codes) {
       expect(typeof AppError[code]).toBe('function');
     }
-    expect(codes).toHaveLength(32);
+    expect(codes).toHaveLength(31);
   });
 
   it('exposes a 409 for GITHUB_INSTALLATION_ALREADY_CONNECTED without naming the other org', () => {

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { CommitAnalysisConfig } from '../commit-analysis.config';
-import type { GithubCommitFile } from '../../github-app.client';
+import type { GithubCommitFile } from '../../github.client';
 import type {
   CommitAnalysisOutput,
   CommitType,

@@ -2,18 +2,7 @@ import { Octokit } from '@octokit/core';
 import { openGithubToken } from '../credentials';
 import { GithubInstallationsService } from '../services/installations.service';
 
-/**
- * `@temporalio/*` is already uninstalled while `src/temporal/` waits for the
- * job-runner phase, so the real barrel cannot load. Delete this once the
- * service enqueues through `JobQueueService` instead.
- */
-jest.mock('../../../temporal', () => ({
-  TemporalProducerService: class {},
-  WORKFLOW: { syncRepoCollaborators: 'SyncRepoCollaboratorsWorkflow' },
-  buildSearchAttributes: (input: unknown) => input,
-}));
-
-const WORKFLOW = { syncRepoCollaborators: 'SyncRepoCollaboratorsWorkflow' };
+import { JOB } from '../../../jobs';
 
 const USER = {
   id: 4242,
@@ -105,12 +94,11 @@ function makeMocks() {
     })),
   } as any;
 
-  const temporal = {
-    start: jest.fn(async () => 'wf-id'),
-    startDeduped: jest.fn(async () => 'wf-id'),
+  const queue = {
+    enqueue: jest.fn(async () => 'job-id'),
   } as any;
 
-  return { installsRepo, reposRepo, trackedBranches, client, db, temporal };
+  return { installsRepo, reposRepo, trackedBranches, client, db, queue };
 }
 
 function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
@@ -122,7 +110,7 @@ function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
       m.trackedBranches,
       m.client,
       m.db,
-      m.temporal,
+      m.queue,
     ),
     mocks: m,
   };
@@ -187,18 +175,15 @@ describe('GithubInstallationsService', () => {
 
       // Invariant: a repository with no tracked branch is inert — connecting
       // must not fetch commits or spend OpenAI tokens.
-      expect(mocks.temporal.start).toHaveBeenCalledTimes(1);
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'repo-1',
-              trigger: 'connected',
-              organizationId: 'org-1',
-            },
-          ],
-        }),
+      expect(mocks.queue.enqueue).toHaveBeenCalledTimes(1);
+      expect(mocks.queue.enqueue).toHaveBeenCalledWith(
+        JOB.syncRepoCollaborators,
+        {
+          repositoryId: 'repo-1',
+          trigger: 'connected',
+          organizationId: 'org-1',
+        },
+        expect.objectContaining({ phase: 'fetching', organizationId: 'org-1' }),
       );
     });
 
@@ -292,17 +277,14 @@ describe('GithubInstallationsService', () => {
         'inst-1',
         expect.anything(),
       );
-      expect(mocks.temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.syncRepoCollaborators,
-        expect.objectContaining({
-          args: [
-            {
-              repositoryId: 'repo-1',
-              trigger: 'disconnected',
-              organizationId: 'org-1',
-            },
-          ],
-        }),
+      expect(mocks.queue.enqueue).toHaveBeenCalledWith(
+        JOB.syncRepoCollaborators,
+        {
+          repositoryId: 'repo-1',
+          trigger: 'disconnected',
+          organizationId: 'org-1',
+        },
+        expect.objectContaining({ phase: 'fetching', organizationId: 'org-1' }),
       );
     });
 

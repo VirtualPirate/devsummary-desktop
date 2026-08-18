@@ -119,7 +119,7 @@ export const WORK_CATEGORY_LABEL: Record<WorkCategory, [string, string]> = {
   upkeep: ['upkeep item', 'upkeep (docs, tests, chores)'],
 };
 
-export type BriefDeliveryChannel = 'email' | 'slack';
+export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 
 /** Ordered most important first — the list's order is the ranking. */
 export interface BriefHighlight {

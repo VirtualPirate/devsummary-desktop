@@ -42,7 +42,7 @@ describe('BriefsService.preview', () => {
       ),
     };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, temporal, scopes, report)
+    //        trackedBranches, slack, queue, scopes, report)
     const service = new BriefsService(
       { findMostRecentForScope } as never,
       null as never,

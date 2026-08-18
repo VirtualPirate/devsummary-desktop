@@ -1,6 +1,6 @@
 import { BriefSchedulesService } from '../services/brief-schedules.service';
 import { CadenceService } from '../services/cadence.service';
-import { WORKFLOW } from '../../../temporal';
+import { JOB } from '../../../jobs';
 
 function makeService(env: Record<string, string> = {}) {
   const schedules = {
@@ -22,7 +22,7 @@ function makeService(env: Record<string, string> = {}) {
   };
   const slack = { findActiveByOrganizationId: jest.fn() };
   const cadence = new CadenceService();
-  const temporal = { start: jest.fn().mockResolvedValue('wf-id') };
+  const queue = { enqueue: jest.fn().mockResolvedValue('job-id') };
   const appConfig = { get: jest.fn((key: string) => env[key]) };
   const svc = new BriefSchedulesService(
     schedules as any,
@@ -33,7 +33,7 @@ function makeService(env: Record<string, string> = {}) {
     trackedBranches as any,
     slack as any,
     cadence,
-    temporal as any,
+    queue as any,
     appConfig as any,
   );
   return {
@@ -45,7 +45,7 @@ function makeService(env: Record<string, string> = {}) {
     repos,
     trackedBranches,
     slack,
-    temporal,
+    queue,
     appConfig,
   };
 }
@@ -247,7 +247,7 @@ describe('BriefSchedulesService', () => {
     });
 
     it('enqueues a backfill job for the new schedule', async () => {
-      const { svc, projects, schedules, temporal } = makeService();
+      const { svc, projects, schedules, queue } = makeService();
       projects.findByIdScopedToOrg.mockResolvedValue({ id: 'p1' });
       schedules.create.mockImplementation(async (input: any) => ({
         ...input,
@@ -269,22 +269,22 @@ describe('BriefSchedulesService', () => {
         delivery: {},
       });
       jest.useRealTimers();
-      expect(temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.backfillBriefs,
+      expect(queue.enqueue).toHaveBeenCalledWith(
+        JOB.backfillBriefs,
+        {
+          scheduleId: 'sch-new',
+          organizationId: 'org-1',
+          backfillMonths: 3,
+        },
         expect.objectContaining({
-          args: [
-            {
-              scheduleId: 'sch-new',
-              organizationId: 'org-1',
-              backfillMonths: 3,
-            },
-          ],
+          phase: 'generating',
+          organizationId: 'org-1',
         }),
       );
     });
 
     it('passes the requested backfill window to the workflow', async () => {
-      const { svc, projects, schedules, temporal } = makeService();
+      const { svc, projects, schedules, queue } = makeService();
       projects.findByIdScopedToOrg.mockResolvedValue({ id: 'p1' });
       schedules.create.mockImplementation(createdRow);
       await svc.create('org-1', 'user-1', {
@@ -295,22 +295,22 @@ describe('BriefSchedulesService', () => {
         delivery: {},
         backfillMonths: 12,
       });
-      expect(temporal.start).toHaveBeenCalledWith(
-        WORKFLOW.backfillBriefs,
+      expect(queue.enqueue).toHaveBeenCalledWith(
+        JOB.backfillBriefs,
+        {
+          scheduleId: 'sch-new',
+          organizationId: 'org-1',
+          backfillMonths: 12,
+        },
         expect.objectContaining({
-          args: [
-            {
-              scheduleId: 'sch-new',
-              organizationId: 'org-1',
-              backfillMonths: 12,
-            },
-          ],
+          phase: 'generating',
+          organizationId: 'org-1',
         }),
       );
     });
 
     it('starts no backfill workflow when the caller asks for no history', async () => {
-      const { svc, projects, schedules, temporal } = makeService();
+      const { svc, projects, schedules, queue } = makeService();
       projects.findByIdScopedToOrg.mockResolvedValue({ id: 'p1' });
       schedules.create.mockImplementation(createdRow);
       await svc.create('org-1', 'user-1', {
@@ -321,7 +321,7 @@ describe('BriefSchedulesService', () => {
         delivery: {},
         backfillMonths: 0,
       });
-      expect(temporal.start).not.toHaveBeenCalled();
+      expect(queue.enqueue).not.toHaveBeenCalled();
     });
   });
 

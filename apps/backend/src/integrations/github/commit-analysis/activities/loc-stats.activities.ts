@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { MAX_HISTORY_DAYS } from '@launchstack/api-interfaces';
-import { Activity } from '../../../../temporal';
-import { GithubAppClient } from '../../github-app.client';
+import { GithubAppClient } from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { CommitAnalysesRepository } from '../repositories/commit-analyses.repository';
@@ -20,7 +19,6 @@ export class LocStatsActivities {
     private readonly client: GithubAppClient,
   ) {}
 
-  @Activity('loc.zeroFillAndFindMissing')
   async zeroFillAndFindMissing(): Promise<{ repositoryIds: string[] }> {
     // Cheap idempotent pass first: empty diffs are 0/0 by definition.
     await this.analyses.zeroFillSkippedEmpty();
@@ -39,7 +37,6 @@ export class LocStatsActivities {
     return { repositoryIds };
   }
 
-  @Activity('loc.pageRepo')
   async pageRepo(input: {
     repositoryId: string;
     cursor: string | null;

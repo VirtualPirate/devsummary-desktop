@@ -38,11 +38,12 @@ import { BriefScopeResolver } from './generation/services/brief-scope.resolver';
 import { BriefGeneratorService } from './generation/services/brief-generator.service';
 import { OpenAIBriefClient } from './generation/services/openai-brief.client';
 import { BriefActivities } from './generation/activities/brief.activities';
-import { SchedulesBootstrap } from '../temporal/schedules.bootstrap';
+import { BriefJobs } from './generation/activities/brief.jobs';
 
 import { BriefRenderService } from './delivery/services/brief-render.service';
 import { BriefEmailService } from './delivery/services/brief-email.service';
 import { BriefSlackService } from './delivery/services/brief-slack.service';
+import { BriefDesktopService } from './delivery/services/brief-desktop.service';
 import { BriefDelivererService } from './delivery/services/brief-deliverer.service';
 
 function makeOpenAIStub(): OpenAIBriefClient {
@@ -97,11 +98,12 @@ function makeOpenAIStub(): OpenAIBriefClient {
     BriefsService,
     BriefReportService,
     BriefActivities,
-    SchedulesBootstrap,
+    BriefJobs,
 
     BriefRenderService,
     BriefEmailService,
     BriefSlackService,
+    BriefDesktopService,
     BriefDelivererService,
   ],
 })

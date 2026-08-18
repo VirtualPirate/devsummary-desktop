@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { KyselyModule } from './databases/kysely';
 import { LocalSessionMiddleware, LocalTokenGuard } from './local';
+import { LocalSettingsModule } from './local/settings/local-settings.module';
 import { OrganizationsModule } from './organizations';
 import { GithubIntegrationsModule } from './integrations/github';
 import { SlackIntegrationsModule } from './integrations/slack';
@@ -26,6 +27,9 @@ import { LoggerModule, RequestIdMiddleware } from './logger';
     // scheduler's first sweep query on onModuleInit, and KyselyModule applies
     // the migrations in its own.
     JobsModule,
+    // @Global: SecretsService + LocalSettingsRepository resolve everywhere
+    // (BriefEmailService and SlackInstallationsRepository both need them).
+    LocalSettingsModule,
     OrganizationsModule,
     GithubIntegrationsModule,
     SlackIntegrationsModule,

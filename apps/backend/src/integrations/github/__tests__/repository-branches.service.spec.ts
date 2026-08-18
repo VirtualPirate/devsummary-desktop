@@ -1,4 +1,4 @@
-import { WORKFLOW } from '../../../temporal';
+import { JOB } from '../../../jobs';
 import { RepositoryBranchesService } from '../services/repository-branches.service';
 
 function makeMocks() {
@@ -27,14 +27,13 @@ function makeMocks() {
     listBranches: jest.fn(),
   } as any;
 
-  const temporal = {
-    start: jest.fn(async () => 'wf'),
-    startDeduped: jest.fn(
-      async (_type: string, opts: { workflowId: string }) => opts.workflowId,
+  const queue = {
+    enqueue: jest.fn(
+      async (_type: string, _args: unknown, opts: { id: string }) => opts.id,
     ),
   } as any;
 
-  return { repos, installs, client, temporal, trackedBranches };
+  return { repos, installs, client, queue, trackedBranches };
 }
 
 function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
@@ -44,7 +43,7 @@ function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
       mocks.repos,
       mocks.installs,
       mocks.client,
-      mocks.temporal,
+      mocks.queue,
       mocks.trackedBranches,
     ),
     mocks,
@@ -130,18 +129,18 @@ describe('RepositoryBranchesService', () => {
         'r1',
         'develop',
       );
-      expect(mocks.temporal.startDeduped).toHaveBeenCalledWith(
-        WORKFLOW.scanRepository,
+      expect(mocks.queue.enqueue).toHaveBeenCalledWith(
+        JOB.scanRepository,
+        {
+          repositoryId: 'r1',
+          branch: 'develop',
+          lookbackDays: 90,
+          organizationId: 'o1',
+        },
         expect.objectContaining({
-          workflowId: 'scan:r1:develop',
-          args: [
-            {
-              repositoryId: 'r1',
-              branch: 'develop',
-              lookbackDays: 90,
-              organizationId: 'o1',
-            },
-          ],
+          id: 'scan:r1:develop',
+          phase: 'fetching',
+          organizationId: 'o1',
         }),
       );
       expect(out).toEqual({
@@ -165,7 +164,7 @@ describe('RepositoryBranchesService', () => {
         details: { branches: ['main'] },
       });
       expect(mocks.trackedBranches.setBranchOnce).not.toHaveBeenCalled();
-      expect(mocks.temporal.startDeduped).not.toHaveBeenCalled();
+      expect(mocks.queue.enqueue).not.toHaveBeenCalled();
     });
 
     it('rejects a repository the write path finds already locked (concurrent set)', async () => {
@@ -183,7 +182,7 @@ describe('RepositoryBranchesService', () => {
           selections: [{ repositoryId: 'r1', branch: 'develop' }],
         }),
       ).rejects.toMatchObject({ code: 'GITHUB_REPOSITORY_BRANCHES_LOCKED' });
-      expect(mocks.temporal.startDeduped).not.toHaveBeenCalled();
+      expect(mocks.queue.enqueue).not.toHaveBeenCalled();
     });
 
     it('writes nothing when any selection is outside the caller org', async () => {
@@ -205,7 +204,7 @@ describe('RepositoryBranchesService', () => {
       // Ownership is validated for the whole batch before the first write, so a
       // bad id cannot leave half the repositories configured and scanning.
       expect(mocks.trackedBranches.setBranchOnce).not.toHaveBeenCalled();
-      expect(mocks.temporal.startDeduped).not.toHaveBeenCalled();
+      expect(mocks.queue.enqueue).not.toHaveBeenCalled();
     });
 
     it('rejects a duplicated repository instead of racing two scans', async () => {

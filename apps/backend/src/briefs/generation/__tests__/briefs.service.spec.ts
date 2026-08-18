@@ -72,7 +72,7 @@ describe('BriefsService.getCommits', () => {
         deps.listContributorsForBrief ?? jest.fn().mockResolvedValue([]),
     };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, temporal, scopes, report)
+    //        trackedBranches, slack, queue, scopes, report)
     return new BriefsService(
       briefs as never,
       briefCommits as never,
@@ -452,9 +452,9 @@ describe('BriefsService.generateAdHoc timezone', () => {
     const projects = {
       findByIdScopedToOrg: jest.fn().mockResolvedValue({ id: 'p1' }),
     };
-    const temporal = { start: jest.fn().mockResolvedValue('wf1') };
+    const queue = { enqueue: jest.fn().mockResolvedValue('job1') };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, temporal, scopes, report)
+    //        trackedBranches, slack, queue, scopes, report)
     const service = new BriefsService(
       { create } as never,
       null as never,
@@ -464,7 +464,7 @@ describe('BriefsService.generateAdHoc timezone', () => {
       null as never,
       null as never,
       null as never,
-      temporal as never,
+      queue as never,
       null as never,
       null as never,
       null as never,

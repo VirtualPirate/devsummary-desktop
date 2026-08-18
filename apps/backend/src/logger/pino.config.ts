@@ -59,6 +59,7 @@ export const buildPinoConfig = (): Params => {
         paths: [
           'req.headers.authorization',
           'req.headers.cookie',
+          'req.headers["x-desktop-token"]',
           'res.headers["set-cookie"]',
         ],
         censor: '[REDACTED]',

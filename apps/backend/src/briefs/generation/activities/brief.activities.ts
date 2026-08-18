@@ -7,7 +7,6 @@ import {
   type BriefScheduleSelect,
 } from '../../../databases/kysely';
 import { CommitsRepository } from '../../../integrations/github/commit-analysis/repositories/commits.repository';
-import { Activity } from '../../../temporal';
 import { BRIEFS_CONFIG_TOKEN } from '../../tokens';
 import type { BriefsConfig } from '../../briefs-config';
 import { BriefDelivererService } from '../../delivery/services/brief-deliverer.service';
@@ -74,7 +73,6 @@ export class BriefActivities {
     private readonly env: ConfigService,
   ) {}
 
-  @Activity('briefs.markGenerating')
   async markGenerating(input: {
     briefId: string;
   }): Promise<{ proceed: boolean }> {
@@ -92,7 +90,6 @@ export class BriefActivities {
     return { proceed: true };
   }
 
-  @Activity('briefs.generateContent')
   async generateContent(input: {
     briefId: string;
   }): Promise<{ terminal: boolean }> {
@@ -170,12 +167,10 @@ export class BriefActivities {
     return { terminal: false };
   }
 
-  @Activity('briefs.deliver')
   async deliver(input: { briefId: string }): Promise<void> {
     await this.deliverer.deliver(input.briefId);
   }
 
-  @Activity('briefs.planBackfill')
   async planBackfill(input: {
     scheduleId: string;
     backfillMonths?: number;
@@ -324,7 +319,6 @@ export class BriefActivities {
     return { briefs: created };
   }
 
-  @Activity('briefs.claimDue')
   async claimDue(): Promise<{ briefs: ClaimedBrief[] }> {
     const batchSize = this.envInt(
       'BRIEFS_DISPATCH_BATCH_SIZE',

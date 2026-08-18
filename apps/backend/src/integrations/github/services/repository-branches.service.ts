@@ -4,15 +4,11 @@ import type {
   SetRepositoryBranchesResponse,
 } from '@launchstack/api-interfaces';
 import { AppError } from '../../../common/errors';
-import {
-  TemporalProducerService,
-  WORKFLOW,
-  buildSearchAttributes,
-} from '../../../temporal';
+import { JOB, JobQueueService } from '../../../jobs';
 // Value import, not `import type`: the class is the DI token, and a type-only
 // import erases it so Nest sees an unresolvable dependency at boot. (The
 // module binds this token to a stub that rejects when the App isn't configured.)
-import { GithubAppClient } from '../github-app.client';
+import { GithubAppClient } from '../github.client';
 import { GithubInstallationsRepository } from '../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../repositories/repository-branches.repository';
@@ -26,7 +22,7 @@ export class RepositoryBranchesService {
     private readonly repos: GithubRepositoriesRepository,
     private readonly installs: GithubInstallationsRepository,
     private readonly client: GithubAppClient,
-    private readonly temporal: TemporalProducerService,
+    private readonly queue: JobQueueService,
     private readonly trackedBranches: RepositoryBranchesRepository,
   ) {}
 
@@ -121,21 +117,20 @@ export class RepositoryBranchesService {
         });
       }
 
-      const jobId = await this.temporal.startDeduped(WORKFLOW.scanRepository, {
-        workflowId: `scan:${selection.repositoryId}:${result.added}`,
-        args: [
-          {
-            repositoryId: selection.repositoryId,
-            branch: result.added,
-            lookbackDays: body.lookbackDays,
-            organizationId,
-          },
-        ],
-        searchAttributes: buildSearchAttributes({
+      const jobId = await this.queue.enqueue(
+        JOB.scanRepository,
+        {
+          repositoryId: selection.repositoryId,
+          branch: result.added,
+          lookbackDays: body.lookbackDays,
           organizationId,
+        },
+        {
+          id: `scan:${selection.repositoryId}:${result.added}`,
           phase: 'fetching',
-        }),
-      });
+          organizationId,
+        },
+      );
       jobIds.push(jobId);
 
       this.logger.log(

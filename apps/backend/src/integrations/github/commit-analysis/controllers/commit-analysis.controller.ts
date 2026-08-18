@@ -12,11 +12,7 @@ import {
 } from '../../../../organizations/decorators/org-membership.decorator';
 import { RequireOrgRole } from '../../../../organizations/decorators/require-org-role.decorator';
 import { ZodValidationPipe } from '../../../../organizations/dto/zod-validation.pipe';
-import {
-  TemporalProducerService,
-  WORKFLOW,
-  buildSearchAttributes,
-} from '../../../../temporal';
+import { JOB, JobQueueService } from '../../../../jobs';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../repositories/repository-branches.repository';
 import {
@@ -52,7 +48,7 @@ export class CommitAnalysisController {
   constructor(
     private readonly repos: GithubRepositoriesRepository,
     private readonly commits: CommitsRepository,
-    private readonly temporal: TemporalProducerService,
+    private readonly queue: JobQueueService,
     private readonly trackedBranches: RepositoryBranchesRepository,
   ) {}
 
@@ -87,21 +83,20 @@ export class CommitAnalysisController {
 
     const jobIds: string[] = [];
     for (const branch of branches) {
-      const jobId = await this.temporal.startDeduped(WORKFLOW.backfillCommits, {
-        workflowId: `backfill:${repo.id}:${branch}:${dedupKey}`,
-        args: [
-          {
-            repositoryId: repo.id,
-            branch,
-            sinceISO,
-            organizationId: membership.organizationId,
-          },
-        ],
-        searchAttributes: buildSearchAttributes({
+      const jobId = await this.queue.enqueue(
+        JOB.backfillCommits,
+        {
+          repositoryId: repo.id,
+          branch,
+          sinceISO,
           organizationId: membership.organizationId,
+        },
+        {
+          id: `backfill:${repo.id}:${branch}:${dedupKey}`,
           phase: 'fetching',
-        }),
-      });
+          organizationId: membership.organizationId,
+        },
+      );
       jobIds.push(jobId);
     }
 
@@ -136,21 +131,20 @@ export class CommitAnalysisController {
       sinceISO,
     );
 
-    const jobId = await this.temporal.startDeduped(WORKFLOW.analyzeRepo, {
-      workflowId: `analyze:${repo.id}:${dedupKey}:${force}`,
-      args: [
-        {
-          repositoryId: repo.id,
-          sinceISO,
-          force,
-          organizationId: membership.organizationId,
-        },
-      ],
-      searchAttributes: buildSearchAttributes({
+    const jobId = await this.queue.enqueue(
+      JOB.analyzeRepo,
+      {
+        repositoryId: repo.id,
+        sinceISO,
+        force,
         organizationId: membership.organizationId,
+      },
+      {
+        id: `analyze:${repo.id}:${dedupKey}:${force}`,
         phase: 'analyzing',
-      }),
-    });
+        organizationId: membership.organizationId,
+      },
+    );
 
     return {
       data: {
