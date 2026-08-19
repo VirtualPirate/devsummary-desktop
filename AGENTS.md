@@ -71,10 +71,21 @@ Briefs covering periods with zero commits get a distinct "no activity" badge/tre
 
 ### Development
 ```bash
-pnpm dev                    # Build packages, then run frontend (Vite :5173) + Electron desktop shell in parallel
+pnpm dev                    # Build packages AND backend, then run frontend (Vite :5173) + Electron desktop shell in parallel
 pnpm dev:frontend           # Frontend only
 pnpm dev:desktop            # Electron desktop shell only (forks the backend as a utility process)
+pnpm build:backend          # Compile the backend to dist/ — what the shell actually runs
 ```
+
+> **The shell runs compiled backend code, not your source.** `apps/desktop/src/main.ts` forks
+> `apps/backend/dist/main.js`, so **editing `apps/backend/src` changes nothing in the running app until
+> the backend is rebuilt** — and there is no backend watcher in the dev loop. `pnpm dev` now runs
+> `build:backend` for exactly this reason; it used to build only the shared packages, which meant a
+> stale `dist/` could silently serve old behaviour through several rounds of "the fix didn't work".
+> After a backend edit mid-session, run `pnpm build:backend` and restart the shell. Verify rather than
+> assume — `grep` the symbol you changed in `apps/backend/dist/`, or check `dist/main.js`'s mtime.
+> Note that `pnpm --filter backend start:dev` does *not* help here: it runs its own Nest server from
+> source on a different port, and the shell keeps forking `dist/`.
 
 ### Build
 ```bash

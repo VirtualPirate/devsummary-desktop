@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppError } from '../../../../common/errors';
 import { KYSELY_DB, type AppDatabase } from '../../../../databases/kysely';
-import { GithubAppClient } from '../../github.client';
+import { GithubAppClient, isRateLimitedError } from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { CollaboratorsRepository } from '../repositories/collaborators.repository';
@@ -68,7 +68,25 @@ export class CollaboratorSyncService {
         return;
       }
       if (status === 403) {
-        throw AppError.GITHUB_API_FAILED({ reason: 'collaborators_forbidden' });
+        // A fine-grained PAT is 403'd here for every repository outside its
+        // selected set — which is most of what it lists, because GitHub grants
+        // implicit read on all public repos but `/collaborators` is gated on
+        // `metadata=read`, and the permission set this app asks the user for
+        // (Contents + Metadata, read-only) only covers the repos they picked.
+        // Connecting used to leave one permanently-failed job per repository
+        // here. The access list is not what briefs are scoped by (see
+        // `listRepoCollaborators`), so an invisible one is skipped, not failed.
+        // Stored rows are left in place: a narrowed token must not delete what a
+        // broader one synced, and 404 already covers "the repo is really gone".
+        if (isRateLimitedError(err)) {
+          throw AppError.GITHUB_API_FAILED({
+            reason: 'collaborators_rate_limited',
+          });
+        }
+        this.logger.warn(
+          `collaborators 403 repo=${repositoryId}, token cannot see the access list; skipping`,
+        );
+        return;
       }
       throw AppError.GITHUB_API_FAILED({
         reason:

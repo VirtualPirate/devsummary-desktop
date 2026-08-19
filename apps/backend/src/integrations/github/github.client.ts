@@ -1,5 +1,22 @@
 import { createRequire } from 'node:module';
+import { Logger } from '@nestjs/common';
 import { AppError } from '../../common/errors';
+
+/**
+ * GitHub answers a spent rate limit with 403 as well as a missing permission, so
+ * anything that reads 403 as "not permitted" has to rule this out first —
+ * otherwise a throttled minute looks like a revoked grant.
+ */
+export function isRateLimitedError(err: unknown): boolean {
+  const headers = (
+    err as { response?: { headers?: Record<string, string | undefined> } }
+  )?.response?.headers;
+  if (!headers) return false;
+  return (
+    headers['x-ratelimit-remaining'] === '0' ||
+    headers['retry-after'] !== undefined
+  );
+}
 
 export interface GithubRepoSummary {
   githubRepoId: string;
@@ -159,6 +176,9 @@ type OctokitLike = {
 
 type OctokitConstructor = new (opts: { auth: string }) => OctokitLike;
 
+/** The picker waits on these probes, so they run wide — GitHub allows 5k/hour. */
+const GRANT_PROBE_CONCURRENCY = 8;
+
 /**
  * The PAT for a stored credential. Every caller already passes the
  * installation row's `githubInstallationId`, so the token is resolved from that
@@ -201,6 +221,8 @@ async function loadOctokitConstructor(): Promise<OctokitConstructor> {
  * injects.
  */
 export class GithubAppClient {
+  private readonly logger = new Logger(GithubAppClient.name);
+
   /** One credential per desktop install, so a single-entry cache is the pool. */
   private cached: { token: string; kit: OctokitLike } | null = null;
 
@@ -245,20 +267,58 @@ export class GithubAppClient {
     }
   }
 
-  /** Every repository the PAT can see, which is what the user picks from. */
+  /**
+   * Every repository the PAT actually **grants**, which is what the user picks
+   * from — not every repository `GET /user/repos` returns.
+   *
+   * Those are not the same set, and the gap is the whole reason this method is
+   * more than one paginate call. `GET /user/repos` enumerates by *account
+   * affiliation*, and a fine-grained PAT additionally carries implicit read-only
+   * access to every **public** repository. So "Only select repositories" never
+   * narrows the response: an account with 72 public repos gets all 72 back
+   * whether it selected one of them or none of them, and the one repository it
+   * did select can be missing entirely (a private repo the token was not granted
+   * metadata on is invisible here). Handing that list to the picker offers 72
+   * repositories the token cannot summarise and hides the one it can.
+   *
+   * GitHub exposes no endpoint that enumerates a fine-grained PAT's selected set
+   * (`GET /installation/repositories` is installation-token-only), so the grant
+   * is probed instead: `/collaborators` is gated on `metadata=read`, which a PAT
+   * holds only for its selected repositories, and public read does not satisfy
+   * it. A private repository needs no probe — appearing in `/user/repos` at all
+   * already proves the grant.
+   *
+   * ponytail: two known ceilings.
+   *
+   * 1. The probe is one request per public repository, so discovery is O(public
+   *    repos) — ~72 calls against a 5k/hour limit for the account this was
+   *    measured on, but a four-figure account would feel it. Upgrade path is a
+   *    grant set cached per token and invalidated on re-paste; not built because
+   *    connect and manual sync are the only callers.
+   * 2. `/collaborators` also wants **push** access for the authenticated user,
+   *    so a public repository the user is only a *read-only* collaborator on
+   *    probes 403 and is dropped even though the token grants it. That is the
+   *    false negative to reach for first if a repository goes missing from the
+   *    picker. It is accepted because DevSummary summarises the user's own work,
+   *    where owner/push is the ordinary case, and because the alternative — no
+   *    filter — hides the granted repository behind dozens of ungranted ones.
+   *    Fixing it needs a probe gated on `metadata=read` but not on role, and no
+   *    such REST endpoint exists today.
+   */
   async listInstallationRepos(
     installationId: bigint,
   ): Promise<GithubRepoSummary[]> {
+    let kit: OctokitLike;
+    const visible: GithubRepoSummary[] = [];
     try {
-      const kit = await this.kit(installationId);
-      const out: GithubRepoSummary[] = [];
+      kit = await this.kit(installationId);
       for await (const page of kit.paginate.iterator('GET /user/repos', {
         affiliation: 'owner,collaborator,organization_member',
         sort: 'pushed',
         per_page: 100,
       })) {
         for (const repository of page.data as RawRepo[]) {
-          out.push({
+          visible.push({
             githubRepoId: repository.id.toString(),
             name: repository.name,
             fullName: repository.full_name,
@@ -267,12 +327,81 @@ export class GithubAppClient {
           });
         }
       }
-      return out;
     } catch (err) {
       throw AppError.GITHUB_API_FAILED({
         reason: err instanceof Error ? err.message : 'Unknown error',
       });
     }
+
+    let granted: GithubRepoSummary[];
+    try {
+      granted = await this.retainGranted(kit, visible);
+    } catch (err) {
+      if (!isRateLimitedError(err)) {
+        throw AppError.GITHUB_API_FAILED({
+          reason: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+      this.logger.warn(
+        `repo discovery: rate limited mid-probe, keeping all ${visible.length} visible repositories unfiltered`,
+      );
+      return visible;
+    }
+
+    if (granted.length !== visible.length) {
+      this.logger.log(
+        `repo discovery: ${visible.length} visible, ${granted.length} granted (dropped ${visible.length - granted.length} reachable only by GitHub's implicit public read)`,
+      );
+    }
+    return granted;
+  }
+
+  /**
+   * Drops the public repositories the token has no `metadata=read` grant on.
+   *
+   * **Fails open on a rate limit.** A throttled 403 is indistinguishable from a
+   * missing permission by status alone, and treating it as "no grant" would
+   * quietly reconcile the user's repositories away — the unfiltered list is the
+   * safer wrong answer, so the whole filter is abandoned rather than applied to
+   * partial evidence.
+   */
+  private async retainGranted(
+    kit: OctokitLike,
+    visible: GithubRepoSummary[],
+  ): Promise<GithubRepoSummary[]> {
+    const verdicts = new Map<string, boolean>();
+    // Only public repositories need a probe, so they alone fill the batches —
+    // slicing `visible` would let private repos consume concurrency slots.
+    const needProbe = visible.filter((repo) => !repo.private);
+
+    for (let i = 0; i < needProbe.length; i += GRANT_PROBE_CONCURRENCY) {
+      const batch = needProbe.slice(i, i + GRANT_PROBE_CONCURRENCY);
+      const probed = await Promise.all(
+        batch.map(async (repo) => {
+          const [owner, name] = repo.fullName.split('/');
+          try {
+            await kit.request('GET /repos/{owner}/{repo}/collaborators', {
+              owner,
+              repo: name,
+              per_page: 1,
+            });
+            return [repo.fullName, true] as const;
+          } catch (err) {
+            if (isRateLimitedError(err)) throw err;
+            const status = (err as { status?: number })?.status;
+            if (status === 403 || status === 404) {
+              return [repo.fullName, false] as const;
+            }
+            throw err;
+          }
+        }),
+      );
+      for (const [fullName, ok] of probed) verdicts.set(fullName, ok);
+    }
+
+    return visible.filter(
+      (repo) => repo.private || verdicts.get(repo.fullName),
+    );
   }
 
   /**

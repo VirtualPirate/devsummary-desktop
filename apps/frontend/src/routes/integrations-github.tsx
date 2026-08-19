@@ -1,6 +1,13 @@
 import { Link } from "@tanstack/react-router"
 import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { PageHeader } from "@/components/devsummary/shared/page-header"
 import { SkeletonList } from "@/components/devsummary/shared/skeleton-list"
 import { GithubPatForm } from "@/components/integrations/github-pat-form"
@@ -107,6 +114,23 @@ export function IntegrationsGithubPage() {
         To add or remove repositories, widen your token&rsquo;s repository access
         on GitHub and press Sync.
       </p>
+
+      {/* Rotation lives here rather than behind Disconnect: a paste updates the
+          installation row in place, while disconnecting and reconnecting
+          soft-deletes every repository and commit under it. */}
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle>Replace token</CardTitle>
+          <CardDescription>
+            Paste a new fine-grained token when the old one expires or its
+            repository access changes. It replaces the stored one — repositories
+            and commits stay.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <GithubPatForm onConnected="stay" />
+        </CardContent>
+      </Card>
     </>
   )
 }

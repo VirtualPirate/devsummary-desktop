@@ -1,14 +1,19 @@
 import { Link } from "@tanstack/react-router";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GithubMark, SlackMark } from "./provider-marks";
 
 /**
- * The only route between the two integration pages. Without it Slack is
+ * The only route between the integration pages. Without it Slack and AI are
  * reachable only by typing the URL — the sidebar carries a single Integrations
  * item, and adding one row per provider is the nav model variant B proposed and
  * this design rejected.
  */
-export function IntegrationTabs({ active }: { active: "github" | "slack" }) {
+export function IntegrationTabs({
+  active,
+}: {
+  active: "github" | "slack" | "ai";
+}) {
   const tabs = [
     {
       key: "github" as const,
@@ -21,6 +26,12 @@ export function IntegrationTabs({ active }: { active: "github" | "slack" }) {
       label: "Slack",
       to: "/integrations/slack",
       icon: <SlackMark className="size-4" />,
+    },
+    {
+      key: "ai" as const,
+      label: "AI",
+      to: "/integrations/ai",
+      icon: <Sparkles className="size-4" />,
     },
   ];
 

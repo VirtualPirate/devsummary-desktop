@@ -240,8 +240,7 @@ describe('CollaboratorSyncService', () => {
   });
 
   describe('when GitHub returns 403', () => {
-    it('rethrows so the Temporal activity retries', async () => {
-      const { svc, mocks } = makeService();
+    const arrange = (mocks: ReturnType<typeof makeService>['mocks']) => {
       mocks.reposRepo.findByIdIncludingDeleted.mockResolvedValueOnce({
         id: 'r1',
         installationId: 'i1',
@@ -253,8 +252,30 @@ describe('CollaboratorSyncService', () => {
         githubInstallationId: 99n,
         deletedAt: null,
       });
-      const err: any = new Error('Forbidden');
+    };
+
+    it('skips without throwing when the token cannot see the access list', async () => {
+      const { svc, mocks } = makeService();
+      arrange(mocks);
+      const err: any = new Error(
+        'Resource not accessible by personal access token',
+      );
       err.status = 403;
+      err.response = { headers: { 'x-ratelimit-remaining': '4998' } };
+      mocks.client.listRepoCollaborators.mockRejectedValueOnce(err);
+
+      await expect(svc.syncRepo('r1', 'connected')).resolves.toBeUndefined();
+
+      // Not "gone" — a repo outside a narrowed PAT's set keeps what it had.
+      expect(mocks.repoCollabRepo.softDeleteAllForRepo).not.toHaveBeenCalled();
+    });
+
+    it('rethrows a rate-limit 403 so the job retries', async () => {
+      const { svc, mocks } = makeService();
+      arrange(mocks);
+      const err: any = new Error('API rate limit exceeded');
+      err.status = 403;
+      err.response = { headers: { 'x-ratelimit-remaining': '0' } };
       mocks.client.listRepoCollaborators.mockRejectedValueOnce(err);
 
       await expect(svc.syncRepo('r1', 'connected')).rejects.toThrow();

@@ -157,7 +157,7 @@ Better Auth is gone. What guards the API instead is a per-boot bearer token, bec
 
 ### Credentials
 
-The user's GitHub PAT, OpenAI key, SMTP password and Slack bot token are pasted in `routes/settings.tsx` and stored in the OS keychain by the backend. **Nothing is ever read back**: `GET /api/local-settings` answers booleans only, so a status pill is the most the UI can show. GitHub is the exception — its status comes from `useGithubInstallations()`, because the token is stored by `POST /api/integrations/github/token` (which also validates it and reconciles the repository list) rather than through the credentials endpoint.
+The user's GitHub PAT, OpenAI key and Slack bot token are pasted on their own integrations page (`routes/integrations-github.tsx`, `routes/integrations-slack.tsx`, `routes/integrations-ai.tsx`, tabbed by `components/integrations/integration-tabs.tsx`); the SMTP password is pasted in `routes/settings.tsx`, which keeps only email, desktop and workspace. All of them are stored in the OS keychain by the backend. **Nothing is ever read back**: `GET /api/local-settings` answers booleans only, so a status pill is the most the UI can show. GitHub is the exception — its status comes from `useGithubInstallations()`, because the token is stored by `POST /api/integrations/github/token` (which also validates it and reconciles the repository list) rather than through the credentials endpoint.
 
 ## Client State (Zustand)
 

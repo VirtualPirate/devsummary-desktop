@@ -3,9 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "pnpm build:packages && concurrently \"pnpm dev:frontend\" \"pnpm dev:desktop\"",
+    "dev": "pnpm build:packages && pnpm build:backend && concurrently \"pnpm dev:frontend\" \"pnpm dev:desktop\"",
     "dev:frontend": "pnpm --filter frontend dev",
     "dev:desktop": "pnpm --filter desktop dev",
+    "build:backend": "pnpm --filter backend build",
     "build:packages": "pnpm --filter @launchstack/api-interfaces --filter @launchstack/core build",
     "build": "pnpm build:packages && pnpm --filter backend build && pnpm --filter frontend build && pnpm --filter desktop build",
     "dist": "pnpm build && pnpm --filter desktop dist",

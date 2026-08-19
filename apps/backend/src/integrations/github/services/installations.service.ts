@@ -156,6 +156,27 @@ export class GithubInstallationsService {
       ? (await this.repos.listByInstallation(existing.id)).map((r) => r.id)
       : [];
 
+    // A token that authenticates but grants nothing is refused only when there
+    // is nothing stored to correct, and "stored" means **live repository rows**,
+    // not an installation row — a disconnected workspace keeps a revivable
+    // installation, so testing `existing` here would accept a useless token for
+    // any account that had ever connected.
+    //
+    // When there *are* live rows the paste must go through and reconcile them
+    // away. They came from a wider token, or from before grants were checked at
+    // all, and the picker reads those rows rather than GitHub — so refusing
+    // would leave the user staring at exactly the repositories they just told us
+    // the token cannot reach. The clear is recoverable: rows are soft-deleted,
+    // and re-pasting a working token undeletes them with their commits intact.
+    if (repos.length === 0) {
+      if (beforeIds.length === 0) {
+        throw AppError.GITHUB_TOKEN_GRANTS_NO_REPOS({ visible: 0 });
+      }
+      this.logger.warn(
+        `token for github account ${meta.accountLogin} grants no repositories; clearing ${beforeIds.length} stored`,
+      );
+    }
+
     const installationRowId = await this.db
       .transaction()
       .execute(async (tx) => {
@@ -246,6 +267,18 @@ export class GithubInstallationsService {
     const repos = await this.client.listInstallationRepos(
       installation.githubInstallationId,
     );
+
+    // Sync is the button a user presses *because* the list looks wrong, so it
+    // reconciles to nothing when the token grants nothing — refusing would make
+    // the one control that can clear stale rows the one that cannot. The wipe is
+    // soft and reversible, and a rate-limited probe never lands here:
+    // `listInstallationRepos` fails open to the unfiltered list instead of
+    // reporting an empty grant set.
+    if (repos.length === 0 && beforeIds.length > 0) {
+      this.logger.warn(
+        `sync found no granted repositories for installation ${installation.id}; soft-deleting ${beforeIds.length}`,
+      );
+    }
 
     await this.repos.reconcileForInstallation(
       installation.id,

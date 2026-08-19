@@ -183,6 +183,15 @@ export const AppError = sealRegistry({
     message:
       'This GitHub account is already connected to another organization; disconnect it there before connecting it here. The GitHub App remains installed on the account.',
   }),
+  // The distinction that makes this worth its own code: the token authenticated
+  // fine and `GET /user/repos` answered — it just granted nothing. Reporting it
+  // as a generic bad token sends the user to re-check expiry, when the thing to
+  // fix is the token's "Repository access" selection.
+  GITHUB_TOKEN_GRANTS_NO_REPOS: defineError<{ visible: number }>({
+    status: HttpStatus.BAD_REQUEST,
+    message:
+      'This token does not grant access to any repository. GitHub lists every public repository your account is affiliated with regardless of the token, so a long list here is not access. Open the token on github.com, set "Repository access" to "Only select repositories", pick the repositories you want summarised, and grant them Contents: Read-only and Metadata: Read-only.',
+  }),
   GITHUB_API_FAILED: defineError<{ reason: string }>({
     status: HttpStatus.BAD_GATEWAY,
     message: ({ reason }) => `GitHub API call failed: ${reason}`,

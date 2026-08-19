@@ -1,11 +1,9 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Check, Monitor, Moon, Send, Sun } from "lucide-react";
+import { Monitor, Moon, Send, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
-import { GithubPatForm } from "@/components/integrations/github-pat-form";
-import { SlackTokenForm } from "@/components/integrations/slack-token-form";
-import { SlackTestMessageDialog } from "@/components/integrations/slack-test-message-dialog";
+import { SectionCard } from "@/components/devsummary/shared/section-card";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,14 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SkeletonList } from "@/components/devsummary/shared/skeleton-list";
 import { Switch } from "@/components/ui/switch";
-import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
 import {
   useLocalSettings,
-  useLocalSettingsUsage,
   useSendTestEmail,
   useUpdateLocalCredentials,
 } from "@/hooks/api/use-local-settings";
-import { useSlackInstallations } from "@/hooks/api/use-slack";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { cn } from "@/lib/utils";
 
@@ -59,203 +54,6 @@ function ThemePicker() {
         </button>
       ))}
     </div>
-  );
-}
-
-/** Green tick when a credential is stored. Never the value — only the boolean. */
-function StatusPill({ configured }: { configured: boolean }) {
-  return configured ? (
-    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-gb-status-shipped/15 px-2.5 py-0.5 text-xs font-medium text-gb-status-shipped">
-      <Check className="size-3" />
-      Configured
-    </span>
-  ) : (
-    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-      Not set
-    </span>
-  );
-}
-
-function SectionCard({
-  title,
-  description,
-  configured,
-  children,
-}: {
-  title: string;
-  description: React.ReactNode;
-  configured: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle>{title}</CardTitle>
-            <CardDescription>{description}</CardDescription>
-          </div>
-          <StatusPill configured={configured} />
-        </div>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-const tokens = new Intl.NumberFormat();
-
-function TokenTotals() {
-  const usage = useLocalSettingsUsage();
-  const data = usage.data?.data;
-  if (!data) return null;
-
-  const rows = [
-    ["Commit analysis", data.analysisPromptTokens, data.analysisCompletionTokens],
-    ["Briefs", data.briefPromptTokens, data.briefCompletionTokens],
-  ] as const;
-
-  return (
-    <div className="mt-6 border-t pt-4">
-      <div className="text-sm font-medium">Tokens used</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">
-        Everything this workspace has spent on your key, from the counts stored
-        on each commit analysis and brief.
-      </div>
-      <dl className="mt-3 grid max-w-md grid-cols-[1fr_auto_auto] gap-x-6 gap-y-1.5 text-xs">
-        <dt className="text-muted-foreground" />
-        <dd className="text-right text-muted-foreground">Prompt</dd>
-        <dd className="text-right text-muted-foreground">Completion</dd>
-        {rows.map(([label, prompt, completion]) => (
-          <Fragment key={label}>
-            <dt>{label}</dt>
-            <dd className="text-right font-mono">{tokens.format(prompt)}</dd>
-            <dd className="text-right font-mono">
-              {tokens.format(completion)}
-            </dd>
-          </Fragment>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-function OpenAiSection({
-  configured,
-  commitAnalysisModel,
-  briefModel,
-}: {
-  configured: boolean;
-  commitAnalysisModel: string;
-  briefModel: string;
-}) {
-  const update = useUpdateLocalCredentials();
-  const [key, setKey] = useState("");
-  const [analysisModel, setAnalysisModel] = useState("");
-  const [summaryModel, setSummaryModel] = useState("");
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const value = key.trim();
-    if (!value) return;
-    try {
-      await update.mutateAsync({ openaiApiKey: value });
-      setKey("");
-      toast.success("OpenAI key saved");
-    } catch (err) {
-      toast.error(extractErrorMessage(err));
-    }
-  };
-
-  // Blank submits nothing rather than clearing: an empty field here means "not
-  // editing", and the two models are saved together so one form does both.
-  const handleModels = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const payload: { commitAnalysisModel?: string; briefModel?: string } = {};
-    if (analysisModel.trim()) payload.commitAnalysisModel = analysisModel.trim();
-    if (summaryModel.trim()) payload.briefModel = summaryModel.trim();
-    if (Object.keys(payload).length === 0) return;
-    try {
-      await update.mutateAsync(payload);
-      setAnalysisModel("");
-      setSummaryModel("");
-      toast.success("Models saved");
-    } catch (err) {
-      toast.error(extractErrorMessage(err));
-    }
-  };
-
-  return (
-    <SectionCard
-      title="OpenAI"
-      description="Classifies each commit and writes the briefs. Billed to your own key."
-      configured={configured}
-    >
-      <form className="max-w-md space-y-4" onSubmit={handleSubmit}>
-        <div className="space-y-1.5">
-          <Label htmlFor="openai-key">API key</Label>
-          <Input
-            id="openai-key"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={key}
-            onChange={(event) => setKey(event.target.value)}
-            placeholder="sk-…"
-            className="font-mono"
-          />
-        </div>
-        <Button type="submit" disabled={!key.trim() || update.isPending}>
-          {update.isPending ? "Saving…" : "Save key"}
-        </Button>
-      </form>
-
-      <form
-        className="mt-6 max-w-md space-y-4 border-t pt-4"
-        onSubmit={handleModels}
-      >
-        <div className="space-y-1.5">
-          <Label htmlFor="openai-analysis-model">Commit analysis model</Label>
-          <Input
-            id="openai-analysis-model"
-            autoComplete="off"
-            spellCheck={false}
-            value={analysisModel}
-            onChange={(event) => setAnalysisModel(event.target.value)}
-            placeholder={commitAnalysisModel}
-            className="font-mono"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="openai-brief-model">Brief model</Label>
-          <Input
-            id="openai-brief-model"
-            autoComplete="off"
-            spellCheck={false}
-            value={summaryModel}
-            onChange={(event) => setSummaryModel(event.target.value)}
-            placeholder={briefModel}
-            className="font-mono"
-          />
-        </div>
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={
-            (!analysisModel.trim() && !summaryModel.trim()) || update.isPending
-          }
-        >
-          {update.isPending ? "Saving…" : "Save models"}
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          In effect now: <span className="font-mono">{commitAnalysisModel}</span>{" "}
-          for commits, <span className="font-mono">{briefModel}</span> for
-          briefs. A saved model applies to the next job — no restart.
-        </p>
-      </form>
-
-      <TokenTotals />
-    </SectionCard>
   );
 }
 
@@ -469,19 +267,8 @@ function NotificationsSection({
 
 export function SettingsPage() {
   const settings = useLocalSettings();
-  const github = useGithubInstallations();
-  const slack = useSlackInstallations();
-  const [slackTestOpen, setSlackTestOpen] = useState(false);
 
   const status = settings.data?.data;
-  // GitHub status stays on the installation row, not on `status.github`.
-  // `POST /integrations/github/token` now writes the credential flag too, so
-  // both are right inside the shell — but the flag is seeded from env at boot,
-  // and a headless `pnpm dev:frontend` against an already-connected database has
-  // no keychain to seed it from. The row is what ingest actually reads, and this
-  // screen already fetches it for the Slack-style card below.
-  const githubConnected = (github.data?.data ?? []).length > 0;
-  const slackConnected = (slack.data?.data ?? []).length > 0;
 
   const header = (
     <PageHeader
@@ -494,7 +281,7 @@ export function SettingsPage() {
     return (
       <>
         {header}
-        <SkeletonList rows={4} rowHeight={160} />
+        <SkeletonList rows={3} rowHeight={160} />
       </>
     );
   }
@@ -504,65 +291,10 @@ export function SettingsPage() {
       {header}
 
       <div className="space-y-8">
-        <SectionCard
-          title="GitHub"
-          description="A fine-grained personal access token is the only way in — DevSummary reads commits through your own access."
-          configured={githubConnected}
-        >
-          {githubConnected ? (
-            <p className="text-sm text-muted-foreground">
-              Connected. Manage repositories, branches and disconnect on the{" "}
-              <Link
-                to="/integrations/github"
-                className="underline underline-offset-4 hover:text-foreground"
-              >
-                integrations page
-              </Link>
-              . Pasting a new token below replaces the stored one.
-            </p>
-          ) : null}
-          <div className={githubConnected ? "mt-4" : undefined}>
-            <GithubPatForm onConnected="stay" />
-          </div>
-        </SectionCard>
-
-        <OpenAiSection
-          configured={status?.openai ?? false}
-          commitAnalysisModel={status?.commitAnalysisModel ?? ""}
-          briefModel={status?.briefModel ?? ""}
-        />
-
         <SmtpSection
           configured={status?.smtp ?? false}
           fromConfigured={status?.emailFrom ?? false}
         />
-
-        <SectionCard
-          title="Slack"
-          description="A bot token posts briefs into a channel. The channel is chosen per schedule."
-          configured={slackConnected}
-        >
-          {slackConnected ? (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Connected. Channel membership and disconnect live on the{" "}
-                <Link
-                  to="/integrations/slack"
-                  className="underline underline-offset-4 hover:text-foreground"
-                >
-                  integrations page
-                </Link>
-                .
-              </p>
-              <Button variant="outline" onClick={() => setSlackTestOpen(true)}>
-                <Send className="size-3.5" />
-                Post a test message
-              </Button>
-            </div>
-          ) : (
-            <SlackTokenForm />
-          )}
-        </SectionCard>
 
         <NotificationsSection
           enabled={status?.desktopNotifications ?? false}
@@ -585,12 +317,31 @@ export function SettingsPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
 
-      <SlackTestMessageDialog
-        open={slackTestOpen}
-        onOpenChange={setSlackTestOpen}
-      />
+        {/* GitHub, Slack and the OpenAI key all live on the integrations pages
+            now — one place per provider, rather than a paste form here and a
+            management page there. */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Integrations</CardTitle>
+            <CardDescription>
+              GitHub, Slack and OpenAI credentials are managed on their own
+              pages.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link to="/integrations/github">GitHub</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/integrations/slack">Slack</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/integrations/ai">AI</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

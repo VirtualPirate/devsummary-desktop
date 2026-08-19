@@ -20,7 +20,7 @@ const SOURCE_METHODS = [
 ];
 
 /** Private helpers the port added — anything else new is a surface change. */
-const PRIVATE_METHODS = ['kit'];
+const PRIVATE_METHODS = ['kit', 'retainGranted'];
 
 const kit = () =>
   Octokit as unknown as { request: jest.Mock; iterator: jest.Mock };
@@ -144,6 +144,83 @@ describe('GithubAppClient', () => {
       html_url: 'https://github.com/org/a',
     });
     expect(repos[1].raw).toMatchObject({ id: 11, full_name: 'org/b' });
+  });
+
+  describe('grant filtering', () => {
+    /**
+     * The bug this covers: `GET /user/repos` lists every public repository the
+     * *account* is affiliated with, so a PAT scoped to one repo still returned
+     * dozens. Only a `metadata=read`-gated probe tells the two apart.
+     */
+    const twoPublicOnePrivate = () =>
+      kit().iterator.mockImplementation(
+        pages([
+          { id: 10, name: 'granted', full_name: 'org/granted', private: false },
+          {
+            id: 11,
+            name: 'implicit',
+            full_name: 'org/implicit',
+            private: false,
+          },
+          { id: 12, name: 'secret', full_name: 'org/secret', private: true },
+        ]),
+      );
+
+    const probeReplies = (replies: Record<string, 'ok' | number>) =>
+      kit().request.mockImplementation(
+        (_route: string, params: { repo: string }) => {
+          const verdict = replies[params.repo];
+          if (verdict === 'ok') return Promise.resolve({ data: [] });
+          const err: any = new Error('nope');
+          err.status = verdict;
+          err.response = { headers: { 'x-ratelimit-remaining': '4999' } };
+          return Promise.reject(err);
+        },
+      );
+
+    it('drops public repos the token has no metadata grant on', async () => {
+      const client = makeClient();
+      twoPublicOnePrivate();
+      probeReplies({ granted: 'ok', implicit: 403 });
+
+      const repos = await client.listInstallationRepos(1n);
+
+      expect(repos.map((r) => r.fullName)).toEqual([
+        'org/granted',
+        'org/secret',
+      ]);
+    });
+
+    it('never probes a private repo — visibility already proves the grant', async () => {
+      const client = makeClient();
+      twoPublicOnePrivate();
+      probeReplies({ granted: 403, implicit: 403 });
+
+      const repos = await client.listInstallationRepos(1n);
+
+      expect(repos.map((r) => r.fullName)).toEqual(['org/secret']);
+      const probed = kit().request.mock.calls.map(
+        (c: unknown[]) => (c[1] as { repo: string }).repo,
+      );
+      expect(probed).not.toContain('secret');
+    });
+
+    it('keeps the list unfiltered when a rate limit interrupts probing', async () => {
+      const client = makeClient();
+      twoPublicOnePrivate();
+      kit().request.mockImplementation(() => {
+        const err: any = new Error('API rate limit exceeded');
+        err.status = 403;
+        err.response = { headers: { 'x-ratelimit-remaining': '0' } };
+        return Promise.reject(err);
+      });
+
+      const repos = await client.listInstallationRepos(1n);
+
+      // Failing open is the safer wrong answer: an empty list reconciles the
+      // user's repositories — and their commits and briefs — away.
+      expect(repos).toHaveLength(3);
+    });
   });
 
   it('wraps API errors as GITHUB_API_FAILED', async () => {

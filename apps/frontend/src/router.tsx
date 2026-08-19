@@ -29,6 +29,7 @@ import { SchedulesPage } from "@/routes/schedules";
 import { TeamDetailPage } from "@/routes/team-detail";
 import { TeamsPage } from "@/routes/teams";
 import { HomePage } from "@/routes/home";
+import { IntegrationsAiPage } from "@/routes/integrations-ai";
 import { IntegrationsGithubPage } from "@/routes/integrations-github";
 import { IntegrationsGithubSetupPage } from "@/routes/integrations-github-setup";
 import { IntegrationsSlackPage } from "@/routes/integrations-slack";
@@ -247,6 +248,12 @@ const integrationsSlackRoute = createRoute({
   component: IntegrationsSlackPage,
 });
 
+const integrationsAiRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/integrations/ai",
+  component: IntegrationsAiPage,
+});
+
 const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     homeRoute,
@@ -266,6 +273,7 @@ const routeTree = rootRoute.addChildren([
     integrationsGithubRoute,
     integrationsGithubSetupRoute,
     integrationsSlackRoute,
+    integrationsAiRoute,
   ]),
 ]);
 
