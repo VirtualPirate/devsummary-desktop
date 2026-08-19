@@ -125,6 +125,13 @@ export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 export interface BriefHighlight {
   title: string;
   detail: string;
+  /**
+   * The kind of work the highlight mostly is, in the same five-value
+   * vocabulary the charts use. Optional because it was added after briefs
+   * were already being stored: rows written before it read back with
+   * `title` and `detail` only, and nothing backfills them.
+   */
+  category?: WorkCategory;
 }
 
 export interface BriefResponse {

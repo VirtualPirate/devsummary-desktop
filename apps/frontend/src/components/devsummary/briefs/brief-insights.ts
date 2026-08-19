@@ -1,7 +1,12 @@
-import type { BriefCommitTypeCounts } from "@launchstack/api-interfaces";
+import type {
+  BriefCommitTypeCounts,
+  BriefHighlight,
+} from "@launchstack/api-interfaces";
 import {
   CLASSIFIED_COMMIT_TYPES,
+  WORK_CATEGORIES,
   type ClassifiedCommitType,
+  type WorkCategory,
 } from "@/components/devsummary/shared/commit-type-colors";
 
 // Executive-facing phrasing for each work type: [singular, plural]. The raw
@@ -31,7 +36,7 @@ function pluralize(key: ClassifiedCommitType, count: number): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-function sentenceCase(s: string): string {
+export function sentenceCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -72,4 +77,47 @@ export function splitSummary(summary: string): { lead: string; body: string } {
 /** "5 people" / "1 person" from a contributor count. */
 export function contributorLabel(count: number): string {
   return `${count} ${count === 1 ? "person" : "people"}`;
+}
+
+export interface HighlightTagCount {
+  category: WorkCategory;
+  count: number;
+}
+
+/**
+ * Categories present in a highlight list, with their counts, in
+ * `WORK_CATEGORIES` order.
+ *
+ * The order is the chart's, not the ranking's, on purpose: these become the
+ * filter chips, and a chip row that reshuffles between briefs is a row nobody
+ * builds muscle memory for. Highlights with no category — every brief
+ * generated before the field existed — are counted by nothing and so appear in
+ * no chip, which is why `canFilterHighlights` refuses to offer filtering at all
+ * unless every highlight carries one.
+ */
+export function highlightTagCounts(
+  highlights: BriefHighlight[],
+): HighlightTagCount[] {
+  const totals = new Map<WorkCategory, number>();
+  for (const h of highlights) {
+    if (!h.category) continue;
+    totals.set(h.category, (totals.get(h.category) ?? 0) + 1);
+  }
+  return WORK_CATEGORIES.filter((c) => totals.has(c)).map((c) => ({
+    category: c,
+    count: totals.get(c) as number,
+  }));
+}
+
+/**
+ * Whether the chip row earns its place. Two conditions, each with a screen in
+ * the design demo behind it: a single category means a control that cannot
+ * change anything, and a partially tagged list means filtering would silently
+ * strip the untagged highlights with no chip to bring them back.
+ */
+export function canFilterHighlights(highlights: BriefHighlight[]): boolean {
+  return (
+    highlightTagCounts(highlights).length >= 2 &&
+    highlights.every((h) => h.category)
+  );
 }

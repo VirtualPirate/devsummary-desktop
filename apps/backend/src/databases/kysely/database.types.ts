@@ -67,6 +67,12 @@ export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 export interface BriefHighlightRow {
   title: string;
   detail: string;
+  /**
+   * `WorkCategory` — spelled out rather than imported for the same reason the
+   * interface is redeclared. Optional because the column has no constraint and
+   * rows written before the field existed carry only title and detail.
+   */
+  category?: 'feature' | 'fix' | 'optimization' | 'refactor' | 'upkeep';
 }
 
 // ---------------------------------------------------------------------------
