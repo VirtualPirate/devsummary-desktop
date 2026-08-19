@@ -21,6 +21,7 @@ import { JOB, JobQueueService } from '../../../jobs';
 import { CollaboratorsRepository } from '../../../integrations/github/collaborators/repositories/collaborators.repository';
 import { GithubRepositoriesRepository } from '../../../integrations/github/repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../../integrations/github/repositories/repository-branches.repository';
+import { IngestStatusService } from '../../../integrations/github/services/ingest-status.service';
 import { SlackInstallationsRepository } from '../../../integrations/slack/repositories/installations.repository';
 import { ProjectsRepository } from '../../projects/repositories/projects.repository';
 import { TeamsRepository } from '../../teams/repositories/teams.repository';
@@ -55,6 +56,9 @@ export class BriefsService {
     private readonly scopes: BriefScopeResolver,
     private readonly report: BriefReportRepository,
     private readonly deliverer: BriefDelivererService,
+    // Appended, not inserted: the unit specs pass positional `null as never`
+    // deps, so a mid-list parameter silently reassigns every later one.
+    private readonly ingestStatus: IngestStatusService,
   ) {}
 
   async list(
@@ -219,6 +223,13 @@ export class BriefsService {
         timezone: body.timezone,
       });
     }
+
+    // Same rule, same source, as the schedule create gate: a brief written now
+    // would summarize a history still being read, and nothing rewrites a brief.
+    // Degrades to allowed when the ingest query fails, so an unreachable
+    // dependency cannot lock generation outright.
+    const ingest = await this.ingestStatus.forOrganization(organizationId);
+    if (ingest.ingesting) throw AppError.BRIEF_COMMITS_PROCESSING();
 
     await this.assertScopeInOrg(organizationId, body.scope);
     if (body.delivery?.slackChannelId) {

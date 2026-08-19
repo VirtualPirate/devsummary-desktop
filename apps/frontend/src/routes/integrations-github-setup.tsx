@@ -18,6 +18,7 @@ import {
   useSetRepositoryBranches,
 } from "@/hooks/api/use-github-integrations"
 import { useCurrentOrganization } from "@/hooks/api/use-organizations"
+import { NewScheduleButton } from "@/components/devsummary/schedules/new-schedule-button"
 
 const STEPS = ["Connect", "Choose a branch", "Schedule"] as const
 
@@ -152,9 +153,7 @@ export function IntegrationsGithubSetupPage() {
             <Button asChild variant="outline">
               <Link to="/integrations/github">GitHub integration</Link>
             </Button>
-            <Button asChild>
-              <Link to="/schedules/new">Set up a schedule</Link>
-            </Button>
+            <NewScheduleButton size="default">Set up a schedule</NewScheduleButton>
           </div>
         </Card>
       </div>
@@ -209,9 +208,9 @@ export function IntegrationsGithubSetupPage() {
           }
           actions={
             <>
-              <Button asChild>
-                <Link to="/schedules/new">Set up a schedule</Link>
-              </Button>
+              <NewScheduleButton size="default">
+                Set up a schedule
+              </NewScheduleButton>
               <Button asChild variant="outline">
                 <Link to="/integrations/github">GitHub integration</Link>
               </Button>

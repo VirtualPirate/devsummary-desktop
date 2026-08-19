@@ -5,7 +5,6 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
-  Plus,
   Zap,
 } from "lucide-react";
 import type { BriefScopeType } from "@launchstack/api-interfaces";
@@ -23,6 +22,11 @@ import { SkeletonList } from "@/components/devsummary/shared/skeleton-list";
 import { BriefViewer } from "@/components/devsummary/briefs/brief-viewer";
 import { BriefCard } from "@/components/devsummary/briefs/brief-card";
 import { GenerateDialog } from "@/components/devsummary/briefs/generate-dialog";
+import { NewScheduleButton } from "@/components/devsummary/schedules/new-schedule-button";
+import {
+  GENERATE_BLOCKED_REASON,
+  useCommitsProcessing,
+} from "@/hooks/use-commits-processing";
 import {
   BriefFilters,
   type BriefFiltersValue,
@@ -74,6 +78,26 @@ const EMPTY_FILTERS: BriefFiltersValue = {
   excludeNoActivity: false,
   scopeId: "",
 };
+
+/**
+ * Disabled while commits are still being processed, matching the generate
+ * endpoint's own gate (409) — a brief is never rewritten, so one covering a
+ * half-read history stays wrong. The `<span>` carries the tooltip because a
+ * disabled button fires no mouse events.
+ */
+function GenerateNowButton({ onClick }: { onClick: () => void }) {
+  const blocked = useCommitsProcessing();
+  return (
+    <span
+      title={blocked ? GENERATE_BLOCKED_REASON : undefined}
+      className="inline-flex"
+    >
+      <Button size="sm" variant="outline" disabled={blocked} onClick={onClick}>
+        <Zap className="size-3.5" /> Generate now
+      </Button>
+    </span>
+  );
+}
 
 export function BriefsPage() {
   const search = useSearch({ strict: false }) as BriefsSearch;
@@ -199,14 +223,8 @@ export function BriefsPage() {
                 <CalendarClock className="size-3.5" /> Manage schedules
               </Link>
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
-              <Zap className="size-3.5" /> Generate now
-            </Button>
-            <Button asChild size="sm">
-              <Link to="/schedules/new">
-                <Plus className="size-3.5" /> New schedule
-              </Link>
-            </Button>
+            <GenerateNowButton onClick={() => setGenerateOpen(true)} />
+            <NewScheduleButton />
           </>
         }
       />
@@ -265,14 +283,8 @@ export function BriefsPage() {
             description="Nothing has been written yet. Generate one now, or check when your schedule next runs."
             action={
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setGenerateOpen(true)}>
-                  <Zap className="size-3.5" /> Generate now
-                </Button>
-                <Button asChild size="sm">
-                  <Link to="/schedules/new">
-                    <Plus className="size-3.5" /> New schedule
-                  </Link>
-                </Button>
+                <GenerateNowButton onClick={() => setGenerateOpen(true)} />
+                <NewScheduleButton />
               </div>
             }
           />

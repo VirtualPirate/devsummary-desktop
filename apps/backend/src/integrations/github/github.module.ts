@@ -46,6 +46,9 @@ import { RepositoryBranchesService } from './services/repository-branches.servic
     GithubInstallationsRepository,
     GithubRepositoriesRepository,
     RepositoryBranchesRepository,
+    // Read by BriefSchedulesService: a schedule may not be created while
+    // commits are still being ingested.
+    IngestStatusService,
   ],
 })
 export class GithubIntegrationsModule {

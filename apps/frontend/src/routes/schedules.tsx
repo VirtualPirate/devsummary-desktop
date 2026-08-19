@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { CalendarClock, Pause, Play, Plus } from "lucide-react";
+import { CalendarClock, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
 } from "@/components/devsummary/shared/error-state";
 import { SkeletonList } from "@/components/devsummary/shared/skeleton-list";
 import { ScopeIdentity } from "@/components/devsummary/briefs/scope-label";
+import { NewScheduleButton } from "@/components/devsummary/schedules/new-schedule-button";
 import {
   useGetBriefSchedules,
   usePauseBriefSchedule,
@@ -73,13 +74,7 @@ export function SchedulesPage() {
       <PageHeader
         title="Schedules"
         description="Recurring briefs that land in your inbox on a cadence."
-        actions={
-          <Button asChild size="sm">
-            <Link to="/schedules/new">
-              <Plus className="size-3.5" /> New schedule
-            </Link>
-          </Button>
-        }
+        actions={<NewScheduleButton />}
       />
 
       {schedulesQuery.isLoading ? (
@@ -94,13 +89,7 @@ export function SchedulesPage() {
           icon={<CalendarClock className="size-6" />}
           title="No schedules yet"
           description="Set up a schedule so briefs arrive on their own — daily, weekly, or monthly."
-          action={
-            <Button asChild size="sm">
-              <Link to="/schedules/new">
-                <Plus className="size-3.5" /> New schedule
-              </Link>
-            </Button>
-          }
+          action={<NewScheduleButton />}
         />
       ) : (
         <div className="flex flex-col gap-3">

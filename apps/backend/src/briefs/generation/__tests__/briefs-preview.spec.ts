@@ -58,6 +58,7 @@ describe('BriefsService.preview', () => {
       scopes as never,
       report as never,
       null as never,
+      null as never,
     );
     return { service, report, scopes, findMostRecentForScope };
   }

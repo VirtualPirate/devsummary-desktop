@@ -38,6 +38,10 @@ import { useGetProjects } from "@/hooks/api/use-projects";
 import { formatTimestamp } from "@/lib/cadence-label";
 import { cn } from "@/lib/utils";
 import { useActiveOrganizationStore } from "@/stores/active-organization-store";
+import {
+  GENERATE_BLOCKED_REASON,
+  useCommitsProcessing,
+} from "@/hooks/use-commits-processing";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -128,6 +132,8 @@ export function GenerateDialog({
   const projectsQuery = useGetProjects();
   const installationsQuery = useGithubInstallations();
   const generateMutation = useGenerateBrief();
+  // Mirrors the server's gate on the same flag (409 BRIEF_COMMITS_PROCESSING).
+  const blocked = useCommitsProcessing();
 
   const [scope, setScope] = useState<ScopeInput | null>(null);
   const [preset, setPreset] = useState<PresetId>("7d");
@@ -195,6 +201,10 @@ export function GenerateDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
+    if (blocked) {
+      setSubmitError(GENERATE_BLOCKED_REASON);
+      return;
+    }
     if (!scope) {
       setSubmitError("Pick a scope before generating.");
       return;
@@ -463,6 +473,12 @@ export function GenerateDialog({
             <p className="text-xs text-destructive">{submitError}</p>
           ) : null}
 
+          {blocked ? (
+            <p className="text-xs text-muted-foreground">
+              {GENERATE_BLOCKED_REASON}
+            </p>
+          ) : null}
+
           <DialogFooter>
             <Button
               type="button"
@@ -471,13 +487,22 @@ export function GenerateDialog({
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant={empty ? "outline" : "default"}
-              disabled={generateMutation.isPending || !scope || !period}
+            {/* The tooltip lives on the wrapper: a disabled button fires no
+                mouse events, so `title` on it never shows. */}
+            <span
+              title={blocked ? GENERATE_BLOCKED_REASON : undefined}
+              className="inline-flex"
             >
-              {generateMutation.isPending ? "Enqueueing…" : generateLabel}
-            </Button>
+              <Button
+                type="submit"
+                variant={empty ? "outline" : "default"}
+                disabled={
+                  generateMutation.isPending || !scope || !period || blocked
+                }
+              >
+                {generateMutation.isPending ? "Enqueueing…" : generateLabel}
+              </Button>
+            </span>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -20,6 +20,7 @@ describe('BriefsService.list filter mapping', () => {
       null as never,
       null as never,
       null as never,
+      null as never,
     );
   }
 
@@ -76,6 +77,7 @@ describe('BriefsService.getCommits', () => {
     return new BriefsService(
       briefs as never,
       briefCommits as never,
+      null as never,
       null as never,
       null as never,
       null as never,
@@ -248,6 +250,7 @@ describe('BriefsService commit type counts', () => {
       null as never,
       null as never,
       null as never,
+      null as never,
     );
   }
 
@@ -347,6 +350,7 @@ describe('BriefsService.list cursor validation', () => {
       null as never,
       null as never,
       null as never,
+      null as never,
     );
   }
 
@@ -407,6 +411,7 @@ describe('BriefsService.delete', () => {
       null as never,
       null as never,
       null as never,
+      null as never,
     );
     return { service, briefs };
   }
@@ -453,8 +458,15 @@ describe('BriefsService.generateAdHoc timezone', () => {
       findByIdScopedToOrg: jest.fn().mockResolvedValue({ id: 'p1' }),
     };
     const queue = { enqueue: jest.fn().mockResolvedValue('job1') };
+    // Default: nothing is being ingested, so the generate gate passes.
+    const ingestStatus = {
+      forOrganization: jest
+        .fn()
+        .mockResolvedValue({ repositories: [], ingesting: false }),
+    };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, queue, scopes, report)
+    //        trackedBranches, slack, queue, scopes, report, deliverer,
+    //        ingestStatus)
     const service = new BriefsService(
       { create } as never,
       null as never,
@@ -468,8 +480,9 @@ describe('BriefsService.generateAdHoc timezone', () => {
       null as never,
       null as never,
       null as never,
+      ingestStatus as never,
     );
-    return { service, create };
+    return { service, create, ingestStatus };
   }
 
   const BODY = {
@@ -509,6 +522,21 @@ describe('BriefsService.generateAdHoc timezone', () => {
     await expect(
       service.generateAdHoc('org1', { ...BODY, timezone: '+05:30' }),
     ).rejects.toMatchObject({ code: 'BRIEF_SCHEDULE_INVALID_TIMEZONE' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  // A brief is never rewritten, so one generated over a half-read history stays
+  // wrong for good.
+  it('refuses while commits are still being ingested', async () => {
+    const { service, create, ingestStatus } = makeService();
+    ingestStatus.forOrganization.mockResolvedValue({
+      repositories: [],
+      ingesting: true,
+    });
+
+    await expect(service.generateAdHoc('org1', BODY)).rejects.toMatchObject({
+      code: 'BRIEF_COMMITS_PROCESSING',
+    });
     expect(create).not.toHaveBeenCalled();
   });
 });

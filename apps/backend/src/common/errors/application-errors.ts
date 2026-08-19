@@ -321,8 +321,24 @@ export const AppError = sealRegistry({
       `This organization already has the maximum of ${limit} brief schedules`,
     details: ({ limit }) => ({ limit }),
   }),
+  // Creating a schedule immediately backfills briefs off whatever commits are
+  // stored right now, and nothing ever revisits a brief. Mid-ingest that writes
+  // history over a half-read repository, so the create is refused instead.
+  BRIEF_SCHEDULE_COMMITS_PROCESSING: defineError({
+    status: HttpStatus.CONFLICT,
+    message:
+      'Commits are still being fetched and analyzed. Wait for that to finish, then create the schedule.',
+  }),
 
   // --- Briefs: briefs ---
+  // An ad-hoc brief summarizes the commits stored when it is generated, and a
+  // brief is never rewritten. Generating mid-ingest ships a summary of a
+  // half-read history as if it were the whole picture.
+  BRIEF_COMMITS_PROCESSING: defineError({
+    status: HttpStatus.CONFLICT,
+    message:
+      'Commits are still being fetched and analyzed. Wait for that to finish, then generate the brief.',
+  }),
   BRIEF_NOT_FOUND: defineError({
     status: HttpStatus.NOT_FOUND,
     message: 'Brief not found',

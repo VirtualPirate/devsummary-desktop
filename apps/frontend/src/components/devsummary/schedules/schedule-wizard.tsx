@@ -30,6 +30,8 @@ import { useGetCollaborators } from "@/hooks/api/use-collaborators";
 import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
 import { useSlackAvailable, useSlackChannels } from "@/hooks/api/use-slack";
 import { useActiveOrganizationStore } from "@/stores/active-organization-store";
+import { useCommitsProcessing } from "@/hooks/use-commits-processing";
+import { SCHEDULE_BLOCKED_REASON } from "./new-schedule-button";
 
 type Stage = 1 | 2 | 3;
 
@@ -237,6 +239,9 @@ export function ScheduleWizard() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const createMutation = useCreateBriefSchedule();
+  // Mirrors the server's own gate: creating now would backfill briefs over a
+  // history still being read, and no brief is ever regenerated.
+  const blocked = useCommitsProcessing();
 
   // A scope picked under the previous org points at entities the new org does
   // not own, so drop it and let the effect below re-select.
@@ -310,6 +315,10 @@ export function ScheduleWizard() {
 
   const handleSubmit = async () => {
     setSubmitError(null);
+    if (blocked) {
+      setSubmitError(SCHEDULE_BLOCKED_REASON);
+      return;
+    }
     if (!scope) {
       setScopeError(true);
       setStage(1);
@@ -541,6 +550,12 @@ export function ScheduleWizard() {
           <p className="mt-4 text-sm text-destructive">{submitError}</p>
         ) : null}
 
+        {blocked && stage === 3 ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            {SCHEDULE_BLOCKED_REASON}
+          </p>
+        ) : null}
+
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
           <p className="text-xs text-muted-foreground">
             {scope ? (
@@ -585,13 +600,20 @@ export function ScheduleWizard() {
                 Continue <ArrowRight className="size-3.5" />
               </Button>
             ) : (
-              <Button
-                type="button"
-                onClick={handleSubmit}
-                disabled={createMutation.isPending}
+              // The tooltip lives on the wrapper: a disabled button fires no
+              // mouse events, so `title` on it never shows.
+              <span
+                title={blocked ? SCHEDULE_BLOCKED_REASON : undefined}
+                className="inline-flex"
               >
-                {createMutation.isPending ? "Creating…" : "Create schedule"}
-              </Button>
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={createMutation.isPending || blocked}
+                >
+                  {createMutation.isPending ? "Creating…" : "Create schedule"}
+                </Button>
+              </span>
             )}
           </div>
         </div>

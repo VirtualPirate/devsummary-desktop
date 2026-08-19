@@ -10,6 +10,7 @@ import { isIanaTimeZone } from '../../../analytics/lib/timezone-aliases';
 import { JOB, JobQueueService } from '../../../jobs';
 import { GithubRepositoriesRepository } from '../../../integrations/github/repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../../integrations/github/repositories/repository-branches.repository';
+import { IngestStatusService } from '../../../integrations/github/services/ingest-status.service';
 import { CollaboratorsRepository } from '../../../integrations/github/collaborators/repositories/collaborators.repository';
 import { SlackInstallationsRepository } from '../../../integrations/slack/repositories/installations.repository';
 import { ProjectsRepository } from '../../projects/repositories/projects.repository';
@@ -33,6 +34,7 @@ export class BriefSchedulesService {
     private readonly collaborators: CollaboratorsRepository,
     private readonly repos: GithubRepositoriesRepository,
     private readonly trackedBranches: RepositoryBranchesRepository,
+    private readonly ingestStatus: IngestStatusService,
     private readonly slack: SlackInstallationsRepository,
     private readonly cadence: CadenceService,
     private readonly queue: JobQueueService,
@@ -61,6 +63,7 @@ export class BriefSchedulesService {
     this.assertValidTimezone(body.timezone);
     this.assertValidCadence(body.cadence);
     await this.assertScheduleCapacity(organizationId);
+    await this.assertCommitsNotProcessing(organizationId);
     await this.assertScopeInOrg(organizationId, body.scope);
     const slackInstallationId = await this.resolveSlackInstallationId(
       organizationId,
@@ -297,6 +300,27 @@ export class BriefSchedulesService {
    * duplicate that run — so the only thing standing between a handful of API
    * calls and thousands of generations is this cap.
    */
+  /**
+   * Refuses a create while any repository is still fetching or analyzing
+   * commits. `create` backfills briefs immediately off the commits stored at
+   * that instant, and nothing ever regenerates a brief — so a schedule made
+   * mid-ingest permanently writes history over a partially read repository.
+   *
+   * Reads the same `ingesting` flag the onboarding console and the frontend
+   * button gate on, so a disabled button and a rejected POST cannot disagree.
+   * That flag degrades to false when the jobs query fails, which is the right
+   * direction here too: a gate that can never clear would lock schedule
+   * creation outright.
+   */
+  private async assertCommitsNotProcessing(
+    organizationId: string,
+  ): Promise<void> {
+    const status = await this.ingestStatus.forOrganization(organizationId);
+    if (status.ingesting) {
+      throw AppError.BRIEF_SCHEDULE_COMMITS_PROCESSING();
+    }
+  }
+
   private async assertScheduleCapacity(organizationId: string): Promise<void> {
     const limit = loadMaxSchedulesPerOrg(this.appConfig);
     const active =

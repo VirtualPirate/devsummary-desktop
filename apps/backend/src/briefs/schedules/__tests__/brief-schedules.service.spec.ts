@@ -21,6 +21,12 @@ function makeService(env: Record<string, string> = {}) {
     listByRepository: jest.fn().mockResolvedValue(['main']),
   };
   const slack = { findActiveByOrganizationId: jest.fn() };
+  // Default: nothing is being ingested, so the create gate passes.
+  const ingestStatus = {
+    forOrganization: jest
+      .fn()
+      .mockResolvedValue({ repositories: [], ingesting: false }),
+  };
   const cadence = new CadenceService();
   const queue = { enqueue: jest.fn().mockResolvedValue('job-id') };
   const appConfig = { get: jest.fn((key: string) => env[key]) };
@@ -31,6 +37,7 @@ function makeService(env: Record<string, string> = {}) {
     collaborators as any,
     repos as any,
     trackedBranches as any,
+    ingestStatus as any,
     slack as any,
     cadence,
     queue as any,
@@ -44,6 +51,7 @@ function makeService(env: Record<string, string> = {}) {
     collaborators,
     repos,
     trackedBranches,
+    ingestStatus,
     slack,
     queue,
     appConfig,
@@ -322,6 +330,45 @@ describe('BriefSchedulesService', () => {
         backfillMonths: 0,
       });
       expect(queue.enqueue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('create — commits still processing', () => {
+    it('rejects while any repository is ingesting', async () => {
+      const { svc, projects, schedules, ingestStatus } = makeService();
+      projects.findByIdScopedToOrg.mockResolvedValue({ id: 'p1' });
+      ingestStatus.forOrganization.mockResolvedValue({
+        repositories: [],
+        ingesting: true,
+      });
+      await expect(
+        svc.create('org-1', 'user-1', {
+          name: 'Test',
+          cadence: { type: 'daily', time: '16:00' },
+          timezone: 'UTC',
+          scope: { type: 'project', projectId: 'p1' },
+          delivery: {},
+        }),
+      ).rejects.toMatchObject({
+        code: 'BRIEF_SCHEDULE_COMMITS_PROCESSING',
+      });
+      expect(schedules.create).not.toHaveBeenCalled();
+    });
+
+    it('allows creation once ingestion is done', async () => {
+      const { svc, projects, schedules } = makeService();
+      projects.findByIdScopedToOrg.mockResolvedValue({ id: 'p1' });
+      schedules.create.mockImplementation(async (input: any) =>
+        scheduleRow(input),
+      );
+      await svc.create('org-1', 'user-1', {
+        name: 'Test',
+        cadence: { type: 'daily', time: '16:00' },
+        timezone: 'UTC',
+        scope: { type: 'project', projectId: 'p1' },
+        delivery: {},
+      });
+      expect(schedules.create).toHaveBeenCalled();
     });
   });
 

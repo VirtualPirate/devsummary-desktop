@@ -1,9 +1,7 @@
-import { Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
 import { ActivitySection } from "@/components/devsummary/home/activity-section";
 import { NextStepBar } from "@/components/devsummary/onboarding/next-step-bar";
+import { NewScheduleButton } from "@/components/devsummary/schedules/new-schedule-button";
 import { useConnectReposGate } from "@/hooks/use-connect-repos-gate";
 import { useNextStep } from "@/hooks/use-next-step";
 
@@ -22,13 +20,7 @@ export function HomePage() {
       <PageHeader
         title="Overview"
         description="A quick read on how your team's work is trending."
-        actions={
-          <Button asChild size="sm">
-            <Link to="/schedules/new">
-              <Plus className="size-3.5" /> New schedule
-            </Link>
-          </Button>
-        }
+        actions={<NewScheduleButton />}
       />
 
       {nextStep ? <NextStepBar step={nextStep} /> : null}

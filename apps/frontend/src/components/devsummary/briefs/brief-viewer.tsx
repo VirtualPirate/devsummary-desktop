@@ -8,6 +8,10 @@ import { extractErrorMessage } from "@/components/devsummary/shared/error-state"
 import { useDeliverBrief, useGetBriefReport } from "@/hooks/api/use-briefs";
 import { useGetBriefSchedules } from "@/hooks/api/use-brief-schedules";
 import { useCurrentOrganization } from "@/hooks/api/use-organizations";
+import {
+  GENERATE_BLOCKED_REASON,
+  useCommitsProcessing,
+} from "@/hooks/use-commits-processing";
 import { ScopeIdentity } from "./scope-label";
 import { NoActivityBadge } from "./no-activity-badge";
 import {
@@ -42,6 +46,27 @@ function GeneratingStory() {
         ))}
       </section>
     </>
+  );
+}
+
+/**
+ * Retry re-posts to the same ad-hoc generate endpoint, so it carries the same
+ * gate (409 while commits are being processed) — a regenerated brief written
+ * over a half-read history is as wrong as the first one. Its own component so
+ * the ingest-status subscription only mounts on a failed brief, which is the
+ * only state that renders it.
+ */
+function RetryButton({ onClick }: { onClick: () => void }) {
+  const blocked = useCommitsProcessing();
+  return (
+    <span
+      title={blocked ? GENERATE_BLOCKED_REASON : undefined}
+      className="mt-4 inline-flex"
+    >
+      <Button type="button" onClick={onClick} size="sm" disabled={blocked}>
+        Try again
+      </Button>
+    </span>
   );
 }
 
@@ -103,16 +128,7 @@ export function BriefViewer({
                   {brief.failureReason}
                 </pre>
               ) : null}
-              {onRetry ? (
-                <Button
-                  type="button"
-                  onClick={onRetry}
-                  size="sm"
-                  className="mt-4"
-                >
-                  Try again
-                </Button>
-              ) : null}
+              {onRetry ? <RetryButton onClick={onRetry} /> : null}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center gap-3 rounded-2xl bg-muted/40 py-16 text-muted-foreground">
