@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import type {
+  AgentCliStatus,
   ApiResponse,
   LocalSettingsStatus,
   LocalSettingsTestResult,
@@ -12,8 +13,12 @@ import {
 import { RequireOrgRole } from '../../organizations/decorators/require-org-role.decorator';
 import { ZodValidationPipe } from '../../organizations/dto/zod-validation.pipe';
 import {
+  AgentCliParamSchema,
+  AgentCliQuerySchema,
   TestEmailSchema,
   UpdateLocalCredentialsSchema,
+  type AgentCliParam,
+  type AgentCliQuery,
   type TestEmailBody,
   type UpdateLocalCredentialsBody,
 } from './dto/local-settings.dto';
@@ -64,6 +69,25 @@ export class LocalSettingsController {
     @Body(new ZodValidationPipe(TestEmailSchema)) body: TestEmailBody,
   ): Promise<ApiResponse<LocalSettingsTestResult>> {
     const data = await this.svc.testEmail(body.to);
+    return { data, message: 'OK', success: true };
+  }
+
+  /** Which coding-agent CLIs can actually run on this machine. */
+  @Get('agents')
+  @RequireOrgRole('member')
+  async agents(
+    @Query(new ZodValidationPipe(AgentCliQuerySchema)) q: AgentCliQuery,
+  ): Promise<ApiResponse<AgentCliStatus[]>> {
+    const data = await this.svc.agentClis(q.refresh === '1');
+    return { data, message: 'OK', success: true };
+  }
+
+  @Post('agents/:id/test')
+  @RequireOrgRole('admin')
+  async testAgent(
+    @Param(new ZodValidationPipe(AgentCliParamSchema)) params: AgentCliParam,
+  ): Promise<ApiResponse<LocalSettingsTestResult>> {
+    const data = await this.svc.testAgentCli(params.id);
     return { data, message: 'OK', success: true };
   }
 }

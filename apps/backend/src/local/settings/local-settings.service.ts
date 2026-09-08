@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { z } from 'zod';
 import type {
+  AgentCliStatus,
   LlmProviderName,
   LocalSettingsStatus,
   LocalSettingsTestResult,
@@ -8,13 +10,27 @@ import type {
   UpdateLocalCredentialsRequest,
 } from '@launchstack/api-interfaces';
 import { BRIEF_MODEL_VARS } from '../../briefs/briefs-config';
-import { DEFAULT_MODELS, LLM_PROVIDERS } from '../../common/llm';
+import {
+  AGENT_ADAPTERS,
+  AgentCliDetector,
+  AgentCliLlmClient,
+  DEFAULT_MODELS,
+  LLM_PROVIDERS,
+  isAgentProvider,
+  type AgentProvider,
+} from '../../common/llm';
 import { resolveDataDir } from '../../databases/kysely/kysely.module';
 import { COMMIT_ANALYSIS_MODEL_VARS } from '../../integrations/github/commit-analysis/commit-analysis.config';
 import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
 import { LocalSettingsRepository } from './local-settings.repository';
 import { SecretsService, type SecretBundle } from './secrets.service';
 import { smtpTransport } from './smtp';
+
+/**
+ * The smallest structured answer that still proves the whole path: argv, stdin,
+ * the JSON schema, the model and the envelope.
+ */
+const AgentCliTestSchema = z.object({ ok: z.boolean() });
 
 @Injectable()
 export class LocalSettingsService {
@@ -24,6 +40,9 @@ export class LocalSettingsService {
     private readonly secrets: SecretsService,
     private readonly settings: LocalSettingsRepository,
     private readonly slackInstalls: SlackInstallationsService,
+    // Imported as a value, not `import type`: this is the DI token, and an
+    // `import type` erases the class and drops it from `design:paramtypes`.
+    private readonly detector: AgentCliDetector,
   ) {}
 
   /**
@@ -112,6 +131,18 @@ export class LocalSettingsService {
       }
     }
 
+    // A CLI provider is proved before it is stored, exactly like SMTP and
+    // Slack. Not-logged-in is deliberately allowed: the card warns, and the fix
+    // (`claude` then `/login`) is outside this app.
+    if (body.llmProvider !== undefined && isAgentProvider(body.llmProvider)) {
+      const cli = await this.detector.detect(body.llmProvider, { force: true });
+      if (!cli.installed) {
+        throw new BadRequestException(
+          `${cli.displayName} is not installed. ${cli.installHint}`,
+        );
+      }
+    }
+
     // Slack goes through the installation service so the encrypted row and the
     // keychain bundle are written by one path — it validates with `auth.test`
     // and throws before anything is stored.
@@ -150,6 +181,56 @@ export class LocalSettingsService {
     }
     this.logger.log(`Test email sent to=${to}`);
     return { ok: true, detail: `Sent to ${to}` };
+  }
+
+  /**
+   * Machine-wide and slow-ish to compute — it can spawn a login shell — which
+   * is why it is its own endpoint instead of two more booleans on `status()`.
+   */
+  agentClis(refresh: boolean): Promise<AgentCliStatus[]> {
+    return this.detector.detectAll(refresh);
+  }
+
+  /**
+   * One real structured call through the real client, so a broken install shows
+   * up here rather than hours later on a failed brief. Built with the injected
+   * detector so the `force` probe just done is the cache this call reads.
+   */
+  async testAgentCli(id: AgentProvider): Promise<LocalSettingsTestResult> {
+    const cli = await this.detector.detect(id, { force: true });
+    if (!cli.installed) {
+      throw new BadRequestException(
+        `${cli.displayName} is not installed. ${cli.installHint}`,
+      );
+    }
+
+    const model =
+      this.secrets.get(COMMIT_ANALYSIS_MODEL_VARS[id]) ??
+      DEFAULT_MODELS[id].commitAnalysis;
+    const client = new AgentCliLlmClient(
+      { provider: id, model },
+      AGENT_ADAPTERS[id],
+      this.detector,
+    );
+
+    const started = Date.now();
+    let answered: string;
+    try {
+      const result = await client.parse(AgentCliTestSchema, 'agent_cli_test', {
+        systemPrompt:
+          'You are a connectivity probe. Answer only with the requested structured output.',
+        userPrompt: 'Reply with ok: true',
+      });
+      answered = result.model;
+    } catch (err) {
+      throw new BadRequestException(
+        `${cli.displayName} test failed: ${describe(err)}`,
+      );
+    }
+
+    const detail = `${cli.displayName} answered with ${answered} in ${Date.now() - started} ms`;
+    this.logger.log(`Agent CLI test ok id=${id} model=${answered}`);
+    return { ok: true, detail };
   }
 }
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LLM_PROVIDERS } from '../../../common/llm';
+import { AGENT_PROVIDERS, LLM_PROVIDERS } from '../../../common/llm';
 
 /** An omitted key is left alone; an empty string clears that credential. */
 export const UpdateLocalCredentialsSchema = z
@@ -37,3 +37,18 @@ export const TestEmailSchema = z.object({
 });
 
 export type TestEmailBody = z.infer<typeof TestEmailSchema>;
+
+/** `?refresh=1` bypasses the detector's 60 s cache — the card's Refresh button.
+ *  Anything else is simply not a refresh, rather than a 400: a query param the
+ *  page did not mean is not worth failing a read over. */
+export const AgentCliQuerySchema = z.object({
+  refresh: z.string().optional(),
+});
+
+export type AgentCliQuery = z.infer<typeof AgentCliQuerySchema>;
+
+export const AgentCliParamSchema = z.object({
+  id: z.enum(AGENT_PROVIDERS),
+});
+
+export type AgentCliParam = z.infer<typeof AgentCliParamSchema>;

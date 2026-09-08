@@ -5,6 +5,7 @@ import {
   type NestModule,
 } from '@nestjs/common';
 import * as express from 'express';
+import { AgentCliDetector, agentCliDetector } from '../../common/llm';
 import { SlackIntegrationsModule } from '../../integrations/slack';
 import { LocalSettingsController } from './local-settings.controller';
 import { LocalSettingsRepository } from './local-settings.repository';
@@ -20,7 +21,16 @@ import { SecretsService } from './secrets.service';
 @Module({
   imports: [SlackIntegrationsModule],
   controllers: [LocalSettingsController],
-  providers: [SecretsService, LocalSettingsRepository, LocalSettingsService],
+  providers: [
+    SecretsService,
+    LocalSettingsRepository,
+    LocalSettingsService,
+    // The same process-wide singleton `createLlmClient` uses, registered here
+    // only so the settings service can be unit-tested with a stub. `BriefsModule`
+    // and `CommitAnalysisModule` still reach it directly — threading a provider
+    // through three module graphs buys nothing over one cache.
+    { provide: AgentCliDetector, useValue: agentCliDetector },
+  ],
   exports: [SecretsService, LocalSettingsRepository],
 })
 export class LocalSettingsModule implements NestModule {
