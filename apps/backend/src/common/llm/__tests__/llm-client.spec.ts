@@ -12,6 +12,7 @@ import {
   LiveLlmClient,
   LlmClient,
   OpenAiLlmClient,
+  type ProviderResponse,
   UnconfiguredLlmClient,
   createLlmClient,
   loadLlmSettings,
@@ -418,5 +419,81 @@ describe('LiveLlmClient', () => {
 
     expect(result.model).toBe('gpt-4o-mini');
     expect(instances()).toHaveLength(1);
+  });
+});
+
+// `parse()` is overridden by every client that does not talk to the OpenAI SDK
+// (`LiveLlmClient`, `UnconfiguredLlmClient`, and the agent-CLI client), so the
+// half of the template that is not transport — Zod validation and the result
+// shape — has to be reachable on its own or each of them reinvents the error
+// code and the token keys.
+describe('LlmClient.validate', () => {
+  class Probe extends LlmClient {
+    constructor() {
+      super({ provider: 'openai', apiKey: '', model: 'configured-model' });
+    }
+
+    protected request(): Promise<ProviderResponse> {
+      return Promise.reject(new Error('unused'));
+    }
+
+    run<T>(schema: z.ZodType<T>, response: ProviderResponse) {
+      return this.validate(schema, response);
+    }
+  }
+
+  const schema = z.object({ ok: z.boolean() });
+
+  it('returns the parsed body, the configured model and the token counts', () => {
+    expect(
+      new Probe().run(schema, {
+        raw: { ok: true },
+        promptTokens: 11,
+        completionTokens: 22,
+      }),
+    ).toEqual({
+      parsed: { ok: true },
+      model: 'configured-model',
+      promptTokens: 11,
+      completionTokens: 22,
+    });
+  });
+
+  // A CLI reports the model it actually resolved an alias to, and that is what
+  // gets stored — not the alias the settings screen holds.
+  it('prefers a model reported on the response over the configured one', () => {
+    expect(
+      new Probe().run(schema, {
+        raw: { ok: true },
+        model: 'claude-haiku-4-5-20251001',
+        promptTokens: null,
+        completionTokens: null,
+      }),
+    ).toMatchObject({ model: 'claude-haiku-4-5-20251001' });
+  });
+
+  it('falls back to the configured model when the response reports none', () => {
+    expect(
+      new Probe().run(schema, {
+        raw: { ok: true },
+        model: null,
+        promptTokens: null,
+        completionTokens: null,
+      }),
+    ).toMatchObject({ model: 'configured-model' });
+  });
+
+  it('raises OPENAI_RESPONSE_INVALID when the body fails the schema', () => {
+    let raised: unknown;
+    try {
+      new Probe().run(schema, {
+        raw: { ok: 'yes' },
+        promptTokens: null,
+        completionTokens: null,
+      });
+    } catch (err) {
+      raised = err;
+    }
+    expect(raised).toMatchObject({ code: 'OPENAI_RESPONSE_INVALID' });
   });
 });

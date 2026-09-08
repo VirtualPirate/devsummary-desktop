@@ -96,6 +96,12 @@ export interface ProviderRequest {
 /** A provider's answer, before it is validated against the Zod schema. */
 export interface ProviderResponse {
   raw: unknown;
+  /**
+   * The model that actually answered, when the provider says so. A CLI resolves
+   * an alias (`haiku`) to a dated id and reports it; the SDK clients leave this
+   * unset and the configured model is stored instead.
+   */
+  model?: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
 }
@@ -168,6 +174,18 @@ export abstract class LlmClient {
       });
     }
 
+    return this.validate(schema, response);
+  }
+
+  /**
+   * Zod validation and the result shape, split out of `parse()` so a client
+   * that overrides `parse()` because it has no OpenAI SDK to load reuses
+   * exactly this and cannot invent its own error code or token keys.
+   */
+  protected validate<T>(
+    schema: z.ZodType<T>,
+    response: ProviderResponse,
+  ): StructuredParseResult<T> {
     const validation = schema.safeParse(response.raw);
     if (!validation.success) {
       throw AppError.OPENAI_RESPONSE_INVALID({
@@ -177,7 +195,7 @@ export abstract class LlmClient {
 
     return {
       parsed: validation.data,
-      model: this.settings.model,
+      model: response.model ?? this.settings.model,
       promptTokens: response.promptTokens,
       completionTokens: response.completionTokens,
     };
@@ -191,7 +209,9 @@ export abstract class LlmClient {
     if (!this.sdkPromise) {
       this.sdkPromise = loadSdk().then(({ OpenAI, zodTextFormat }) => ({
         client: new OpenAI({
-          apiKey: this.settings.apiKey,
+          // Optional on `LlmSettings` since a CLI provider has no key; the SDK
+          // clients are only ever built from settings that carry one.
+          apiKey: this.settings.apiKey ?? '',
           ...(this.baseUrl ? { baseURL: this.baseUrl } : {}),
         }),
         zodTextFormat,

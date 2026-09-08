@@ -25,7 +25,11 @@ export const DEFAULT_MODELS: Record<LlmProvider, string> = {
 /** Everything an `LlmClient` needs to talk to one provider. */
 export interface LlmSettings {
   provider: LlmProvider;
-  apiKey: string;
+  /**
+   * Absent for a provider that is a local CLI: it authenticates itself and
+   * there is no key to store.
+   */
+  apiKey?: string;
   /** Unset for OpenAI (SDK default); Gemini's compat base otherwise. */
   baseURL?: string;
   model: string;
