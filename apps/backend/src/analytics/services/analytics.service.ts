@@ -3,7 +3,9 @@ import type {
   BriefCommitTypeCounts,
   CommitActivityPoint,
   CommitActivityResponse,
+  CommitHoursResponse,
   GetCommitActivityQuery,
+  GetCommitHoursQuery,
 } from '@launchstack/api-interfaces';
 import { AppError } from '../../common/errors';
 import { CollaboratorsRepository } from '../../integrations/github/collaborators/repositories/collaborators.repository';
@@ -95,6 +97,34 @@ export class AnalyticsService {
         timezone,
       },
     };
+  }
+
+  async getCommitHours(
+    organizationId: string,
+    q: GetCommitHoursQuery,
+  ): Promise<CommitHoursResponse> {
+    const timezone = normalizeIanaTimeZone(q.timezone);
+
+    let authorGithubUserId: bigint | undefined;
+    if (q.collaboratorId) {
+      const collaborator = await this.collaborators.findByIdScopedToOrg(
+        q.collaboratorId,
+        organizationId,
+      );
+      if (!collaborator) throw AppError.GITHUB_COLLABORATOR_NOT_FOUND();
+      authorGithubUserId = collaborator.githubUserId;
+    }
+
+    const cells = await this.activity.aggregateHours({
+      organizationId,
+      from: new Date(q.from),
+      to: new Date(q.to),
+      timezone,
+      repositoryId: q.repositoryId,
+      authorGithubUserId,
+    });
+
+    return { cells, range: { from: q.from, to: q.to, timezone } };
   }
 }
 

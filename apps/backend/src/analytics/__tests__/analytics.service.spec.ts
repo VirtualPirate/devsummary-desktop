@@ -2,7 +2,10 @@ import { AnalyticsService } from '../services/analytics.service';
 
 function makeMocks() {
   return {
-    activity: { aggregate: jest.fn(async () => []) } as any,
+    activity: {
+      aggregate: jest.fn(async () => []),
+      aggregateHours: jest.fn(async () => []),
+    } as any,
     collaborators: { findByIdScopedToOrg: jest.fn(async () => null) } as any,
   };
 }
@@ -148,6 +151,49 @@ describe('AnalyticsService.getCommitActivity', () => {
       timezone: 'Asia/Calcutta',
     });
     expect(mocks.activity.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({ timezone: 'Asia/Kolkata' }),
+    );
+    expect(result.range.timezone).toBe('Asia/Kolkata');
+  });
+});
+
+describe('AnalyticsService.getCommitHours', () => {
+  const hoursQuery = {
+    from: baseQuery.from,
+    to: baseQuery.to,
+    timezone: baseQuery.timezone,
+  };
+
+  it('passes the repository cells through and echoes the range', async () => {
+    const { service, mocks } = makeService();
+    const cells = [{ weekday: 0, hour: 9, commits: 4 }];
+    mocks.activity.aggregateHours.mockResolvedValueOnce(cells);
+    const result = await service.getCommitHours('org-1', hoursQuery);
+    expect(result.cells).toEqual(cells);
+    expect(result.range).toEqual({
+      from: hoursQuery.from,
+      to: hoursQuery.to,
+      timezone: 'UTC',
+    });
+  });
+
+  it('throws GITHUB_COLLABORATOR_NOT_FOUND for an unknown collaborator', async () => {
+    const { service } = makeService();
+    await expect(
+      service.getCommitHours('org-1', {
+        ...hoursQuery,
+        collaboratorId: 'a0000000-0000-4000-8000-000000000000',
+      }),
+    ).rejects.toMatchObject({ code: 'GITHUB_COLLABORATOR_NOT_FOUND' });
+  });
+
+  it('normalizes CLDR-legacy timezones before querying', async () => {
+    const { service, mocks } = makeService();
+    const result = await service.getCommitHours('org-1', {
+      ...hoursQuery,
+      timezone: 'Asia/Calcutta',
+    });
+    expect(mocks.activity.aggregateHours).toHaveBeenCalledWith(
       expect.objectContaining({ timezone: 'Asia/Kolkata' }),
     );
     expect(result.range.timezone).toBe('Asia/Kolkata');

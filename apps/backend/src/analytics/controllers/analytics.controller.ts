@@ -1,9 +1,12 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import {
   GetCommitActivityQuerySchema,
+  GetCommitHoursQuerySchema,
   type ApiResponse,
   type CommitActivityResponse,
+  type CommitHoursResponse,
   type GetCommitActivityQuery,
+  type GetCommitHoursQuery,
 } from '@launchstack/api-interfaces';
 import {
   OrgMembership,
@@ -25,6 +28,17 @@ export class AnalyticsController {
     q: GetCommitActivityQuery,
   ): Promise<ApiResponse<CommitActivityResponse>> {
     const data = await this.analytics.getCommitActivity(m.organizationId, q);
+    return { data, message: 'OK', success: true };
+  }
+
+  @Get('commit-hours')
+  @RequireOrgRole('member')
+  async commitHours(
+    @OrgMembership() m: OrgMembershipContext,
+    @Query(new ZodValidationPipe(GetCommitHoursQuerySchema))
+    q: GetCommitHoursQuery,
+  ): Promise<ApiResponse<CommitHoursResponse>> {
+    const data = await this.analytics.getCommitHours(m.organizationId, q);
     return { data, message: 'OK', success: true };
   }
 }

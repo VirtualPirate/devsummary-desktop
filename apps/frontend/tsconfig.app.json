@@ -28,5 +28,8 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // *.check.ts are node-run harnesses (esbuild + node), not app code — they
+  // import node: builtins the browser tsconfig has no types for.
+  "exclude": ["src/**/*.check.ts"]
 }

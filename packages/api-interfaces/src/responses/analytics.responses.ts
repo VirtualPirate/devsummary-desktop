@@ -23,3 +23,17 @@ export interface CommitActivityResponse {
   points: CommitActivityPoint[];
   range: CommitActivityRange;
 }
+
+/** One weekday x hour cell of the commit-hours heatmap. `weekday` is
+ * 0 = Monday .. 6 = Sunday, `hour` is 0..23, both resolved in the
+ * requested timezone. Only cells with at least one commit are returned. */
+export interface CommitHoursCell {
+  weekday: number;
+  hour: number;
+  commits: number;
+}
+
+export interface CommitHoursResponse {
+  cells: CommitHoursCell[];
+  range: { from: string; to: string; timezone: string };
+}

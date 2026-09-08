@@ -7,7 +7,10 @@ import { EmptyState } from "@/components/devsummary/shared/empty-state";
 import { SectionLabel } from "@/components/devsummary/shared/section-label";
 import { useGetCollaborators } from "@/hooks/api/use-collaborators";
 import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
-import { useGetCommitActivity } from "@/hooks/api/use-analytics";
+import {
+  useGetCommitActivity,
+  useGetCommitHours,
+} from "@/hooks/api/use-analytics";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { computeActivityWindow, periodDelta } from "@/lib/activity-window";
 import type { HomeSearch } from "@/router";
@@ -18,6 +21,8 @@ import { formatCompact, formatSignedCompact } from "./chart-format";
 import { CommitsChart } from "./commits-chart";
 import { CommitTypesChart } from "./commit-types-chart";
 import { LocChart } from "./loc-chart";
+import { offHoursShare, totalCommits } from "./work-hours";
+import { WorkHoursHeatmap } from "./work-hours-heatmap";
 
 function reduceTotals(points: CommitActivityPoint[]) {
   return points.reduce(
@@ -54,6 +59,18 @@ export function ActivitySection() {
     repositoryId: search.repo || undefined,
     collaboratorId: search.collaborator || undefined,
   });
+
+  // Only the displayed half of the window: this card carries no delta, so
+  // the previous period would just dilute the heatmap.
+  const hoursQuery = useGetCommitHours({
+    from: window.displayFrom.toISOString(),
+    to: window.to.toISOString(),
+    timezone: window.timezone,
+    repositoryId: search.repo || undefined,
+    collaboratorId: search.collaborator || undefined,
+  });
+  const hourCells = hoursQuery.data?.data.cells ?? [];
+  const offHours = offHoursShare(hourCells);
 
   const points = activityQuery.data?.data.points ?? [];
   const display = points.filter((p) => p.date >= window.displayFromKey);
@@ -162,6 +179,20 @@ export function ActivitySection() {
             className="lg:col-span-2"
           >
             <CommitTypesChart points={display} />
+          </ChartCard>
+
+          <ChartCard
+            title="When work happens"
+            subtitle="of commits land after 7pm or on a weekend"
+            headline={
+              offHours === null ? "—" : `${Math.round(offHours * 100)}%`
+            }
+            delta={null}
+            isLoading={hoursQuery.isLoading}
+            isEmpty={!hoursQuery.isLoading && totalCommits(hourCells) === 0}
+            className="lg:col-span-2"
+          >
+            <WorkHoursHeatmap cells={hourCells} />
           </ChartCard>
         </div>
       )}
