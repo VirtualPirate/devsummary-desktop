@@ -1,10 +1,21 @@
 import { useState } from "react";
 import { Check, Key, Sparkles, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
-import type { LlmProviderName } from "@launchstack/api-interfaces";
+import type {
+  AgentCliStatus,
+  LlmProviderName,
+} from "@launchstack/api-interfaces";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
+import { AgentCliCard } from "@/components/integrations/agent-cli-card";
 import { IntegrationTabs } from "@/components/integrations/integration-tabs";
 import {
+  BADGE,
+  PROVIDER_CARD,
+  PROVIDER_CARD_SELECTED,
+  TONE,
+} from "@/components/integrations/provider-card.styles";
+import {
+  ClaudeMark,
   GeminiMark,
   OpenAiMark,
 } from "@/components/integrations/provider-marks";
@@ -15,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  useAgentClis,
   useLocalSettings,
   useLocalSettingsUsage,
   useUpdateLocalCredentials,
@@ -25,44 +37,63 @@ import { cn } from "@/lib/utils";
 
 const tokens = new Intl.NumberFormat();
 
-/** Everything that differs between providers on this page. */
+/**
+ * Everything that differs between providers on this page. `kind` splits the two
+ * card bodies: a key provider has a secret to paste, a CLI provider has an
+ * install to detect.
+ */
+type ProviderMeta = {
+  /** Card title. */
+  name: string;
+  /** Short form — buttons, field labels, toasts. */
+  label: string;
+  host: string;
+  defaultModels: { commitAnalysis: string; brief: string };
+  Mark: (props: { className?: string }) => React.ReactNode;
+} & ({ kind: "key"; keyPlaceholder: string } | { kind: "cli" });
+
 const PROVIDERS = {
   openai: {
-    /** Card title. */
+    kind: "key",
     name: "OpenAI",
-    /** Short form — buttons, field labels, toasts. */
     label: "OpenAI",
     host: "api.openai.com",
-    defaultModel: "gpt-4o-mini",
+    defaultModels: { commitAnalysis: "gpt-4o-mini", brief: "gpt-4o-mini" },
     keyPlaceholder: "sk-…",
     Mark: OpenAiMark,
   },
   gemini: {
+    kind: "key",
     name: "Google Gemini",
     label: "Gemini",
     host: "generativelanguage.googleapis.com",
-    defaultModel: "gemini-3.1-flash-lite",
+    defaultModels: {
+      commitAnalysis: "gemini-3.1-flash-lite",
+      brief: "gemini-3.1-flash-lite",
+    },
     keyPlaceholder: "AIza…",
     Mark: GeminiMark,
   },
-} as const;
+  "claude-code": {
+    kind: "cli",
+    name: "Claude Code",
+    label: "Claude Code",
+    host: "local CLI · claude",
+    defaultModels: { commitAnalysis: "haiku", brief: "sonnet" },
+    Mark: ClaudeMark,
+  },
+} as const satisfies Record<LlmProviderName, ProviderMeta>;
+
+const ALL_PROVIDERS = Object.keys(PROVIDERS) as LlmProviderName[];
+
+/** The providers whose card body is a key field. */
+type KeyProviderName = Exclude<LlmProviderName, "claude-code">;
+
+const isKeyProvider = (p: LlmProviderName): p is KeyProviderName =>
+  PROVIDERS[p].kind === "key";
 
 const PAGE_DESCRIPTION =
   "DevSummary classifies every commit and writes every brief with your own provider key — billed to you, never to us.";
-
-/** A provider card is an `<article>` on the configured page and a `<button>` in
- *  the first-run picker, so its surface classes live here rather than in `Card`. */
-const PROVIDER_CARD =
-  "flex flex-col gap-4 rounded-lg border bg-card px-5 py-[1.125rem] shadow-e1";
-const PROVIDER_CARD_SELECTED = "border-brand ring-1 ring-brand";
-
-const BADGE = "gap-1.5 rounded-full px-2.5";
-const TONE = {
-  brand: "bg-brand/14 text-brand",
-  ok: "bg-gb-status-shipped/15 text-gb-status-shipped",
-  mute: "bg-muted text-muted-foreground",
-  warn: "bg-gb-status-at-risk/18 text-gb-status-at-risk",
-};
 
 const SECTION_TITLE = "text-[0.9375rem] font-semibold tracking-[-0.01em]";
 const SECTION_BODY = "mt-0.5 text-[0.8125rem] text-muted-foreground";
@@ -91,7 +122,7 @@ function KeyForm({
   onCancel,
   onSaved,
 }: {
-  provider: LlmProviderName;
+  provider: KeyProviderName;
   size: "default" | "sm";
   onCancel?: () => void;
   onSaved?: () => void;
@@ -180,7 +211,7 @@ function ProviderCard({
   hasKey,
   blocked,
 }: {
-  provider: LlmProviderName;
+  provider: KeyProviderName;
   active: boolean;
   hasKey: boolean;
   /** The selected provider has no key, so this page is in its warning state. */
@@ -403,8 +434,18 @@ function ModelsCard({
         <div className="min-w-0">
           <h3 className="text-[0.9375rem] font-semibold">Models</h3>
           <p className={SECTION_BODY}>
-            Used by {PROVIDERS[provider].label}. Each provider keeps its own
-            pair — switching provider switches these too.
+            {PROVIDERS[provider].kind === "cli" ? (
+              <>
+                Model aliases or full ids accepted by{" "}
+                <code className="font-mono">claude --model</code>. Each provider
+                keeps its own pair — switching provider switches these too.
+              </>
+            ) : (
+              <>
+                Used by {PROVIDERS[provider].label}. Each provider keeps its own
+                pair — switching provider switches these too.
+              </>
+            )}
           </p>
         </div>
         <Badge className={cn(BADGE, TONE.mute, "font-mono")}>{provider}</Badge>
@@ -465,8 +506,8 @@ function UsageCard() {
       <div className={CARD_HEAD}>
         <h3 className="text-[0.9375rem] font-semibold">Token usage</h3>
         <p className={SECTION_BODY}>
-          Everything {workspace} has spent on your key, counted from each stored
-          commit analysis and brief.
+          Everything {workspace} has spent with your AI provider, counted from
+          each stored commit analysis and brief.
         </p>
       </div>
       <div className="space-y-4 p-5">
@@ -513,8 +554,17 @@ function UsageCard() {
   );
 }
 
-/** Only for `!openai && !gemini`. One key stored anywhere and the page is real. */
-function FirstRun({ provider }: { provider: LlmProviderName }) {
+/**
+ * Only while nothing can answer at all: no stored key and no installed CLI.
+ * One key or one working CLI and the page is real.
+ */
+function FirstRun({
+  provider,
+  claudeCode,
+}: {
+  provider: LlmProviderName;
+  claudeCode: AgentCliStatus | null;
+}) {
   const update = useUpdateLocalCredentials();
 
   const handleSelect = async (next: LlmProviderName) => {
@@ -537,50 +587,69 @@ function FirstRun({ provider }: { provider: LlmProviderName }) {
           Connect an AI provider
         </h1>
         <p className="mx-auto mt-2 max-w-[26rem] text-sm text-muted-foreground">
-          DevSummary classifies each commit and writes the briefs with it. Pick
-          a provider, paste its API key. Nothing is read back into the app once
-          stored.
+          DevSummary classifies each commit and writes the briefs with it. Paste
+          a provider&rsquo;s API key, or point it at a coding-agent CLI already
+          installed on this machine.
         </p>
       </div>
-      <div className="w-full max-w-[34rem] space-y-4">
-        <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2">
-          {(Object.keys(PROVIDERS) as LlmProviderName[]).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => handleSelect(option)}
-              disabled={update.isPending}
-              className={cn(
-                PROVIDER_CARD,
-                "text-left",
-                option === provider && PROVIDER_CARD_SELECTED,
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <ProviderTile provider={option} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
-                    {PROVIDERS[option].name}
+      <div className="w-full max-w-[46rem] space-y-4">
+        <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
+          {ALL_PROVIDERS.map((option) => {
+            const meta = PROVIDERS[option];
+            const sub =
+              meta.kind === "cli"
+                ? claudeCode?.installed
+                  ? `installed · ${meta.defaultModels.commitAnalysis} · ${meta.defaultModels.brief}`
+                  : "not installed"
+                : `${meta.defaultModels.commitAnalysis} by default`;
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => handleSelect(option)}
+                disabled={update.isPending}
+                className={cn(
+                  PROVIDER_CARD,
+                  "text-left",
+                  option === provider && PROVIDER_CARD_SELECTED,
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <ProviderTile provider={option} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
+                      {meta.name}
+                    </div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">
+                      {sub}
+                    </div>
                   </div>
-                  <div className="truncate font-mono text-xs text-muted-foreground">
-                    {PROVIDERS[option].defaultModel} by default
-                  </div>
+                  {option === provider ? (
+                    <Badge className={cn(BADGE, TONE.brand)}>
+                      <Check className="size-3" />
+                      Selected
+                    </Badge>
+                  ) : null}
                 </div>
-                {option === provider ? (
-                  <Badge className={cn(BADGE, TONE.brand)}>
-                    <Check className="size-3" />
-                    Selected
-                  </Badge>
-                ) : null}
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
-        <Card className="gap-4 rounded-lg p-5">
-          {/* Keyed on the provider: a key typed for one must not be submitted
-              against the other after the picker changes. */}
-          <KeyForm key={provider} provider={provider} size="default" />
-        </Card>
+        {isKeyProvider(provider) ? (
+          <Card className="gap-4 rounded-lg p-5">
+            {/* Keyed on the provider: a key typed for one must not be submitted
+                against the other after the picker changes. */}
+            <KeyForm key={provider} provider={provider} size="default" />
+          </Card>
+        ) : claudeCode ? (
+          <AgentCliCard
+            status={claudeCode}
+            host={PROVIDERS[provider].host}
+            Mark={PROVIDERS[provider].Mark}
+            active
+            blocked={!claudeCode.installed || claudeCode.authenticated === false}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -588,9 +657,12 @@ function FirstRun({ provider }: { provider: LlmProviderName }) {
 
 export function IntegrationsAiPage() {
   const settings = useLocalSettings();
+  const agents = useAgentClis();
   const status = settings.data?.data;
 
-  if (settings.isPending) {
+  // A pending agents query is not "no CLI installed" — resolving it before the
+  // first render is what keeps the first-run takeover from flashing.
+  if (settings.isPending || agents.isPending) {
     return (
       <>
         <IntegrationTabs active="ai" />
@@ -600,7 +672,8 @@ export function IntegrationsAiPage() {
           description={PAGE_DESCRIPTION}
         />
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
+            <Skeleton className="h-[9.5rem]" />
             <Skeleton className="h-[9.5rem]" />
             <Skeleton className="h-[9.5rem]" />
           </div>
@@ -612,25 +685,33 @@ export function IntegrationsAiPage() {
   }
 
   const provider = status?.llmProvider ?? "openai";
+  const claudeCode =
+    agents.data?.data.find((cli) => cli.id === "claude-code") ?? null;
   const stored = {
     openai: status?.openai ?? false,
     gemini: status?.gemini ?? false,
   };
 
-  if (!stored.openai && !stored.gemini) {
+  // A stored key or an installed CLI both make this page real.
+  if (!stored.openai && !stored.gemini && !claudeCode?.installed) {
     return (
       <>
         <IntegrationTabs active="ai" />
-        <FirstRun provider={provider} />
+        <FirstRun provider={provider} claudeCode={claudeCode} />
       </>
     );
   }
 
-  // Selecting a keyless provider no longer collapses the page — the other
-  // provider's stored key has to stay on screen, because putting it back in use
-  // is the fix.
-  const blocked = !stored[provider];
-  const other: LlmProviderName = provider === "openai" ? "gemini" : "openai";
+  // Selecting a provider that cannot answer no longer collapses the page — the
+  // other providers have to stay on screen, because switching back is the fix.
+  const blocked = isKeyProvider(provider)
+    ? !stored[provider]
+    : !claudeCode?.installed || claudeCode.authenticated === false;
+  // Active first, then the rest: the card that decides every job leads.
+  const order: LlmProviderName[] = [
+    provider,
+    ...ALL_PROVIDERS.filter((p) => p !== provider),
+  ];
 
   return (
     <>
@@ -644,17 +725,44 @@ export function IntegrationsAiPage() {
         {blocked ? (
           <div className="flex gap-2.5 rounded-md border border-gb-status-at-risk/45 bg-gb-status-at-risk/10 px-3.5 py-3 text-[0.8125rem] leading-[1.45] text-gb-status-at-risk">
             <TriangleAlert className="mt-px size-4 flex-none" />
-            <div>
-              <b className="block font-semibold">
-                {PROVIDERS[provider].label} is selected but has no key.
-              </b>
-              <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
-                Commit analysis and every scheduled brief will fail with{" "}
-                <code className="font-mono">NOT_CONFIGURED</code> until a{" "}
-                {PROVIDERS[provider].label} key is saved, or{" "}
-                {PROVIDERS[other].label} is put back in use.
-              </p>
-            </div>
+            {isKeyProvider(provider) ? (
+              <div>
+                <b className="block font-semibold">
+                  {PROVIDERS[provider].label} is selected but has no key.
+                </b>
+                <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
+                  Commit analysis and every scheduled brief will fail with{" "}
+                  <code className="font-mono">NOT_CONFIGURED</code> until a{" "}
+                  {PROVIDERS[provider].label} key is saved, or another provider
+                  is put in use.
+                </p>
+              </div>
+            ) : claudeCode?.installed ? (
+              <div>
+                <b className="block font-semibold">
+                  {PROVIDERS[provider].label} is selected but not logged in.
+                </b>
+                <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
+                  Commit analysis and every scheduled brief will fail with{" "}
+                  <code className="font-mono">API_FAILED</code> until you run{" "}
+                  <code className="font-mono">claude</code> in a terminal and{" "}
+                  <code className="font-mono">/login</code>. Then press Refresh
+                  on its card.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <b className="block font-semibold">
+                  {PROVIDERS[provider].label} is selected but not installed.
+                </b>
+                <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
+                  Commit analysis and every scheduled brief will fail with{" "}
+                  <code className="font-mono">NOT_CONFIGURED</code>.{" "}
+                  {claudeCode?.installHint ??
+                    "Install the CLI, then press Refresh on its card."}
+                </p>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -662,20 +770,32 @@ export function IntegrationsAiPage() {
           <div className="mb-3">
             <h2 className={SECTION_TITLE}>Provider</h2>
             <p className={cn(SECTION_BODY, "max-w-[70ch]")}>
-              Both keys can be stored; only the selected provider is used. A
-              change applies to the next job — no restart.
+              Every key can be stored and every installed CLI is offered; only
+              the selected provider is used. A change applies to the next job —
+              no restart.
             </p>
           </div>
-          <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2">
-            {[provider, other].map((option) => (
-              <ProviderCard
-                key={option}
-                provider={option}
-                active={option === provider}
-                hasKey={stored[option]}
-                blocked={blocked}
-              />
-            ))}
+          <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
+            {order.map((option) =>
+              isKeyProvider(option) ? (
+                <ProviderCard
+                  key={option}
+                  provider={option}
+                  active={option === provider}
+                  hasKey={stored[option]}
+                  blocked={blocked}
+                />
+              ) : claudeCode ? (
+                <AgentCliCard
+                  key={option}
+                  status={claudeCode}
+                  host={PROVIDERS[option].host}
+                  Mark={PROVIDERS[option].Mark}
+                  active={option === provider}
+                  blocked={blocked}
+                />
+              ) : null,
+            )}
           </div>
         </section>
 
@@ -688,7 +808,8 @@ export function IntegrationsAiPage() {
       </div>
       <p className="mt-6 text-xs text-muted-foreground">
         Keys are encrypted on this machine by your OS credential store, and are
-        never read back into the app.
+        never read back into the app. A CLI provider stores no key at all — it
+        uses the login you already have in your terminal.
       </p>
     </>
   );

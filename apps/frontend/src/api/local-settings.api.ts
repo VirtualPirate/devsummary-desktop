@@ -1,4 +1,6 @@
 import type {
+  AgentCliProviderName,
+  AgentCliStatus,
   ApiResponse,
   LocalSettingsStatus,
   LocalSettingsTestResult,
@@ -46,6 +48,26 @@ export const LocalSettingsAPI = {
       url: `${BASE}/test-email`,
       method: "POST",
       data: payload,
+    });
+    return response.data as ApiResponse<LocalSettingsTestResult>;
+  },
+
+  /** `refresh` forces a re-detect past the backend's 60 s cache. */
+  agents: async (refresh = false): Promise<ApiResponse<AgentCliStatus[]>> => {
+    const response = await axiosInstance.request({
+      url: `${BASE}/agents`,
+      method: "GET",
+      params: refresh ? { refresh: "1" } : undefined,
+    });
+    return response.data as ApiResponse<AgentCliStatus[]>;
+  },
+
+  testAgentCli: async (
+    id: AgentCliProviderName,
+  ): Promise<ApiResponse<LocalSettingsTestResult>> => {
+    const response = await axiosInstance.request({
+      url: `${BASE}/agents/${id}/test`,
+      method: "POST",
     });
     return response.data as ApiResponse<LocalSettingsTestResult>;
   },

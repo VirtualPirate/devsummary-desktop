@@ -60,3 +60,24 @@ export function GeminiMark({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Placeholder burst, **not** Anthropic's official logomark — same call as
+ * `OpenAiMark`: the approved design draws a simple stroked mark and inventing
+ * the real path was out of scope.
+ */
+export function ClaudeMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M12 3.2v17.6M4.4 7.6l15.2 8.8M4.4 16.4l15.2-8.8" />
+    </svg>
+  );
+}
