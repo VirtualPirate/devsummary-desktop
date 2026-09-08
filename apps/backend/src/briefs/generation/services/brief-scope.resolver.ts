@@ -15,6 +15,8 @@ export type BriefScope =
 export interface ResolvedScope {
   repositoryIds: string[];
   scopeLabel: string;
+  /** The bare name behind `scopeLabel` — no `Project: ` prefix, no branch. */
+  scopeName: string;
   /**
    * `undefined` means "no author restriction". `[]` means the scope selects no
    * authors at all (e.g. a team with no members) and must therefore match no
@@ -63,6 +65,7 @@ export class BriefScopeResolver {
           .map((l) => l.repositoryId)
           .filter((id) => liveRepositoryIds.has(id)),
         scopeLabel: `Project: ${project.name}`,
+        scopeName: project.name,
       };
     }
     if (scope.type === 'team') {
@@ -85,12 +88,18 @@ export class BriefScopeResolver {
         return {
           repositoryIds: [],
           scopeLabel: `Team: ${team.name}`,
+          scopeName: team.name,
           authorFilter,
         };
       }
       const repositoryIds =
         await this.repos.listIdsByOrganization(organizationId);
-      return { repositoryIds, scopeLabel: `Team: ${team.name}`, authorFilter };
+      return {
+        repositoryIds,
+        scopeLabel: `Team: ${team.name}`,
+        scopeName: team.name,
+        authorFilter,
+      };
     }
     if (scope.type === 'collaborator') {
       const collab = await this.collaborators.findByIdScopedToOrg(
@@ -103,6 +112,7 @@ export class BriefScopeResolver {
       return {
         repositoryIds,
         scopeLabel: `Collaborator: ${collab.login}`,
+        scopeName: collab.login,
         authorFilter: [collab.githubUserId],
       };
     }
@@ -116,6 +126,7 @@ export class BriefScopeResolver {
       scopeLabel: scope.branch
         ? `Repository: ${repo.fullName} (${scope.branch})`
         : `Repository: ${repo.fullName}`,
+      scopeName: repo.fullName,
       branchFilter: scope.branch,
     };
   }

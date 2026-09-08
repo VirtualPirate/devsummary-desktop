@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  BriefCadenceType,
   BriefHighlight,
+  BriefScopeType,
   BriefReportResponse,
   WorkCategory,
 } from '@launchstack/api-interfaces';
@@ -12,7 +14,22 @@ export interface RenderableBrief {
   briefInfoTitle: string;
   summary: string;
   highlights: BriefHighlight[];
+  /**
+   * What the brief covers, for the email subject line. Null when the scope was
+   * deleted between generation and delivery — the subject then names the
+   * cadence instead of a thing that no longer exists.
+   */
+  scope?: { type: BriefScopeType; name: string } | null;
+  /** Null for an ad-hoc brief with no schedule behind it. */
+  cadence?: BriefCadenceType | null;
 }
+
+/** `daily` names the day the period covered, not "today" — hence the past-tense read. */
+const CADENCE_PERIOD: Record<BriefCadenceType, string> = {
+  daily: "day's",
+  weekly: "week's",
+  monthly: "month's",
+};
 
 /**
  * Slack reserves exactly three characters; everything else in a message is
@@ -297,7 +314,26 @@ export class BriefRenderService {
     return blocks;
   }
 
+  /**
+   * The subject says what arrived, not what is in it. The AI title
+   * ("Delivery Integrations, Data Integrity, and Marketing Updates") reads as
+   * a newsletter and buries the one fact the recipient scans for.
+   */
   emailSubject(brief: RenderableBrief): string {
-    return brief.title || 'Engineering brief';
+    const scope = brief.scope;
+    if (scope?.name) {
+      switch (scope.type) {
+        case 'collaborator':
+          return `${scope.name}'s developer work report is ready`;
+        case 'project':
+          return `${scope.name} project's work report is ready`;
+        case 'team':
+          return `${scope.name} team's work report is ready`;
+        case 'repository':
+          return `${scope.name} repository's work report is ready`;
+      }
+    }
+    const period = CADENCE_PERIOD[brief.cadence ?? 'weekly'];
+    return `This ${period} development report is ready`;
   }
 }

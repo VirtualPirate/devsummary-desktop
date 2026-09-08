@@ -4,9 +4,14 @@ import type {
   BriefDeliveryChannel,
   BriefReportResponse,
 } from '@launchstack/api-interfaces';
+import type { BriefSelect } from '../../../databases/kysely';
 import { BriefsRepository } from '../../generation/repositories/briefs.repository';
 import { BriefReportService } from '../../generation/services/brief-report.service';
 import { BriefSchedulesRepository } from '../../schedules/repositories/brief-schedules.repository';
+import {
+  BriefScopeResolver,
+  type BriefScope,
+} from '../../generation/services/brief-scope.resolver';
 import { BriefDesktopService } from './brief-desktop.service';
 import { BriefEmailService } from './brief-email.service';
 import { BriefSlackService } from './brief-slack.service';
@@ -34,10 +39,37 @@ export class BriefDelivererService {
     private readonly email: BriefEmailService,
     private readonly slack: BriefSlackService,
     private readonly report: BriefReportService,
+    private readonly scopes: BriefScopeResolver,
     // Optional and last so the channel degrades to "absent" rather than taking
     // delivery down if it is ever unregistered.
     @Optional() private readonly desktop?: BriefDesktopService,
   ) {}
+
+  /**
+   * Only the scope's *name*, for the subject line. Resolution throws when the
+   * project/team/collaborator/repo was deleted after generation, and a subject
+   * is never worth failing a delivery over — the caller falls back to naming
+   * the cadence.
+   */
+  private async loadScopeName(
+    brief: BriefSelect,
+  ): Promise<{ type: BriefSelect['scopeType']; name: string } | null> {
+    const scope = toBriefScope(brief);
+    if (!scope) return null;
+    try {
+      const resolved = await this.scopes.resolve({
+        organizationId: brief.organizationId,
+        scope,
+      });
+      return { type: brief.scopeType, name: resolved.scopeName };
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Brief ${brief.id} scope unresolvable for subject line: ${reason}`,
+      );
+      return null;
+    }
+  }
 
   /**
    * The figures are a nicety; the brief is not. `build` re-queries live commit
@@ -89,6 +121,8 @@ export class BriefDelivererService {
       briefInfoTitle: brief.briefInfoTitle,
       summary: brief.summary,
       highlights: brief.highlights,
+      scope: await this.loadScopeName(brief),
+      cadence: schedule?.cadenceType ?? null,
     };
 
     const report =
@@ -217,6 +251,8 @@ export class BriefDelivererService {
       briefInfoTitle: brief.briefInfoTitle,
       summary: brief.summary,
       highlights: brief.highlights,
+      scope: await this.loadScopeName(brief),
+      cadence: schedule?.cadenceType ?? null,
     };
 
     const report = await this.loadReport(brief.organizationId, brief.id);
@@ -256,6 +292,34 @@ export class BriefDelivererService {
       await this.schedules.update(brief.briefScheduleId, { lastSentAt: now });
     }
     this.logger.log(`Brief ${briefId} manually delivered via ${channel}`);
+  }
+}
+
+/** The brief's flat `scope_*` columns back into the resolver's tagged union. */
+function toBriefScope(brief: BriefSelect): BriefScope | null {
+  switch (brief.scopeType) {
+    case 'project':
+      return brief.scopeProjectId
+        ? { type: 'project', projectId: brief.scopeProjectId }
+        : null;
+    case 'team':
+      return brief.scopeTeamId
+        ? { type: 'team', teamId: brief.scopeTeamId }
+        : null;
+    case 'collaborator':
+      return brief.scopeCollaboratorId
+        ? { type: 'collaborator', collaboratorId: brief.scopeCollaboratorId }
+        : null;
+    case 'repository':
+      return brief.scopeRepositoryId
+        ? {
+            type: 'repository',
+            repositoryId: brief.scopeRepositoryId,
+            branch: brief.scopeBranch ?? undefined,
+          }
+        : null;
+    default:
+      return null;
   }
 }
 

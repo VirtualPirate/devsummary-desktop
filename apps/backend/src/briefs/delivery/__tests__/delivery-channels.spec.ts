@@ -107,6 +107,9 @@ function harness(opts: { smtp: boolean; desktop: boolean }) {
     new BriefEmailService(config, render, secrets),
     new BriefSlackService(slackMessages, render, config),
     report as never,
+    // The fixture brief carries no `scope_*` columns, so the deliverer never
+    // reaches the resolver — the subject falls back to naming the cadence.
+    { resolve: jest.fn() } as never,
     new BriefDesktopService(settings as never),
   );
 

@@ -6,20 +6,30 @@ function makeService() {
   const email = { send: jest.fn() };
   const slack = { post: jest.fn() };
   const report = { build: jest.fn().mockResolvedValue(null) };
+  const scopes = {
+    resolve: jest.fn().mockResolvedValue({ scopeName: 'Mobile' }),
+  };
   const svc = new BriefDelivererService(
     briefs as any,
     schedules as any,
     email as any,
     slack as any,
     report as any,
+    scopes as any,
   );
-  return { svc, briefs, schedules, email, slack, report };
+  return { svc, briefs, schedules, email, slack, report, scopes };
 }
 
 const baseBrief = {
   id: 'b1',
   organizationId: 'o1',
   briefScheduleId: null,
+  scopeType: 'project' as const,
+  scopeProjectId: 'p1',
+  scopeTeamId: null,
+  scopeCollaboratorId: null,
+  scopeRepositoryId: null,
+  scopeBranch: null,
   title: 'T',
   briefInfoTitle: 'i',
   summary: 's',
