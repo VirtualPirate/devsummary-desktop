@@ -9,7 +9,11 @@ import {
 import { ScopeIdentity } from "./scope-label";
 import { StatusBadge } from "./status-badge";
 import { OneOffBadge } from "./one-off-badge";
-import { formatRange, isNoActivityBrief } from "./brief-utils";
+import {
+  formatRange,
+  isGenerationFailure,
+  isNoActivityBrief,
+} from "./brief-utils";
 import {
   contributorLabel,
   splitSummary,
@@ -37,7 +41,9 @@ function WorkTagPill({ tag }: { tag: WorkTag }) {
 export function BriefCard({ brief }: { brief: BriefResponse }) {
   const noActivity = isNoActivityBrief(brief);
   const isWorking = brief.status === "pending" || brief.status === "generating";
-  const isFailed = brief.status === "failed";
+  // A delivery failure leaves the brief `generated` and readable, so it renders
+  // as a normal card — only a generation failure has nothing to show.
+  const isFailed = isGenerationFailure(brief);
   const { lead } = splitSummary(brief.summary);
   const tags = workTags(brief.commitTypeCounts);
   const isPlain = !noActivity && !isWorking && !isFailed;

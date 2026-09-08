@@ -194,7 +194,7 @@ describe('brief delivery over the desktop transports', () => {
     expect(update.failureReason).not.toContain('[slack]');
   });
 
-  it('fails the brief with both reasons when both credentials are wrong', async () => {
+  it('records both reasons without failing the brief when both credentials are wrong', async () => {
     const { deliverer, briefs } = harness({ smtp: true, desktop: false });
     briefs.findById.mockResolvedValue({
       ...brief,
@@ -211,9 +211,10 @@ describe('brief delivery over the desktop transports', () => {
 
     const [, update] = briefs.update.mock.calls[0] as [
       string,
-      { status: string; failureReason: string },
+      { status?: string; failureReason: string },
     ];
-    expect(update.status).toBe('failed');
+    // The brief generated fine; `failed` would read as a generation failure.
+    expect(update.status).toBeUndefined();
     expect(update.failureReason).toContain('[email]');
     expect(update.failureReason).toContain('[slack]');
   });
@@ -227,15 +228,11 @@ describe('brief delivery over the desktop transports', () => {
 
     await deliverer.deliver('b1');
 
-    expect(briefs.update).toHaveBeenCalledWith(
-      'b1',
-      expect.objectContaining({
-        status: 'failed',
-        failureReason: expect.stringContaining(
-          '[email] email channel not configured',
-        ) as string,
-      }),
-    );
+    expect(briefs.update).toHaveBeenCalledWith('b1', {
+      failureReason: expect.stringContaining(
+        '[email] email channel not configured',
+      ) as string,
+    });
   });
 
   it('leaves a brief generated when nothing is configured and desktop is off', async () => {
@@ -275,18 +272,14 @@ describe('brief delivery over the desktop transports', () => {
     );
   });
 
-  it('fails the desktop channel outside Electron instead of claiming delivery', async () => {
+  it('records the desktop failure outside Electron instead of claiming delivery', async () => {
     const { deliverer, briefs } = harness({ smtp: false, desktop: true });
 
     await deliverer.deliver('b1');
 
-    expect(briefs.update).toHaveBeenCalledWith(
-      'b1',
-      expect.objectContaining({
-        status: 'failed',
-        failureReason: '[desktop] desktop channel unavailable',
-      }),
-    );
+    expect(briefs.update).toHaveBeenCalledWith('b1', {
+      failureReason: '[desktop] desktop channel unavailable',
+    });
   });
 });
 

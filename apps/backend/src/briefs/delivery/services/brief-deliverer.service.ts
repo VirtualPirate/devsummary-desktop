@@ -104,9 +104,11 @@ export class BriefDelivererService {
       // `findById` filters soft-deletes, so a schedule deleted mid-flight reads
       // as absent — and a scheduled brief never carries its own recipients, so
       // the fallbacks below would silently attempt nothing. Claiming
-      // `delivered` for that is the one outcome that must not happen.
+      // `delivered` for that is the one outcome that must not happen. Recording
+      // the reason without touching `status` is enough: see the all-channels
+      // branch below for why `failed` is the wrong verdict here.
       const failureReason = `[delivery] brief schedule ${brief.briefScheduleId} was deleted before delivery; nothing was sent`;
-      await this.briefs.update(briefId, { status: 'failed', failureReason });
+      await this.briefs.update(briefId, { failureReason });
       this.logger.warn(`Brief ${briefId} delivery failed: ${failureReason}`);
       return;
     }
@@ -204,10 +206,15 @@ export class BriefDelivererService {
         await this.schedules.update(brief.briefScheduleId, { lastSentAt: now });
       }
     } else {
-      await this.briefs.update(briefId, {
-        status: 'failed',
-        failureReason,
-      });
+      // `status` stays whatever generation left it — `generated`. The brief was
+      // written, its summary and commits are stored, and it is readable; only
+      // the send failed. `failed` is a *generation* verdict everywhere
+      // downstream, so writing it here made a finished brief render as "we
+      // couldn't generate this brief", hid its summary, and offered a
+      // regenerate that would re-spend the LLM to fix an email outage.
+      // `failureReason` is the whole record of the failure; re-delivery is the
+      // per-channel manual path (`deliverOne`).
+      await this.briefs.update(briefId, { failureReason });
       this.logger.warn(`Brief ${briefId} delivery failed: ${failureReason}`);
     }
   }

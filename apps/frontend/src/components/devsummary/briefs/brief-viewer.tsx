@@ -16,6 +16,8 @@ import { ScopeIdentity } from "./scope-label";
 import { NoActivityBadge } from "./no-activity-badge";
 import {
   formatPeriod,
+  hasDeliveryFailure,
+  isGenerationFailure,
   isNoActivityBrief,
   stripNoActivitySuffix,
 } from "./brief-utils";
@@ -80,10 +82,11 @@ export function BriefViewer({
   bare?: boolean;
 }) {
   const isWorking = brief.status === "pending" || brief.status === "generating";
-  const isFailed = brief.status === "failed";
+  // Generation, not delivery: a brief that was written and then failed to send
+  // still has a summary to read, and the banner below is what says so.
+  const isFailed = isGenerationFailure(brief);
   const noActivity = isNoActivityBrief(brief);
-  const hasPartialFailure =
-    brief.status === "delivered" && !!brief.failureReason;
+  const deliveryFailed = hasDeliveryFailure(brief);
 
   // The report aggregates live data, so it is worth fetching while generating —
   // that is what fills the rail beside the skeleton. Not for a failed or
@@ -150,9 +153,12 @@ export function BriefViewer({
         />
       )}
 
-      {hasPartialFailure ? (
+      {deliveryFailed ? (
         <div className="mt-6 rounded-xl border border-gb-status-at-risk/40 bg-gb-status-at-risk/5 p-3 text-xs text-gb-status-at-risk">
-          Some delivery channels failed: {brief.failureReason}
+          {brief.deliveredChannels.length > 0
+            ? "Some delivery channels failed"
+            : "This brief was written but not delivered"}
+          : {brief.failureReason}
         </div>
       ) : null}
 

@@ -88,15 +88,32 @@ export function formatDayKey(
 }
 
 /**
- * A brief is "no activity" when it reached a terminal status with zero commits.
- * Guarding on terminal status avoids mislabeling a brief that is still
- * generating — those also report commitCount: 0.
+ * A brief is "no activity" when generation finished and found zero commits.
+ * Keyed on `generatedAt`, not on `status`: a brief that generated fine and then
+ * failed to *send* is still a finished brief, and rows written before delivery
+ * stopped overwriting `status` carry `failed` with a summary already stored.
  */
 export function isNoActivityBrief(brief: BriefResponse): boolean {
-  return (
-    (brief.status === "generated" || brief.status === "delivered") &&
-    brief.commitCount === 0
-  );
+  return !!brief.generatedAt && brief.commitCount === 0;
+}
+
+/**
+ * `status: "failed"` is a *generation* verdict — no summary was ever written,
+ * so there is nothing to show and regenerating is the only way forward.
+ * Delivery failures leave `status` alone and only write `failureReason`, but
+ * rows written before that fix carry `failed` over a perfectly good brief, so
+ * `generatedAt` is what actually separates the two.
+ */
+export function isGenerationFailure(brief: BriefResponse): boolean {
+  return brief.status === "failed" && !brief.generatedAt;
+}
+
+/**
+ * A finished brief carrying a delivery failure — every channel down, or one of
+ * two. Either way the brief itself is readable and the fix is re-delivery.
+ */
+export function hasDeliveryFailure(brief: BriefResponse): boolean {
+  return !!brief.generatedAt && !!brief.failureReason;
 }
 
 /**

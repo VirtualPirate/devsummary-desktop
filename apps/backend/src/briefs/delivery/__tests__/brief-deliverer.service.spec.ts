@@ -81,7 +81,7 @@ describe('BriefDelivererService.deliver', () => {
     );
   });
 
-  it('marks failed when every attempted channel fails', async () => {
+  it('records the reason but never marks the brief failed when every channel fails', async () => {
     const { svc, briefs, email, slack } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
@@ -91,9 +91,14 @@ describe('BriefDelivererService.deliver', () => {
     email.send.mockRejectedValue(new Error('SES down'));
     slack.post.mockRejectedValue(new Error('channel_not_found'));
     await svc.deliver('b1');
-    expect(briefs.update).toHaveBeenCalledWith(
+    // The brief generated fine; `failed` would read as a generation failure and
+    // hide a summary that exists.
+    expect(briefs.update).toHaveBeenCalledWith('b1', {
+      failureReason: '[email] SES down; [slack] channel_not_found',
+    });
+    expect(briefs.update).not.toHaveBeenCalledWith(
       'b1',
-      expect.objectContaining({ status: 'failed' }),
+      expect.objectContaining({ status: expect.anything() }),
     );
   });
 
@@ -136,7 +141,7 @@ describe('BriefDelivererService.deliver', () => {
     expect(schedules.update).not.toHaveBeenCalled();
   });
 
-  it('fails the brief when its schedule was deleted mid-flight (never claims delivered)', async () => {
+  it('records the reason when its schedule was deleted mid-flight (never claims delivered)', async () => {
     const { svc, briefs, schedules, email, slack } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
@@ -149,7 +154,6 @@ describe('BriefDelivererService.deliver', () => {
     expect(email.send).not.toHaveBeenCalled();
     expect(slack.post).not.toHaveBeenCalled();
     expect(briefs.update).toHaveBeenCalledWith('b1', {
-      status: 'failed',
       failureReason: expect.stringContaining('was deleted before delivery'),
     });
     expect(schedules.update).not.toHaveBeenCalled();
