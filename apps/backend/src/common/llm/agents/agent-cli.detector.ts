@@ -48,13 +48,22 @@ export class AgentCliDetector {
     const pending = this.inflight.get(id);
     if (pending && !opts.force) return pending;
 
-    const probe = this.probe(AGENT_ADAPTERS[id])
+    // Only the newest probe owns the cache entry. A `force` probe that finds the
+    // binary on PATH answers in microseconds and can easily beat the probe it
+    // raced, which may still be inside a login shell; letting the loser write
+    // would stamp its stale answer over the fresher one for a whole fresh TTL,
+    // so an explicit refresh would show "not installed" for another minute. The
+    // loser still returns its own answer to its own caller — it just does not
+    // get to speak for the cache, or to evict someone else's in-flight entry.
+    const probe: Promise<AgentCliStatus> = this.probe(AGENT_ADAPTERS[id])
       .then((status) => {
-        this.cache.set(id, { at: Date.now(), status });
+        if (this.inflight.get(id) === probe) {
+          this.cache.set(id, { at: Date.now(), status });
+        }
         return status;
       })
       .finally(() => {
-        this.inflight.delete(id);
+        if (this.inflight.get(id) === probe) this.inflight.delete(id);
       });
     this.inflight.set(id, probe);
     return probe;

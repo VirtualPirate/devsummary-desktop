@@ -60,7 +60,15 @@ export const runCli: RunCli = (file, args, opts) =>
           resolve({ code: err.code, stdout, stderr, timedOut: false });
           return;
         }
-        reject(err);
+        // `ExecFileException` is an intersection of `Omit`s, so it is Error-
+        // shaped without being an Error subtype — @types/node says outright
+        // that it "accurately describes none of them". Node does pass a real
+        // Error here; the guard proves it without a cast, and keeps the stack.
+        reject(
+          err instanceof Error
+            ? err
+            : new Error(`${file} could not be spawned`, { cause: err }),
+        );
       },
     );
 
