@@ -1,0 +1,87 @@
+import { claudeCodeAdapter } from './claude-code.adapter';
+
+/**
+ * Every agent CLI the app knows, in the order their cards appear. `AgentProvider`
+ * is derived from it, so `AGENT_ADAPTERS` below fails to compile until a newly
+ * listed CLI has an adapter file.
+ *
+ * Every value here must also be an `LlmProvider` — enforced by `isAgentProvider`,
+ * whose narrowing is only legal while the two sets agree.
+ */
+export const AGENT_PROVIDERS = ['claude-code'] as const;
+
+export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
+
+export interface AgentCliRequest {
+  model: string;
+  systemPrompt: string;
+  /** JSON Schema (draft-7) produced from the caller's Zod schema. */
+  jsonSchema: Record<string, unknown>;
+  schemaName: string;
+}
+
+export type AgentCliOutput =
+  | {
+      ok: true;
+      raw: unknown;
+      model: string | null;
+      promptTokens: number | null;
+      completionTokens: number | null;
+    }
+  | { ok: false; reason: string; kind: 'transport' | 'invalid' };
+
+/**
+ * One coding-agent CLI, normalized. The adapter **never spawns** — it only
+ * builds argv and interprets what came back, which is what makes it pure and
+ * testable against fixtures, and what makes a second CLI one file.
+ *
+ * `parseOutput` splits `transport` (the CLI failed, is not logged in, exited
+ * non-zero) from `invalid` (it ran fine and the body is unusable). The SDK
+ * clients draw the same line, so the retry path stays correct: a malformed body
+ * must never go back on the path meant for network faults.
+ */
+export interface AgentCliAdapter {
+  /** Doubles as the `LlmProvider` value and the settings key prefix. */
+  id: AgentProvider;
+  displayName: string;
+  /** Executable name looked up through the login shell. */
+  binary: string;
+  /** Shown on the card when the binary is missing. */
+  installHint: string;
+  /** Argv after the binary. The user prompt is always written to stdin. */
+  buildArgs(req: AgentCliRequest): string[];
+  /** Turn the process result into a normalized answer. Never throws. */
+  parseOutput(result: {
+    code: number | null;
+    stdout: string;
+    stderr: string;
+  }): AgentCliOutput;
+  /** Argv that prints a version string on stdout. */
+  versionArgs: string[];
+  /** Optional login probe. Undefined = adapter has no separate login state. */
+  authArgs?: string[];
+  parseAuth?(stdout: string): boolean;
+}
+
+/**
+ * Every adapter, keyed by its provider id. Exhaustive over `AgentProvider`, so
+ * listing a CLI in `AGENT_PROVIDERS` without writing its adapter is a compile
+ * error here.
+ *
+ * It lives beside the interface rather than in the barrel because the detector
+ * reads it: a barrel that both re-exports the detector and is imported by it is
+ * a require cycle whose correctness depends on statement ordering. The
+ * back-edge to `./claude-code.adapter` is a value import, and that file imports
+ * only types from here, so there is no cycle at runtime.
+ */
+export const AGENT_ADAPTERS: Record<AgentProvider, AgentCliAdapter> = {
+  'claude-code': claudeCodeAdapter,
+};
+
+/**
+ * Takes a `string` rather than `LlmProvider` so nothing under `agents/` depends
+ * on the provider enum at runtime — the dependency runs the other way. It
+ * narrows an `LlmProvider` union at the call site all the same.
+ */
+export const isAgentProvider = (p: string): p is AgentProvider =>
+  p in AGENT_ADAPTERS;
