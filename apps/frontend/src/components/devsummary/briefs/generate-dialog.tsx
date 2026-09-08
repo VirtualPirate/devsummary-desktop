@@ -453,7 +453,7 @@ export function GenerateDialog({
                     <Stat
                       label="Est. cost"
                       value={
-                        previewData.commits === 0 ? "none" : "~1 OpenAI call"
+                        previewData.commits === 0 ? "none" : "~1 LLM call"
                       }
                     />
                   </dl>

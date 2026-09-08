@@ -27,10 +27,18 @@ describe('SecretsService', () => {
     expect(svc.status()).toEqual({
       github: false,
       openai: false,
+      gemini: false,
       smtp: false,
       slack: false,
       emailFrom: false,
     });
+  });
+
+  // The two provider keys are independent: one can be stored while the other
+  // is not, and `LLM_PROVIDER` decides which one is actually used.
+  it('reports each provider key on its own', () => {
+    const svc = withEnv({ GEMINI_API_KEY: 'gem-1' });
+    expect(svc.status()).toMatchObject({ openai: false, gemini: true });
   });
 
   it('treats a blank env var as absent', () => {

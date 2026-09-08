@@ -7,7 +7,12 @@ export const UpdateLocalCredentialsSchema = z
     // which validates the PAT and writes the encrypted installation row that
     // ingest actually reads. Accepting one here only ever wrote the env mirror,
     // i.e. a `github: true` flag with nothing behind it.
+    //
+    // Only the global provider is settable: the per-scope `*_LLM_PROVIDER`
+    // overrides are still honoured from env, but nothing in the app writes them.
+    llmProvider: z.enum(['openai', 'gemini']),
     openaiApiKey: z.string().trim(),
+    geminiApiKey: z.string().trim(),
     smtpHost: z.string().trim(),
     smtpPort: z.coerce.number().int().min(1).max(65535),
     smtpUser: z.string().trim(),

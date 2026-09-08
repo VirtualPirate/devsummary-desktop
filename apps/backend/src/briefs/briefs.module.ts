@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as express from 'express';
+import { LlmClient, LiveLlmClient } from '../common/llm';
 import { GithubIntegrationsModule } from '../integrations/github';
 import { GithubCollaboratorsModule } from '../integrations/github/collaborators/collaborators.module';
 import { CommitAnalysisModule } from '../integrations/github/commit-analysis/commit-analysis.module';
@@ -35,7 +36,6 @@ import { BriefCommitsRepository } from './generation/repositories/brief-commits.
 import { BriefReportRepository } from './generation/repositories/brief-report.repository';
 import { BriefScopeResolver } from './generation/services/brief-scope.resolver';
 import { BriefGeneratorService } from './generation/services/brief-generator.service';
-import { OpenAIBriefClient } from './generation/services/openai-brief.client';
 import { BriefActivities } from './generation/activities/brief.activities';
 import { BriefJobs } from './generation/activities/brief.jobs';
 
@@ -65,12 +65,13 @@ import { BriefDelivererService } from './delivery/services/brief-deliverer.servi
       useFactory: (config: ConfigService) => loadBriefsConfig(config),
     },
     {
-      provide: OpenAIBriefClient,
-      // No not-configured stub: the config reads the key live, so "configured"
-      // is a per-call question now — `BriefGeneratorService` throws
-      // `OPENAI_NOT_CONFIGURED` when the key is still empty.
+      provide: LlmClient,
+      // No not-configured stub decided at boot: `LiveLlmClient` re-resolves the
+      // config on every call, so the provider, the key and the model are
+      // whatever the settings screen last wrote — and an unset key becomes the
+      // rejecting `UnconfiguredLlmClient` for that call only.
       inject: [BRIEFS_CONFIG_TOKEN],
-      useFactory: (cfg: BriefsConfig) => new OpenAIBriefClient(cfg),
+      useFactory: (cfg: BriefsConfig) => new LiveLlmClient(() => cfg.llm),
     },
 
     ProjectsRepository,

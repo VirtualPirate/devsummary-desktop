@@ -13,6 +13,7 @@ import type { SmtpSettings } from './smtp';
 export const SECRET_KEYS = [
   'GITHUB_TOKEN',
   'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
   'DB_ENCRYPTION_KEY',
   'SMTP_HOST',
   'SMTP_PORT',
@@ -21,10 +22,15 @@ export const SECRET_KEYS = [
   'EMAIL_FROM',
   'SLACK_BOT_TOKEN',
   // Not secrets, but they ride the same bundle: it is the only thing the shell
-  // persists, so an override set in settings has nowhere else to survive a
-  // restart. `status()` deliberately ignores them — models are not credentials.
+  // persists, so a choice made in settings has nowhere else to survive a
+  // restart. `status()` reports the provider (the UI has to preselect it) but
+  // never the models — those are answered as effective values by
+  // `LocalSettingsService`, and a model name is not a credential.
+  'LLM_PROVIDER',
   'OPENAI_COMMIT_ANALYSIS_MODEL',
   'OPENAI_BRIEF_MODEL',
+  'GEMINI_COMMIT_ANALYSIS_MODEL',
+  'GEMINI_BRIEF_MODEL',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];
@@ -33,7 +39,7 @@ export type SecretBundle = Partial<Record<SecretKey, string>>;
 /** The credential half of `LocalSettingsStatus`; the rest is the DB and env. */
 export type CredentialStatus = Pick<
   LocalSettingsStatus,
-  'github' | 'openai' | 'smtp' | 'slack' | 'emailFrom'
+  'github' | 'openai' | 'gemini' | 'smtp' | 'slack' | 'emailFrom'
 >;
 
 const DEFAULT_SMTP_PORT = 587;
@@ -139,6 +145,7 @@ export class SecretsService {
     return {
       github: Boolean(this.bundle.GITHUB_TOKEN),
       openai: Boolean(this.bundle.OPENAI_API_KEY),
+      gemini: Boolean(this.bundle.GEMINI_API_KEY),
       smtp: this.smtp() !== null,
       slack: Boolean(this.bundle.SLACK_BOT_TOKEN),
       emailFrom: Boolean(this.bundle.EMAIL_FROM),

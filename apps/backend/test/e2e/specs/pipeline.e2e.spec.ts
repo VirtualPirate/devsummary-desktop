@@ -210,6 +210,9 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     // credential boolean and the installation row can no longer disagree.
     expect(res.body.data.github).toBe(true);
     expect(res.body.data.openai).toBe(true);
+    // No key for the other provider, and OpenAI is the default selection.
+    expect(res.body.data.gemini).toBe(false);
+    expect(res.body.data.llmProvider).toBe('openai');
     expect(res.body.data.smtp).toBe(true);
     expect(res.body.data.dataDir).toMatch(/^\//);
     expect(res.body.data.commitAnalysisModel).toBe('gpt-4o-mini');

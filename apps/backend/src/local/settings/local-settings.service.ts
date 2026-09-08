@@ -1,14 +1,16 @@
 import { resolve } from 'node:path';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type {
+  LlmProviderName,
   LocalSettingsStatus,
   LocalSettingsTestResult,
   LocalSettingsUsage,
   UpdateLocalCredentialsRequest,
 } from '@launchstack/api-interfaces';
-import { DEFAULT_BRIEF_MODEL } from '../../briefs/briefs-config';
+import { BRIEF_MODEL_VARS } from '../../briefs/briefs-config';
+import { DEFAULT_MODELS, LLM_PROVIDERS } from '../../common/llm';
 import { resolveDataDir } from '../../databases/kysely/kysely.module';
-import { DEFAULT_COMMIT_ANALYSIS_MODEL } from '../../integrations/github/commit-analysis/commit-analysis.config';
+import { COMMIT_ANALYSIS_MODEL_VARS } from '../../integrations/github/commit-analysis/commit-analysis.config';
 import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
 import { LocalSettingsRepository } from './local-settings.repository';
 import { SecretsService, type SecretBundle } from './secrets.service';
@@ -24,17 +26,35 @@ export class LocalSettingsService {
     private readonly slackInstalls: SlackInstallationsService,
   ) {}
 
+  /**
+   * Unlike `resolveLlmProvider`, an unrecognised value falls back instead of
+   * throwing: the AI page is where an operator would fix a hand-edited bundle,
+   * so it is the one screen that must still render. Nothing in the app can
+   * write a bad value — the DTO is a zod enum.
+   */
+  private provider(): LlmProviderName {
+    const stored = this.secrets.get('LLM_PROVIDER');
+    return LLM_PROVIDERS.find((p) => p === stored) ?? 'openai';
+  }
+
   async status(): Promise<LocalSettingsStatus> {
+    const llmProvider = this.provider();
     return {
       ...this.secrets.status(),
+      llmProvider,
       desktopNotifications: await this.settings.desktopNotificationsEnabled(),
       // Absolute, because the headless fallback is the relative `./.data` and a
       // path the user cannot paste into Finder is not an answer.
       dataDir: resolve(resolveDataDir()),
+      // The effective model for the *selected* provider: an OpenAI override is
+      // still stored while Gemini is selected, and reporting it would put a
+      // model the run will never use in front of the user.
       commitAnalysisModel:
-        this.secrets.get('OPENAI_COMMIT_ANALYSIS_MODEL') ??
-        DEFAULT_COMMIT_ANALYSIS_MODEL,
-      briefModel: this.secrets.get('OPENAI_BRIEF_MODEL') ?? DEFAULT_BRIEF_MODEL,
+        this.secrets.get(COMMIT_ANALYSIS_MODEL_VARS[llmProvider]) ??
+        DEFAULT_MODELS[llmProvider],
+      briefModel:
+        this.secrets.get(BRIEF_MODEL_VARS[llmProvider]) ??
+        DEFAULT_MODELS[llmProvider],
     };
   }
 
@@ -53,17 +73,24 @@ export class LocalSettingsService {
     body: UpdateLocalCredentialsRequest,
   ): Promise<LocalSettingsStatus> {
     const overlay: SecretBundle = {};
+    if (body.llmProvider !== undefined) overlay.LLM_PROVIDER = body.llmProvider;
     if (body.openaiApiKey !== undefined)
       overlay.OPENAI_API_KEY = body.openaiApiKey;
+    if (body.geminiApiKey !== undefined)
+      overlay.GEMINI_API_KEY = body.geminiApiKey;
     if (body.smtpHost !== undefined) overlay.SMTP_HOST = body.smtpHost;
     if (body.smtpPort !== undefined) overlay.SMTP_PORT = String(body.smtpPort);
     if (body.smtpUser !== undefined) overlay.SMTP_USER = body.smtpUser;
     if (body.smtpPass !== undefined) overlay.SMTP_PASS = body.smtpPass;
     if (body.emailFrom !== undefined) overlay.EMAIL_FROM = body.emailFrom;
+    // A model belongs to a provider, so it is written under the provider this
+    // request selects — a form that switches to Gemini and names a model in the
+    // same submit must not leave that model on the OpenAI vars.
+    const provider = body.llmProvider ?? this.provider();
     if (body.commitAnalysisModel !== undefined)
-      overlay.OPENAI_COMMIT_ANALYSIS_MODEL = body.commitAnalysisModel;
+      overlay[COMMIT_ANALYSIS_MODEL_VARS[provider]] = body.commitAnalysisModel;
     if (body.briefModel !== undefined)
-      overlay.OPENAI_BRIEF_MODEL = body.briefModel;
+      overlay[BRIEF_MODEL_VARS[provider]] = body.briefModel;
 
     const touchesSmtp = [
       body.smtpHost,

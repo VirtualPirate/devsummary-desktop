@@ -1,3 +1,6 @@
+/** The AI providers a local install can be pointed at. */
+export type LlmProviderName = "openai" | "gemini";
+
 /**
  * Which local credentials are configured. Credentials are booleans only — a
  * pasted secret is never echoed back to the renderer after it is saved. The
@@ -6,20 +9,27 @@
  */
 export interface LocalSettingsStatus {
   github: boolean;
+  /** A key is stored for this provider. Both are reported; one is selected. */
   openai: boolean;
+  gemini: boolean;
+  /** Which provider answers AI calls. The keys are independent of it. */
+  llmProvider: LlmProviderName;
   smtp: boolean;
   slack: boolean;
   emailFrom: boolean;
   desktopNotifications: boolean;
   /** Absolute path of the folder holding the database, logs and secrets. */
   dataDir: string;
-  /** Effective model — the override when set, otherwise the built-in default. */
+  /**
+   * Effective model for the **selected** provider — the override when set,
+   * otherwise that provider's built-in default.
+   */
   commitAnalysisModel: string;
   briefModel: string;
 }
 
 /**
- * Running OpenAI spend, from the token counts already stored on every commit
+ * Running AI spend, from the token counts already stored on every commit
  * analysis and every brief. Workspace-scoped, like everything else the settings
  * screen reads through `X-Organization-Id`.
  */

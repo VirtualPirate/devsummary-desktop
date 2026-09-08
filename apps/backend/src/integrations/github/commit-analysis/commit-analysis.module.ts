@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LlmClient, LiveLlmClient } from '../../../common/llm';
 import { GithubCollaboratorsModule } from '../collaborators/collaborators.module';
 import { GithubIntegrationsModule } from '../github.module';
 import { CommitAnalysisController } from './controllers/commit-analysis.controller';
@@ -14,7 +15,6 @@ import { CommitAnalysesRepository } from './repositories/commit-analyses.reposit
 import { CommitsRepository } from './repositories/commits.repository';
 import { CommitAnalyzerService } from './services/commit-analyzer.service';
 import { CommitBackfillService } from './services/commit-backfill.service';
-import { OpenAIClient } from './services/openai.client';
 import { COMMIT_ANALYSIS_CONFIG_TOKEN } from './tokens';
 
 @Module({
@@ -29,18 +29,20 @@ import { COMMIT_ANALYSIS_CONFIG_TOKEN } from './tokens';
       useFactory: (config: ConfigService) => loadCommitAnalysisConfig(config),
     },
     {
-      // No not-configured stub: the config reads the key live, so "configured"
-      // is a per-call question now. `OpenAIClient` throws
-      // `OPENAI_NOT_CONFIGURED` itself when the key is still empty.
-      provide: OpenAIClient,
+      // No not-configured stub decided at boot: `LiveLlmClient` re-resolves the
+      // config on every call, so the provider, the key and the model are
+      // whatever the settings screen last wrote — and an unset key becomes the
+      // rejecting `UnconfiguredLlmClient` for that call only.
+      provide: LlmClient,
       inject: [COMMIT_ANALYSIS_CONFIG_TOKEN],
-      useFactory: (cfg: CommitAnalysisConfig) => new OpenAIClient(cfg),
+      useFactory: (cfg: CommitAnalysisConfig) =>
+        new LiveLlmClient(() => cfg.llm),
     },
     {
       provide: CommitAnalyzerService,
-      inject: [OpenAIClient, COMMIT_ANALYSIS_CONFIG_TOKEN],
-      useFactory: (openai: OpenAIClient, cfg: CommitAnalysisConfig) =>
-        new CommitAnalyzerService(openai, cfg),
+      inject: [LlmClient, COMMIT_ANALYSIS_CONFIG_TOKEN],
+      useFactory: (llm: LlmClient, cfg: CommitAnalysisConfig) =>
+        new CommitAnalyzerService(llm, cfg),
     },
     CommitBackfillService,
     CommitsRepository,

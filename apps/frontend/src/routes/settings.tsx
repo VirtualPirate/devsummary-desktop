@@ -325,7 +325,7 @@ export function SettingsPage() {
           <CardHeader>
             <CardTitle>Integrations</CardTitle>
             <CardDescription>
-              GitHub, Slack and OpenAI credentials are managed on their own
+              GitHub, Slack and AI provider credentials are managed on their own
               pages.
             </CardDescription>
           </CardHeader>

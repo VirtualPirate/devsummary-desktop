@@ -5,7 +5,8 @@ import type {
   CommitAnalysisOutput,
   CommitType,
 } from '../schemas/analysis-output.schema';
-import type { OpenAIClient } from './openai.client';
+import { LlmClient } from '../../../../common/llm';
+import { CommitAnalysisOutputSchema } from '../schemas/analysis-output.schema';
 
 const SYSTEM_PROMPT = `You analyze a single git commit and return a structured classification. \
 Choose the single commit_type that best describes the commit's primary purpose — when work spans categories, \
@@ -132,7 +133,7 @@ export type AnalyzeCommitResult =
 @Injectable()
 export class CommitAnalyzerService {
   constructor(
-    private readonly openai: OpenAIClient,
+    private readonly llm: LlmClient,
     private readonly config: CommitAnalysisConfig,
   ) {}
 
@@ -179,17 +180,20 @@ export class CommitAnalyzerService {
       truncated: packed.truncated,
     });
 
-    const aiResult = await this.openai.analyze({
-      systemPrompt: SYSTEM_PROMPT,
-      userPrompt,
-    });
+    const aiResult = await this.llm.parse(
+      CommitAnalysisOutputSchema,
+      'commit_analysis',
+      { systemPrompt: SYSTEM_PROMPT, userPrompt },
+    );
 
     return {
       status: 'analyzed',
       commitType: aiResult.parsed.commit_type,
       summary: aiResult.parsed.summary,
       changes: aiResult.parsed.changes,
-      model: this.config.model,
+      // The model that actually answered, reported by the client — the config
+      // no longer carries one, because the provider is resolved per call.
+      model: aiResult.model,
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
       diffCharsSent: packed.charsSent,

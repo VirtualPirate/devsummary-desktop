@@ -236,18 +236,22 @@ export const AppError = sealRegistry({
     message: ({ reason }) => reason,
     details: ({ reason }) => ({ reason }),
   }),
+  // Codes keep their `OPENAI_` prefix so stored `failure_reason` values and any
+  // client matching on them stay valid; the messages are provider-neutral
+  // because the same call may have gone to Gemini.
   OPENAI_NOT_CONFIGURED: defineError({
     status: HttpStatus.INTERNAL_SERVER_ERROR,
-    message: 'OpenAI is not configured on this server. Set OPENAI_API_KEY.',
+    message:
+      'No AI provider is configured. Paste a key for the selected provider on the AI page.',
   }),
   OPENAI_API_FAILED: defineError<{ reason: string }>({
     status: HttpStatus.BAD_GATEWAY,
-    message: ({ reason }) => `OpenAI request failed: ${reason}`,
+    message: ({ reason }) => `LLM request failed: ${reason}`,
     details: ({ reason }) => ({ reason }),
   }),
   OPENAI_RESPONSE_INVALID: defineError<{ reason: string }>({
     status: HttpStatus.BAD_GATEWAY,
-    message: ({ reason }) => `OpenAI response was not valid: ${reason}`,
+    message: ({ reason }) => `LLM response was not valid: ${reason}`,
     details: ({ reason }) => ({ reason }),
   }),
 

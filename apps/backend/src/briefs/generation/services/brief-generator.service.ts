@@ -5,7 +5,8 @@ import type { BriefCommitClock } from '../../../databases/kysely';
 import type { BriefsConfig } from '../../briefs-config';
 import { BRIEFS_CONFIG_TOKEN } from '../../tokens';
 import { CommitsRepository } from '../../../integrations/github/commit-analysis/repositories/commits.repository';
-import { OpenAIBriefClient } from './openai-brief.client';
+import { LlmClient } from '../../../common/llm';
+import { BriefOutputSchema } from '../schemas/brief-output.schema';
 import { BriefScopeResolver } from './brief-scope.resolver';
 import type { BriefScope } from './brief-scope.resolver';
 import {
@@ -52,16 +53,17 @@ export class BriefGeneratorService {
   constructor(
     private readonly commits: CommitsRepository,
     private readonly scopeResolver: BriefScopeResolver,
-    private readonly openai: OpenAIBriefClient,
+    private readonly llm: LlmClient,
     @Inject(BRIEFS_CONFIG_TOKEN) private readonly config: BriefsConfig,
   ) {}
 
   async generate(input: GenerateInput): Promise<GenerateOutput> {
-    // `config.apiKey` is read live and is '' until the user pastes a key. Fail
-    // with the registered code up front rather than letting the OpenAI call
-    // throw it deep in the generation path, where the reason is less legible.
+    // `config.llm` is resolved live and is null until the user pastes a key for
+    // the selected provider. Fail with the registered code up front rather than
+    // letting the LLM call throw it deep in the generation path, where the
+    // reason is less legible.
     const config = this.config;
-    if (!config.apiKey) throw AppError.OPENAI_NOT_CONFIGURED();
+    if (!config.llm) throw AppError.OPENAI_NOT_CONFIGURED();
 
     const { repositoryIds, scopeLabel, authorFilter, branchFilter } =
       await this.scopeResolver.resolve(input);
@@ -114,7 +116,7 @@ export class BriefGeneratorService {
       maxChars: config.maxPromptChars,
     });
 
-    const result = await this.openai.generate({
+    const result = await this.llm.parse(BriefOutputSchema, 'brief_output', {
       systemPrompt: BRIEF_SYSTEM_PROMPT,
       userPrompt,
     });

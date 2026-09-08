@@ -3,13 +3,12 @@ import { BriefGeneratorService } from '../services/brief-generator.service';
 function makeService(overrides: { config?: unknown } = {}) {
   const commits = { findForBriefScope: jest.fn() };
   const scopeResolver = { resolve: jest.fn() };
-  const openai = { generate: jest.fn() };
+  const llm = { parse: jest.fn() };
   const config =
     'config' in overrides
       ? overrides.config
       : {
-          apiKey: 'k',
-          model: 'gpt-x',
+          llm: { provider: 'openai', apiKey: 'k', model: 'gpt-x' },
           maxPromptChars: 10_000,
           dispatcherIntervalSeconds: 60,
           backfillMaxBriefs: 100,
@@ -17,10 +16,10 @@ function makeService(overrides: { config?: unknown } = {}) {
   const svc = new BriefGeneratorService(
     commits as any,
     scopeResolver as any,
-    openai as any,
+    llm as any,
     config as any,
   );
-  return { svc, commits, scopeResolver, openai };
+  return { svc, commits, scopeResolver, llm };
 }
 
 // Half-open: `end` is the next local midnight after the last covered day.
@@ -30,12 +29,12 @@ const period = {
 };
 
 describe('BriefGeneratorService.generate', () => {
-  // `config.apiKey` is '' until the user pastes a key. This used to die on
-  // `this.config.maxPromptChars` with a TypeError that got stored verbatim in
-  // failure_reason and retried four times.
-  it('raises OPENAI_NOT_CONFIGURED when no OpenAI key is set', async () => {
+  // `config.llm` is null until the user pastes a key for the selected provider.
+  // This used to die on `this.config.maxPromptChars` with a TypeError that got
+  // stored verbatim in failure_reason and retried four times.
+  it('raises OPENAI_NOT_CONFIGURED when no provider key is set', async () => {
     const { svc, scopeResolver, commits } = makeService({
-      config: { apiKey: '', model: 'gpt-4o-mini', maxPromptChars: 30_000 },
+      config: { llm: null, maxPromptChars: 30_000 },
     });
     await expect(
       svc.generate({
@@ -72,7 +71,7 @@ describe('BriefGeneratorService.generate', () => {
   });
 
   it('calls LLM and returns title+summary for non-empty period', async () => {
-    const { svc, scopeResolver, commits, openai } = makeService();
+    const { svc, scopeResolver, commits, llm } = makeService();
     scopeResolver.resolve.mockResolvedValue({
       repositoryIds: ['r1'],
       scopeLabel: 'Project: Mobile',
@@ -98,7 +97,7 @@ describe('BriefGeneratorService.generate', () => {
         },
       },
     ]);
-    openai.generate.mockResolvedValue({
+    llm.parse.mockResolvedValue({
       parsed: { title: 'Mobile shipped X', summary: 'We did stuff.' },
       model: 'gpt-x',
       promptTokens: 100,
@@ -121,7 +120,7 @@ describe('BriefGeneratorService.generate', () => {
   });
 
   it('threads highlights out of the LLM result', async () => {
-    const { svc, scopeResolver, commits, openai } = makeService();
+    const { svc, scopeResolver, commits, llm } = makeService();
     scopeResolver.resolve.mockResolvedValue({
       repositoryIds: ['r1'],
       scopeLabel: 'Project: Checkout',
@@ -139,7 +138,7 @@ describe('BriefGeneratorService.generate', () => {
         analysis: null,
       },
     ]);
-    openai.generate.mockResolvedValue({
+    llm.parse.mockResolvedValue({
       parsed: {
         title: 'Guest checkout shipped',
         summary: 'Buyers can pay without an account.',

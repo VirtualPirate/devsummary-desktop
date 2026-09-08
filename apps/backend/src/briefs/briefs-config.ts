@@ -1,8 +1,17 @@
 import type { ConfigService } from '@nestjs/config';
+import {
+  loadLlmSettings,
+  type LlmProvider,
+  type LlmSettings,
+} from '../common/llm';
 
 export const DEFAULT_MAX_PROMPT_CHARS = 30_000;
 export const DEFAULT_DISPATCHER_INTERVAL_SECONDS = 60;
-export const DEFAULT_BRIEF_MODEL = 'gpt-4o-mini';
+/** The brief model override per provider. Also read by the settings screen. */
+export const BRIEF_MODEL_VARS = {
+  openai: 'OPENAI_BRIEF_MODEL',
+  gemini: 'GEMINI_BRIEF_MODEL',
+} as const satisfies Record<LlmProvider, string>;
 /**
  * Fan-out cap on backfilled briefs per schedule. `MAX_HISTORY_DAYS` is the
  * binding limit in practice (90 days of daily briefs is ~91), so this is the
@@ -21,7 +30,7 @@ export const DEFAULT_MAX_SCHEDULES_PER_ORG = 20;
 /**
  * Read on its own rather than off `BriefsConfig`: the cap bounds backfill fan-out
  * (each schedule can spawn up to `BRIEFS_BACKFILL_MAX_BRIEFS` briefs), so it must
- * still apply when `loadBriefsConfig` returns null for a missing OPENAI_API_KEY.
+ * still apply when no provider key is set at all.
  */
 export function loadMaxSchedulesPerOrg(config: ConfigService): number {
   const parsed = Number.parseInt(
@@ -34,18 +43,21 @@ export function loadMaxSchedulesPerOrg(config: ConfigService): number {
 }
 
 export interface BriefsConfig {
-  apiKey: string;
-  model: string;
+  /**
+   * The provider, key and model to use **right now**, or null when the selected
+   * provider has no key yet. A getter, not a value — see the note below.
+   */
+  readonly llm: LlmSettings | null;
   maxPromptChars: number;
   dispatcherIntervalSeconds: number;
   backfillMaxBriefs: number;
 }
 
 /**
- * `apiKey` and `model` are **getters** — see the same note on
- * `loadCommitAnalysisConfig`. The settings screen writes both long after the
- * module graph is built, so a snapshot would need an app restart to take
- * effect. An empty `apiKey` is the "not configured" signal, checked by
+ * `llm` is a **getter** — see the same note on `loadCommitAnalysisConfig`. The
+ * settings screen writes the provider, the key and the model override long
+ * after the module graph is built, so a snapshot would need an app restart to
+ * take effect. A null `llm` is the "not configured" signal, checked by
  * `BriefGeneratorService` at call time.
  */
 export function loadBriefsConfig(config: ConfigService): BriefsConfig {
@@ -63,11 +75,11 @@ export function loadBriefsConfig(config: ConfigService): BriefsConfig {
   );
 
   return {
-    get apiKey(): string {
-      return config.get<string>('OPENAI_API_KEY') ?? '';
-    },
-    get model(): string {
-      return config.get<string>('OPENAI_BRIEF_MODEL') || DEFAULT_BRIEF_MODEL;
+    get llm(): LlmSettings | null {
+      return loadLlmSettings(config, {
+        providerVar: 'BRIEFS_LLM_PROVIDER',
+        modelVars: BRIEF_MODEL_VARS,
+      });
     },
     maxPromptChars:
       Number.isFinite(maxPromptChars) && maxPromptChars > 0

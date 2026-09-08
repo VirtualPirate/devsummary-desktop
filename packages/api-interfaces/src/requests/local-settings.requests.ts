@@ -1,3 +1,5 @@
+import type { LlmProviderName } from "../responses/local-settings.responses";
+
 /**
  * Every field is optional and write-only: an omitted key is left alone, an
  * empty string clears the credential. Nothing is ever read back.
@@ -7,7 +9,10 @@
  * encrypted installation row ingest reads from.
  */
 export interface UpdateLocalCredentialsRequest {
+  /** Switches which provider answers AI calls; the stored keys are untouched. */
+  llmProvider?: LlmProviderName;
   openaiApiKey?: string;
+  geminiApiKey?: string;
   smtpHost?: string;
   smtpPort?: number;
   smtpUser?: string;
@@ -15,7 +20,11 @@ export interface UpdateLocalCredentialsRequest {
   emailFrom?: string;
   slackBotToken?: string;
   desktopNotifications?: boolean;
-  /** Empty string clears the override and restores the built-in default. */
+  /**
+   * Written for the provider this request selects (`llmProvider` when present,
+   * otherwise the one already in effect). Empty string clears that override and
+   * restores the provider's built-in default.
+   */
   commitAnalysisModel?: string;
   briefModel?: string;
 }

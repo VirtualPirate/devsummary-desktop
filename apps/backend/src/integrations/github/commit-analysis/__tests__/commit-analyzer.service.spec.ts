@@ -73,7 +73,7 @@ describe('packDiff', () => {
 describe('CommitAnalyzerService.buildPrompt', () => {
   it('produces a prompt with delimiters and file list', () => {
     const svc = new CommitAnalyzerService(
-      { analyze: jest.fn() } as never,
+      { parse: jest.fn() } as never,
       { maxDiffChars: 1000 } as never,
     );
     const prompt = svc.buildUserPrompt({
@@ -92,7 +92,7 @@ describe('CommitAnalyzerService.buildPrompt', () => {
 
 describe('CommitAnalyzerService.analyzeCommit', () => {
   it('returns skipped_empty when no files survive the filter', async () => {
-    const ai = { analyze: jest.fn() };
+    const ai = { parse: jest.fn() };
     const svc = new CommitAnalyzerService(
       ai as never,
       { maxDiffChars: 1000 } as never,
@@ -107,17 +107,20 @@ describe('CommitAnalyzerService.analyzeCommit', () => {
     });
 
     expect(result.status).toBe('skipped_empty');
-    expect(ai.analyze).not.toHaveBeenCalled();
+    expect(ai.parse).not.toHaveBeenCalled();
   });
 
-  it('calls openai and returns analyzed status on success', async () => {
+  it('calls the LLM and returns analyzed status on success', async () => {
     const ai = {
-      analyze: jest.fn(async () => ({
+      parse: jest.fn(async () => ({
         parsed: {
           commit_type: 'fix',
           summary: 's',
           changes: ['c1'],
         },
+        // The answering model, which is what the analysis row stores now that
+        // the config no longer carries one.
+        model: 'gpt-4o-mini',
         promptTokens: 10,
         completionTokens: 20,
       })),
@@ -138,6 +141,7 @@ describe('CommitAnalyzerService.analyzeCommit', () => {
     expect(result.status).toBe('analyzed');
     expect((result as any).commitType).toBe('fix');
     expect((result as any).promptTokens).toBe(10);
-    expect(ai.analyze).toHaveBeenCalled();
+    expect((result as any).model).toBe('gpt-4o-mini');
+    expect(ai.parse).toHaveBeenCalled();
   });
 });

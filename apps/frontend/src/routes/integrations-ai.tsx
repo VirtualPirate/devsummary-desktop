@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import type { LlmProviderName } from "@launchstack/api-interfaces";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
 import { SectionCard } from "@/components/devsummary/shared/section-card";
 import { SkeletonList } from "@/components/devsummary/shared/skeleton-list";
@@ -9,6 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   useLocalSettings,
   useLocalSettingsUsage,
   useUpdateLocalCredentials,
@@ -16,6 +24,56 @@ import {
 import { extractErrorMessage } from "@/lib/extract-error";
 
 const tokens = new Intl.NumberFormat();
+
+/** Everything that differs between providers on this page. */
+const PROVIDERS = {
+  openai: { label: "OpenAI", keyPlaceholder: "sk-…" },
+  gemini: { label: "Gemini", keyPlaceholder: "AIza…" },
+} as const;
+
+const PROVIDER_OPTIONS = Object.keys(PROVIDERS) as LlmProviderName[];
+
+function ProviderSelect({ provider }: { provider: LlmProviderName }) {
+  const update = useUpdateLocalCredentials();
+
+  // Saved on change rather than behind a button: it is one field, and the rest
+  // of the page (which key counts as connected, which models are shown) reads
+  // the stored value, so an unsaved selection would describe nothing.
+  const handleChange = async (value: string) => {
+    try {
+      await update.mutateAsync({ llmProvider: value as LlmProviderName });
+      toast.success(`Using ${PROVIDERS[value as LlmProviderName].label}`);
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  return (
+    <div className="max-w-md space-y-1.5">
+      <Label htmlFor="llm-provider">Provider</Label>
+      <Select
+        value={provider}
+        onValueChange={handleChange}
+        disabled={update.isPending}
+      >
+        <SelectTrigger id="llm-provider" className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PROVIDER_OPTIONS.map((option) => (
+            <SelectItem key={option} value={option}>
+              {PROVIDERS[option].label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Both keys can be stored; only this one is used. Applies to the next job
+        — no restart.
+      </p>
+    </div>
+  );
+}
 
 function TokenTotals() {
   const usage = useLocalSettingsUsage();
@@ -31,7 +89,7 @@ function TokenTotals() {
     <div className="mt-6 border-t pt-4">
       <div className="text-sm font-medium">Tokens used</div>
       <div className="mt-0.5 text-xs text-muted-foreground">
-        Everything this workspace has spent on your key, from the counts stored
+        Everything this workspace has spent on your keys, from the counts stored
         on each commit analysis and brief.
       </div>
       <dl className="mt-3 grid max-w-md grid-cols-[1fr_auto_auto] gap-x-6 gap-y-1.5 text-xs">
@@ -52,18 +110,24 @@ function TokenTotals() {
   );
 }
 
-function OpenAiKeyForm() {
+function ApiKeyForm({ provider }: { provider: LlmProviderName }) {
   const update = useUpdateLocalCredentials();
   const [key, setKey] = useState("");
+  const { label, keyPlaceholder } = PROVIDERS[provider];
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const value = key.trim();
     if (!value) return;
     try {
-      await update.mutateAsync({ openaiApiKey: value });
+      // The key is stored per provider, so which field it goes in follows the
+      // selection — pasting a Gemini key while Gemini is selected must not
+      // overwrite the OpenAI one.
+      await update.mutateAsync(
+        provider === "gemini" ? { geminiApiKey: value } : { openaiApiKey: value },
+      );
       setKey("");
-      toast.success("OpenAI key saved");
+      toast.success(`${label} key saved`);
     } catch (err) {
       toast.error(extractErrorMessage(err));
     }
@@ -72,15 +136,15 @@ function OpenAiKeyForm() {
   return (
     <form className="max-w-md space-y-4" onSubmit={handleSubmit}>
       <div className="space-y-1.5">
-        <Label htmlFor="openai-key">API key</Label>
+        <Label htmlFor="llm-key">{label} API key</Label>
         <Input
-          id="openai-key"
+          id="llm-key"
           type="password"
           autoComplete="off"
           spellCheck={false}
           value={key}
           onChange={(event) => setKey(event.target.value)}
-          placeholder="sk-…"
+          placeholder={keyPlaceholder}
           className="font-mono"
         />
       </div>
@@ -126,9 +190,9 @@ function ModelsForm({
       onSubmit={handleSubmit}
     >
       <div className="space-y-1.5">
-        <Label htmlFor="openai-analysis-model">Commit analysis model</Label>
+        <Label htmlFor="llm-analysis-model">Commit analysis model</Label>
         <Input
-          id="openai-analysis-model"
+          id="llm-analysis-model"
           autoComplete="off"
           spellCheck={false}
           value={analysisModel}
@@ -138,9 +202,9 @@ function ModelsForm({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="openai-brief-model">Brief model</Label>
+        <Label htmlFor="llm-brief-model">Brief model</Label>
         <Input
-          id="openai-brief-model"
+          id="llm-brief-model"
           autoComplete="off"
           spellCheck={false}
           value={summaryModel}
@@ -170,7 +234,11 @@ function ModelsForm({
 export function IntegrationsAiPage() {
   const settings = useLocalSettings();
   const status = settings.data?.data;
-  const configured = status?.openai ?? false;
+  const provider = status?.llmProvider ?? "openai";
+  // "Connected" is about the provider in use: an OpenAI key does not make a
+  // Gemini install ready, and the briefs would fail with NOT_CONFIGURED.
+  const configured =
+    (provider === "gemini" ? status?.gemini : status?.openai) ?? false;
 
   if (settings.isPending) {
     return (
@@ -178,7 +246,7 @@ export function IntegrationsAiPage() {
         <IntegrationTabs active="ai" />
         <PageHeader
           title="AI"
-          description="Commit analysis and brief writing run on your own OpenAI key."
+          description="Commit analysis and brief writing run on your own AI provider key."
         />
         <SkeletonList rows={1} rowHeight={240} />
       </>
@@ -197,16 +265,19 @@ export function IntegrationsAiPage() {
           </div>
           <div className="space-y-2 text-center">
             <h1 className="text-xl font-semibold tracking-tight">
-              Connect OpenAI
+              Connect {PROVIDERS[provider].label}
             </h1>
             <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-              Paste an API key. DevSummary classifies each commit and writes the
-              briefs with it — billed to your key, never ours. Nothing is read
-              back into the app once stored.
+              Pick a provider and paste its API key. DevSummary classifies each
+              commit and writes the briefs with it — billed to your key, never
+              ours. Nothing is read back into the app once stored.
             </p>
           </div>
-          <div className="w-full max-w-sm">
-            <OpenAiKeyForm />
+          <div className="w-full max-w-sm space-y-6">
+            <ProviderSelect provider={provider} />
+            {/* Keyed on the provider: a key typed for one provider must not be
+                submitted against the other after the select changes. */}
+            <ApiKeyForm key={provider} provider={provider} />
           </div>
         </div>
       </>
@@ -222,11 +293,14 @@ export function IntegrationsAiPage() {
         description="Classifies each commit and writes the briefs. Billed to your own key."
       />
       <SectionCard
-        title="OpenAI"
-        description="Pasting a new key replaces the stored one."
+        title={PROVIDERS[provider].label}
+        description="Pasting a new key replaces the stored one for this provider."
         configured={configured}
       >
-        <OpenAiKeyForm />
+        <div className="mb-6 border-b pb-4">
+          <ProviderSelect provider={provider} />
+        </div>
+        <ApiKeyForm key={provider} provider={provider} />
         <ModelsForm
           commitAnalysisModel={status?.commitAnalysisModel ?? ""}
           briefModel={status?.briefModel ?? ""}
@@ -234,7 +308,7 @@ export function IntegrationsAiPage() {
         <TokenTotals />
       </SectionCard>
       <p className="mt-6 text-xs text-muted-foreground">
-        The key lives in this machine&rsquo;s keychain. Nothing is ever read back
+        The keys live in this machine&rsquo;s keychain. Nothing is ever read back
         into the app.
       </p>
     </>

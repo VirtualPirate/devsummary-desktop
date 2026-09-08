@@ -9,19 +9,22 @@ function makeConfig(map: Record<string, string | undefined>): ConfigService {
 }
 
 describe('loadBriefsConfig backfillMaxBriefs', () => {
-  it('reports an empty apiKey when OPENAI_API_KEY is absent', () => {
-    expect(loadBriefsConfig(makeConfig({})).apiKey).toBe('');
+  it('reports a null llm when no provider key is set', () => {
+    expect(loadBriefsConfig(makeConfig({})).llm).toBeNull();
   });
 
-  it('reads apiKey and model live, so a key pasted after boot takes effect', () => {
+  it('resolves llm live, so a key pasted after boot takes effect', () => {
     const env: Record<string, string | undefined> = {};
     const cfg = loadBriefsConfig(makeConfig(env));
-    expect(cfg.apiKey).toBe('');
+    expect(cfg.llm).toBeNull();
 
     env.OPENAI_API_KEY = 'sk-late';
     env.OPENAI_BRIEF_MODEL = 'gpt-4.1';
-    expect(cfg.apiKey).toBe('sk-late');
-    expect(cfg.model).toBe('gpt-4.1');
+    expect(cfg.llm).toMatchObject({
+      provider: 'openai',
+      apiKey: 'sk-late',
+      model: 'gpt-4.1',
+    });
   });
 
   it('defaults backfillMaxBriefs when env is unset', () => {
