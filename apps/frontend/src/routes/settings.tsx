@@ -273,7 +273,7 @@ export function SettingsPage() {
   const header = (
     <PageHeader
       title="Settings"
-      description="Credentials live in this machine's keychain. Nothing is ever read back into the app."
+      description="Credentials are encrypted on this machine by your OS credential store. Nothing is ever read back into the app."
     />
   );
 

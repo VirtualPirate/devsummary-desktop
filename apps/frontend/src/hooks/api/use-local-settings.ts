@@ -6,7 +6,7 @@ import type {
 import { LocalSettingsAPI } from "@/api/local-settings.api";
 import { useActiveOrganizationStore } from "@/stores/active-organization-store";
 
-// Machine-wide, not workspace-scoped: one keychain per install, so no orgId in
+// Machine-wide, not workspace-scoped: one secrets bundle per install, so no orgId in
 // the status key. Usage is the exception — token spend is per workspace, so it
 // keys on the active one like every other org-scoped query.
 export const localSettingsKeys = {

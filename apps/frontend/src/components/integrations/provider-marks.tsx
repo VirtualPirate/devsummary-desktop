@@ -31,3 +31,32 @@ export function SlackMark({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Placeholder ring, **not** OpenAI's official logomark — the approved design
+ * draws it this way on purpose and inventing the real path was out of scope.
+ */
+export function OpenAiMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden
+      className={className}
+    >
+      <path d="M12 2.6 20.1 7.3v9.4L12 21.4 3.9 16.7V7.3z" />
+      <path d="M12 7.6 15.8 9.8v4.4L12 16.4 8.2 14.2V9.8z" />
+    </svg>
+  );
+}
+
+/** Gemini's four-point star, the real mark. */
+export function GeminiMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+      <path d="M12 1.8c0 5.4 4.8 10.2 10.2 10.2-5.4 0-10.2 4.8-10.2 10.2 0-5.4-4.8-10.2-10.2-10.2C7.2 12 12 7.2 12 1.8Z" />
+    </svg>
+  );
+}

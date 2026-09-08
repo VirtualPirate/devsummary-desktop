@@ -45,7 +45,8 @@ export function SlackTokenForm() {
         />
         <p className="text-xs text-muted-foreground">
           From your Slack app&rsquo;s <em>OAuth &amp; Permissions</em> page.
-          Stored in your keychain and never shown again.
+          Encrypted on this machine by your OS credential store, and never shown
+          again.
         </p>
       </div>
 

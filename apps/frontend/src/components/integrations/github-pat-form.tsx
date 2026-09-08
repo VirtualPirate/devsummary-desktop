@@ -63,7 +63,8 @@ export function GithubPatForm({
           className="font-mono"
         />
         <p className="text-xs text-muted-foreground">
-          Stored in your operating system&rsquo;s keychain and never shown again.
+          Encrypted on this machine by your OS credential store, and never shown
+          again.
         </p>
       </div>
 
