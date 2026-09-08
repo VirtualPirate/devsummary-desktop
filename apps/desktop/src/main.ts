@@ -8,7 +8,7 @@ import {
   shell,
   utilityProcess,
 } from 'electron';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -85,6 +85,83 @@ function loadSecrets(): SecretBundle {
     saveSecrets(bundle);
   }
   return bundle;
+}
+
+// ---------------------------------------------------------------- consent ---
+
+/**
+ * Where the count-installs ping goes. Empty means no ping at all, which is the
+ * shipped default until the endpoint exists — a consent screen that promises a
+ * transmission and then makes none is worse than making the request.
+ */
+const TELEMETRY_URL = process.env.TELEMETRY_URL ?? '';
+
+interface ConsentRecord {
+  /** Random per-install, generated at acceptance. Never a hardware identifier. */
+  installId: string;
+  /** Whatever version string the renderer handed us; it owns the comparison. */
+  termsVersion: string;
+  acceptedAt: string;
+}
+
+let consent: ConsentRecord | null = null;
+
+const consentFile = () => path.join(app.getPath('userData'), 'consent.json');
+
+/**
+ * Plain JSON, not `safeStorage`: an acceptance record is not a secret, and a box
+ * with no OS keychain must not silently forget that the user already agreed.
+ */
+function loadConsent(): ConsentRecord | null {
+  try {
+    const parsed = JSON.parse(readFileSync(consentFile(), 'utf8')) as Partial<ConsentRecord>;
+    if (!parsed.installId || !parsed.termsVersion) return null;
+    return parsed as ConsentRecord;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      console.error(`[desktop] consent.json unreadable, asking again: ${String(err)}`);
+    }
+    return null;
+  }
+}
+
+/**
+ * The install id is minted here, at acceptance — not at first launch. That is what
+ * makes the dialog's "nothing has been written to this Mac yet" true, and it means
+ * no identifier can exist before there is consent to send one.
+ */
+function acceptConsent(termsVersion: string): ConsentRecord {
+  const record: ConsentRecord = {
+    installId: consent?.installId ?? randomUUID(),
+    termsVersion,
+    acceptedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(consentFile(), JSON.stringify(record), { mode: 0o600 });
+  } catch (err) {
+    // An unwritable userData directory is already fatal — PGlite lives there too —
+    // so blocking the user on our own disk failure buys nothing. Let them in and
+    // ask again next launch.
+    console.error(`[desktop] consent.json not written, will ask again: ${String(err)}`);
+  }
+  consent = record;
+  return record;
+}
+
+/** One anonymous record per launch. Fire-and-forget: a failed count is not the user's problem. */
+function pingTelemetry(record: ConsentRecord): void {
+  if (!TELEMETRY_URL) return;
+  void fetch(TELEMETRY_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      installId: record.installId,
+      appVersion: app.getVersion(),
+      platform: `${process.platform} ${process.getSystemVersion()}`,
+      launchedAt: new Date().toISOString(),
+    }),
+  }).catch(() => {});
 }
 
 // ---------------------------------------------------------------- backend ---
@@ -225,6 +302,23 @@ ipcMain.handle('api:config', async () => ({
   token: API_TOKEN,
 }));
 
+ipcMain.handle('consent:state', () => ({
+  acceptedVersion: consent?.termsVersion ?? null,
+  acceptedAt: consent?.acceptedAt ?? null,
+}));
+
+ipcMain.handle('consent:accept', (_event, termsVersion: unknown) => {
+  const version = String(termsVersion);
+  if (!version || version.length > 32) throw new Error('invalid terms version');
+  pingTelemetry(acceptConsent(version));
+});
+
+// Declining is the only way a renderer may end the process, and it must survive
+// `window-all-closed` doing nothing on macOS.
+ipcMain.handle('consent:quit', () => {
+  app.quit();
+});
+
 ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
   // Trust boundary: the renderer must not be able to hand the OS a `file://`
   // path or a custom-scheme handler.
@@ -259,6 +353,8 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     secrets = loadSecrets();
+    consent = loadConsent();
+    if (consent) pingTelemetry(consent);
     startBackend();
     createWindow();
 

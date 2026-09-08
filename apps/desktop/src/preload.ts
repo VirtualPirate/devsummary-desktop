@@ -9,4 +9,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('desktop', {
   apiConfig: (): Promise<{ port: number; token: string }> => ipcRenderer.invoke('api:config'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
+  consentState: (): Promise<{ acceptedVersion: string | null; acceptedAt: string | null }> =>
+    ipcRenderer.invoke('consent:state'),
+  acceptConsent: (termsVersion: string): Promise<void> =>
+    ipcRenderer.invoke('consent:accept', termsVersion),
+  quitApp: (): Promise<void> => ipcRenderer.invoke('consent:quit'),
 });

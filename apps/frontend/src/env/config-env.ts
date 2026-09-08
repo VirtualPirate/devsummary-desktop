@@ -17,6 +17,9 @@ declare global {
     desktop?: {
       apiConfig(): Promise<{ port: number; token: string }>;
       openExternal(url: string): Promise<void>;
+      consentState(): Promise<{ acceptedVersion: string | null; acceptedAt: string | null }>;
+      acceptConsent(termsVersion: string): Promise<void>;
+      quitApp(): Promise<void>;
     };
   }
 }
@@ -36,4 +39,28 @@ export async function resolveAppConfig(): Promise<AppConfig> {
     };
   }
   return config;
+}
+
+/**
+ * Which terms version this install has accepted, resolved before the first render
+ * so there is never a frame where the app is interactive ungated.
+ *
+ * `null` means "ask". Headless (a bare `vite dev`, no `window.desktop`) resolves to
+ * the current version: there is no app to quit and no file to write, and a gate the
+ * user cannot get past is not a useful dev experience.
+ */
+export interface ConsentSnapshot {
+  acceptedVersion: string | null;
+  acceptedAt: string | null;
+}
+
+let consent: ConsentSnapshot = { acceptedVersion: null, acceptedAt: null };
+
+export const getConsent = (): ConsentSnapshot => consent;
+
+export async function resolveConsent(currentVersion: string): Promise<ConsentSnapshot> {
+  consent = window.desktop
+    ? await window.desktop.consentState()
+    : { acceptedVersion: currentVersion, acceptedAt: null };
+  return consent;
 }

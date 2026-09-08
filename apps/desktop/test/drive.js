@@ -87,6 +87,58 @@ async function happy() {
     `sha256(key)[0..16]=${createHash('sha256').update(bundle.DB_ENCRYPTION_KEY).digest('hex').slice(0, 16)}`,
   );
 
+  // ── consent gate (variant A) ──────────────────────────────────────────────
+  const consentFile = path.join(userData, 'consent.json');
+  const before = await evalInRenderer(win, 'window.desktop.consentState()');
+  check(
+    'a fresh install reports no accepted terms, and nothing is on disk yet',
+    before.acceptedVersion === null && before.acceptedAt === null && !fs.existsSync(consentFile),
+    JSON.stringify(before),
+  );
+
+  await evalInRenderer(win, "window.desktop.acceptConsent('1.0')");
+  const record = JSON.parse(fs.readFileSync(consentFile, 'utf8'));
+  check(
+    'accepting writes a random installId and the version it was told',
+    /^[0-9a-f-]{36}$/.test(record.installId || '') &&
+      record.termsVersion === '1.0' &&
+      !Number.isNaN(Date.parse(record.acceptedAt)),
+    JSON.stringify({ ...record, installId: `${record.installId.slice(0, 8)}…` }),
+  );
+
+  const after = await evalInRenderer(win, 'window.desktop.consentState()');
+  check(
+    'the accepted version is reported back, so the gate stays closed',
+    after.acceptedVersion === '1.0' && after.acceptedAt === record.acceptedAt,
+    JSON.stringify(after),
+  );
+
+  // A terms bump re-gates, but it must not mint a second identity — otherwise
+  // every version bump would double-count that install.
+  await evalInRenderer(win, "window.desktop.acceptConsent('1.1')");
+  const rerecord = JSON.parse(fs.readFileSync(consentFile, 'utf8'));
+  check(
+    're-accepting a bumped version keeps the same installId',
+    rerecord.installId === record.installId && rerecord.termsVersion === '1.1',
+    `${rerecord.installId.slice(0, 8)}… v${rerecord.termsVersion}`,
+  );
+
+  const badVersion = await evalInRenderer(
+    win,
+    "window.desktop.acceptConsent('x'.repeat(64)).then(() => 'resolved', (e) => 'rejected: ' + e.message)",
+  );
+  check(
+    'an implausible version string from the renderer is refused',
+    badVersion.startsWith('rejected') &&
+      JSON.parse(fs.readFileSync(consentFile, 'utf8')).termsVersion === '1.1',
+    badVersion,
+  );
+
+  check(
+    'the decline path is reachable from the renderer',
+    (await evalInRenderer(win, 'typeof window.desktop.quitApp')) === 'function',
+  );
+
   check('notification message did not crash the main process', true, `Notification.isSupported()=${Notification.isSupported()}`);
 
   await evalInRenderer(win, "window.open('https://example.com/target-blank'); 0");
