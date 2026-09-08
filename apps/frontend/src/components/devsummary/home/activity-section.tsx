@@ -20,6 +20,12 @@ import { ChartCard } from "./chart-card";
 import { formatCompact, formatSignedCompact } from "./chart-format";
 import { CommitsChart } from "./commits-chart";
 import { CommitTypesChart } from "./commit-types-chart";
+import { FixFeatureChart } from "./fix-feature-chart";
+import {
+  fixFeatureWindowSize,
+  medianFixShare,
+  rollingFixShare,
+} from "./fix-feature-ratio";
 import { LocChart } from "./loc-chart";
 import { offHoursShare, totalCommits } from "./work-hours";
 import { WorkHoursHeatmap } from "./work-hours-heatmap";
@@ -75,6 +81,14 @@ export function ActivitySection() {
   const points = activityQuery.data?.data.points ?? [];
   const display = points.filter((p) => p.date >= window.displayFromKey);
   const previous = points.filter((p) => p.date < window.displayFromKey);
+
+  const fixShare = rollingFixShare(
+    points,
+    fixFeatureWindowSize(window.granularity),
+    window.displayFromKey,
+  );
+
+  const medianShare = medianFixShare(fixShare);
 
   const totals = reduceTotals(display);
   const prevTotals = reduceTotals(previous);
@@ -182,6 +196,18 @@ export function ActivitySection() {
           </ChartCard>
 
           <ChartCard
+            title="Fix vs feature"
+            subtitle="median share of fix work in fix + feature commits, this period"
+            headline={
+              medianShare === null ? "—" : `${Math.round(medianShare * 100)}%`
+            }
+            isLoading={isLoading}
+            isEmpty={isEmpty}
+          >
+            <FixFeatureChart points={fixShare} />
+          </ChartCard>
+
+          <ChartCard
             title="When work happens"
             subtitle="of commits land after 7pm or on a weekend"
             headline={
@@ -190,7 +216,6 @@ export function ActivitySection() {
             delta={null}
             isLoading={hoursQuery.isLoading}
             isEmpty={!hoursQuery.isLoading && totalCommits(hourCells) === 0}
-            className="lg:col-span-2"
           >
             <WorkHoursHeatmap cells={hourCells} />
           </ChartCard>

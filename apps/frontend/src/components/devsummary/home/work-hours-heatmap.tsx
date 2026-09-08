@@ -2,7 +2,7 @@ import type { CommitHoursCell } from "@launchstack/api-interfaces";
 import { workHoursGrid } from "./work-hours";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const HOUR_LABELS = [0, 3, 6, 9, 12, 15, 18, 21];
+const HOUR_LABELS = [0, 6, 12, 18];
 
 /** Six sequential steps of one hue over the card, so the ramp reads the same
  * in light and dark without a second token set. Step 0 is "no commits" and is
@@ -26,7 +26,7 @@ function hourLabel(h: number): string {
   return `${h % 12 || 12}${h < 12 ? "am" : "pm"}`;
 }
 
-const CELL = "rounded-[3px] h-4";
+const CELL = "rounded-[2px] h-3";
 const EMPTY = "border border-border";
 
 export function WorkHoursHeatmap({ cells }: { cells: CommitHoursCell[] }) {
@@ -36,8 +36,8 @@ export function WorkHoursHeatmap({ cells }: { cells: CommitHoursCell[] }) {
   return (
     <div className="flex h-full flex-col justify-center gap-2">
       <div
-        className="grid gap-[3px]"
-        style={{ gridTemplateColumns: "2rem repeat(24, minmax(0, 1fr))" }}
+        className="grid gap-[2px]"
+        style={{ gridTemplateColumns: "1.75rem repeat(24, minmax(0, 1fr))" }}
       >
         {grid.map((row, r) => (
           <div key={DAYS[r]} className="contents">
@@ -62,7 +62,7 @@ export function WorkHoursHeatmap({ cells }: { cells: CommitHoursCell[] }) {
         {HOUR_LABELS.map((h) => (
           <div
             key={h}
-            className="col-span-3 pt-1 text-[11px] text-muted-foreground"
+            className="col-span-6 pt-1 text-[11px] text-muted-foreground"
           >
             {hourLabel(h)}
           </div>
@@ -74,7 +74,7 @@ export function WorkHoursHeatmap({ cells }: { cells: CommitHoursCell[] }) {
         {RAMP.map((_, step) => (
           <span
             key={step}
-            className={`inline-block size-3 rounded-[3px] ${step === 0 ? EMPTY : ""}`}
+            className={`inline-block size-3 rounded-[2px] ${step === 0 ? EMPTY : ""}`}
             style={swatchStyle(step)}
           />
         ))}
