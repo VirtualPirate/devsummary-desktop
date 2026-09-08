@@ -16,5 +16,9 @@
   // unplugin-swc ships vite@6 types while Vitest 4 pulls vite@7, so the
   // plugin call reports a spurious Plugin/PluginOption mismatch. The config is
   // executed on every run, so a real error in it fails loudly anyway.
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  // The package tsconfig excludes test/e2e (see the note there); `extends`
+  // inherits that exclude, which would leave this project with no inputs and
+  // no type information for editors or eslint's project service.
+  "exclude": []
 }

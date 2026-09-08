@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/require-await -- mock activities must return Promises to satisfy the activity signatures, even when the body has nothing to await */
 /**
  * Ported from `temporal/workflows/__tests__/generate-brief.workflow.spec.ts`.
  *

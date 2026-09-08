@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/require-await */
 export async function render(
   _component: any,
   options?: { plainText?: boolean },

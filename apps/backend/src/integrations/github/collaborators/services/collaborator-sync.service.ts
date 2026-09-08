@@ -1,7 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AppError } from '../../../../common/errors';
 import { KYSELY_DB, type AppDatabase } from '../../../../databases/kysely';
-import { GithubAppClient, isRateLimitedError } from '../../github.client';
+import {
+  GithubAppClient,
+  isRateLimitedError,
+  type RepoCollaborator,
+} from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { CollaboratorsRepository } from '../repositories/collaborators.repository';
@@ -51,7 +55,7 @@ export class CollaboratorSyncService {
     }
 
     const [owner, repoName] = repo.fullName.split('/');
-    let liveCollabs;
+    let liveCollabs: RepoCollaborator[];
     try {
       liveCollabs = await this.client.listRepoCollaborators(
         installation.githubInstallationId,

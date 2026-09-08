@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 const noop = (_props: unknown) => null;
 
 export const Html = noop;

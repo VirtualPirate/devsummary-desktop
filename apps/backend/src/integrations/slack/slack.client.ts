@@ -3,6 +3,7 @@ import {
   WebClient,
   type AuthRevokeResponse,
   type AuthTestResponse,
+  type ChatPostMessageArguments,
   type ChatPostMessageResponse,
   type ConversationsJoinResponse,
   type ConversationsListResponse,
@@ -11,6 +12,13 @@ import {
 import { AppError } from '../../common/errors';
 
 export type SlackBlock = Record<string, unknown>;
+
+/** The SDK's block union, reached through the postMessage argument type:
+ * `@slack/types` (which declares it) is transitive, not a dependency here. */
+type PostMessageBlocks = Extract<
+  ChatPostMessageArguments,
+  { blocks: unknown[] }
+>['blocks'];
 
 type Channel = NonNullable<ConversationsListResponse['channels']>[number];
 type Member = NonNullable<UsersListResponse['members']>[number];
@@ -77,8 +85,7 @@ export class SlackClient {
         token: accessToken,
         channel,
         text,
-
-        blocks: blocks as any,
+        blocks: blocks as unknown as PostMessageBlocks,
       });
       if (!res.ok) {
         throw AppError.SLACK_API_FAILED({

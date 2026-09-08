@@ -39,15 +39,8 @@ export interface CommitActivityQueryArgs extends CommitHoursQueryArgs {
 // Closed set mirroring the github.commit_type enum; inlined as SQL
 // literals because a bound text parameter cannot be compared to a PG
 // enum without an explicit cast.
-const COMMIT_TYPE_LITERALS = [
-  'feature',
-  'fix',
-  'optimization',
-  'refactor',
-  'docs',
-  'test',
-  'chore',
-] as const;
+type CommitTypeLiteral =
+  'feature' | 'fix' | 'optimization' | 'refactor' | 'docs' | 'test' | 'chore';
 
 /** Postgres SQLSTATE for invalid_parameter_value — what `AT TIME ZONE`
  * raises for a zone name missing from its tzdata. */
@@ -158,7 +151,7 @@ export class CommitActivityRepository {
       `'${args.granularity}'`,
     )}, ${sql.ref('github.commits.authoredAt')} at time zone ${args.timezone}), 'YYYY-MM-DD')`;
 
-    const typed = (t: (typeof COMMIT_TYPE_LITERALS)[number]) =>
+    const typed = (t: CommitTypeLiteral) =>
       sql<number>`count(*) filter (where ${sql.ref(
         'github.commitAnalyses.status',
       )} = 'analyzed' and ${sql.ref(

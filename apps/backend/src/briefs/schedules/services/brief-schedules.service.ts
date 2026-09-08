@@ -383,15 +383,15 @@ export class BriefSchedulesService {
   private assertValidCadence(
     cadence: CreateBriefScheduleRequest['cadence'],
   ): void {
-    if (cadence.type === 'weekly' && (cadence as any).dayOfWeek === undefined) {
+    // The union types both fields as required, so the runtime presence check
+    // needs a shape that admits `undefined` — the payload is not yet parsed.
+    const fields = cadence as { dayOfWeek?: number; dayOfMonth?: number };
+    if (cadence.type === 'weekly' && fields.dayOfWeek === undefined) {
       throw AppError.BRIEF_SCHEDULE_INVALID_CADENCE({
         reason: 'weekly cadence requires dayOfWeek',
       });
     }
-    if (
-      cadence.type === 'monthly' &&
-      (cadence as any).dayOfMonth === undefined
-    ) {
+    if (cadence.type === 'monthly' && fields.dayOfMonth === undefined) {
       throw AppError.BRIEF_SCHEDULE_INVALID_CADENCE({
         reason: 'monthly cadence requires dayOfMonth',
       });

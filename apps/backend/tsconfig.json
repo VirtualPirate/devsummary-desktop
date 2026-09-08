@@ -24,5 +24,8 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "exclude": ["node_modules", "dist"]
+  // test/e2e has its own tsconfig (esnext/bundler): the harness is ESM,
+  // transformed by swc under Vitest, and uses `import.meta` plus
+  // extensionless relative imports — both errors under nodenext/CommonJS.
+  "exclude": ["node_modules", "dist", "test/e2e"]
 }

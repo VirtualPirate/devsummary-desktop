@@ -60,7 +60,6 @@ const COMMITS: RawCommit[] = [
 
 function pages<T>(items: T[]) {
   return {
-    // eslint-disable-next-line @typescript-eslint/require-await
     async *[Symbol.asyncIterator]() {
       yield { data: items };
     },

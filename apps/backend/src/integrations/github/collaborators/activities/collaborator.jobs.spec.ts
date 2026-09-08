@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/require-await -- mock activities must return Promises to satisfy the activity signatures, even when the body has nothing to await */
 import { JOB, JobHandlerRegistry } from '../../../../jobs';
 import { CollaboratorJobs } from './collaborator.jobs';
 import type { CollaboratorActivities } from './collaborator.activities';
