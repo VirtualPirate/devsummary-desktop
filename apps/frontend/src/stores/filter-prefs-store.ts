@@ -67,10 +67,14 @@ export function filtersToRestore(
  */
 export const homeFilterPrefs = (s: {
   range: string;
+  from: string;
+  to: string;
   repo: string;
   collaborator: string;
 }): SavedFilters => ({
   range: s.range === "30d" ? "" : s.range,
+  from: s.from,
+  to: s.to,
   repo: s.repo,
   collaborator: s.collaborator,
 });

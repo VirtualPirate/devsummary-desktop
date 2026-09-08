@@ -10,6 +10,7 @@ import {
 
 import App from "@/App";
 import { isActivityRange, type ActivityRange } from "@/lib/activity-window";
+import { isDateKey } from "@/lib/calendar-grid";
 import {
   briefFilterPrefs,
   filtersToRestore,
@@ -88,6 +89,9 @@ const briefsSearchSchema = (
 
 export type HomeSearch = {
   range: ActivityRange;
+  /** "" or a YYYY-MM-DD key. Both set = custom range, `range` is ignored. */
+  from: string;
+  to: string;
   repo: string;
   collaborator: string;
 };
@@ -98,6 +102,8 @@ const homeSearchSchema = (
   search: Record<string, unknown> & SearchSchemaInput,
 ): HomeSearch => ({
   range: isActivityRange(search.range) ? search.range : "30d",
+  from: isDateKey(search.from) ? search.from : "",
+  to: isDateKey(search.to) ? search.to : "",
   repo: typeof search.repo === "string" ? search.repo : "",
   collaborator:
     typeof search.collaborator === "string" ? search.collaborator : "",

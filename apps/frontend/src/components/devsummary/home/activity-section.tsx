@@ -12,7 +12,7 @@ import {
   useGetCommitHours,
 } from "@/hooks/api/use-analytics";
 import { extractErrorMessage } from "@/lib/extract-error";
-import { computeActivityWindow, periodDelta } from "@/lib/activity-window";
+import { periodDelta, resolveActivityWindow } from "@/lib/activity-window";
 import type { HomeSearch } from "@/router";
 import { homeFilterPrefs, saveFilters } from "@/stores/filter-prefs-store";
 import { ActivityFilters } from "./activity-filters";
@@ -46,8 +46,13 @@ export function ActivitySection() {
   const navigate = useNavigate();
 
   const window = useMemo(
-    () => computeActivityWindow(search.range),
-    [search.range],
+    () =>
+      resolveActivityWindow({
+        range: search.range,
+        from: search.from,
+        to: search.to,
+      }),
+    [search.range, search.from, search.to],
   );
 
   const installationsQuery = useGithubInstallations();
@@ -127,6 +132,8 @@ export function ActivitySection() {
       <ActivityFilters
         value={{
           range: search.range,
+          from: search.from,
+          to: search.to,
           repo: search.repo,
           collaborator: search.collaborator,
         }}
@@ -139,6 +146,8 @@ export function ActivitySection() {
             to: "/",
             search: {
               range: next.range,
+              from: next.from,
+              to: next.to,
               repo: next.repo,
               collaborator: next.collaborator,
             },

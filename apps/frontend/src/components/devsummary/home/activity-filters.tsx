@@ -7,8 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ACTIVITY_RANGES, type ActivityRange } from "@/lib/activity-window";
-import { cn } from "@/lib/utils";
+import type { ActivityRange } from "@/lib/activity-window";
+import { DateRangePicker } from "./date-range-picker";
 
 // Radix SelectItem forbids empty-string values, hence the "all" sentinel
 // (same convention as brief-filters.tsx).
@@ -16,6 +16,8 @@ const ALL = "all";
 
 export interface ActivityFiltersValue {
   range: ActivityRange;
+  from: string; // "" or yyyy-mm-dd; both ends set = custom range
+  to: string;
   repo: string; // "" = all repositories
   collaborator: string; // "" = all collaborators
 }
@@ -88,23 +90,13 @@ export function ActivityFilters({
         </button>
       ) : null}
 
-      <div className="ml-auto inline-flex gap-1 rounded-full border bg-card p-1 shadow-e1">
-        {ACTIVITY_RANGES.map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => set({ range: r })}
-            className={cn(
-              "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
-              value.range === r
-                ? "bg-brand/12 text-brand"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {r}
-          </button>
-        ))}
+      <div className="ml-auto">
+        <DateRangePicker
+          value={{ range: value.range, from: value.from, to: value.to }}
+          onChange={(next) => set(next)}
+        />
       </div>
+
     </div>
   );
 }
