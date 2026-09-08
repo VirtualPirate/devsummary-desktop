@@ -239,9 +239,10 @@ export const AppError = sealRegistry({
   // Codes keep their `OPENAI_` prefix so stored `failure_reason` values and any
   // client matching on them stay valid; the messages are provider-neutral
   // because the same call may have gone to Gemini.
-  OPENAI_NOT_CONFIGURED: defineError({
+  OPENAI_NOT_CONFIGURED: defineError<{ reason?: string } | void>({
     status: HttpStatus.INTERNAL_SERVER_ERROR,
-    message:
+    message: (args) =>
+      args?.reason ??
       'No AI provider is configured. Paste a key for the selected provider on the AI page.',
   }),
   OPENAI_API_FAILED: defineError<{ reason: string }>({

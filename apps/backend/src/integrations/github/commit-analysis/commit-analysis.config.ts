@@ -12,6 +12,7 @@ export const TEAM_CONCURRENCY = 2;
 export const COMMIT_ANALYSIS_MODEL_VARS = {
   openai: 'OPENAI_COMMIT_ANALYSIS_MODEL',
   gemini: 'GEMINI_COMMIT_ANALYSIS_MODEL',
+  'claude-code': 'CLAUDE_CODE_COMMIT_ANALYSIS_MODEL',
 } as const satisfies Record<LlmProvider, string>;
 
 export interface CommitAnalysisConfig {
@@ -45,6 +46,7 @@ export function loadCommitAnalysisConfig(
       return loadLlmSettings(configService, {
         providerVar: 'COMMIT_ANALYSIS_LLM_PROVIDER',
         modelVars: COMMIT_ANALYSIS_MODEL_VARS,
+        job: 'commitAnalysis',
       });
     },
     maxDiffChars: MAX_DIFF_CHARS,

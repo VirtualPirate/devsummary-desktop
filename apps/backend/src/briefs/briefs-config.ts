@@ -11,6 +11,7 @@ export const DEFAULT_DISPATCHER_INTERVAL_SECONDS = 60;
 export const BRIEF_MODEL_VARS = {
   openai: 'OPENAI_BRIEF_MODEL',
   gemini: 'GEMINI_BRIEF_MODEL',
+  'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
 } as const satisfies Record<LlmProvider, string>;
 /**
  * Fan-out cap on backfilled briefs per schedule. `MAX_HISTORY_DAYS` is the
@@ -79,6 +80,7 @@ export function loadBriefsConfig(config: ConfigService): BriefsConfig {
       return loadLlmSettings(config, {
         providerVar: 'BRIEFS_LLM_PROVIDER',
         modelVars: BRIEF_MODEL_VARS,
+        job: 'brief',
       });
     },
     maxPromptChars:

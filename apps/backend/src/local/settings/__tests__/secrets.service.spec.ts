@@ -150,3 +150,16 @@ describe('SecretsService', () => {
     expect(a.encryptionKey()).toEqual(a.encryptionKey());
   });
 });
+
+// Not secrets, but they ride the same bundle: it is the only thing the shell
+// persists, so a model chosen in settings has nowhere else to survive a restart.
+describe('SECRET_KEYS', () => {
+  it('carries the Claude Code model overrides', () => {
+    expect(SECRET_KEYS).toContain('CLAUDE_CODE_COMMIT_ANALYSIS_MODEL');
+    expect(SECRET_KEYS).toContain('CLAUDE_CODE_BRIEF_MODEL');
+  });
+
+  it('does not invent a Claude Code API key', () => {
+    expect(SECRET_KEYS).not.toContain('CLAUDE_CODE_API_KEY');
+  });
+});

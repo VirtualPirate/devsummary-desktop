@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LLM_PROVIDERS } from '../../../common/llm';
 
 /** An omitted key is left alone; an empty string clears that credential. */
 export const UpdateLocalCredentialsSchema = z
@@ -8,9 +9,11 @@ export const UpdateLocalCredentialsSchema = z
     // ingest actually reads. Accepting one here only ever wrote the env mirror,
     // i.e. a `github: true` flag with nothing behind it.
     //
+    // Derived from `LLM_PROVIDERS` rather than repeated, so a provider added
+    // there is selectable without a second edit that is easy to forget.
     // Only the global provider is settable: the per-scope `*_LLM_PROVIDER`
     // overrides are still honoured from env, but nothing in the app writes them.
-    llmProvider: z.enum(['openai', 'gemini']),
+    llmProvider: z.enum(LLM_PROVIDERS),
     openaiApiKey: z.string().trim(),
     geminiApiKey: z.string().trim(),
     smtpHost: z.string().trim(),

@@ -1,3 +1,10 @@
+import {
+  AGENT_ADAPTERS,
+  AgentCliLlmClient,
+  agentCliDetector,
+  isAgentProvider,
+  type AgentProvider,
+} from './agents';
 import { GeminiLlmClient } from './gemini-llm.client';
 import type { LlmClient } from './llm-client';
 import type { LlmProvider, LlmSettings } from './llm-config';
@@ -5,16 +12,20 @@ import { OpenAiLlmClient } from './openai-llm.client';
 import { UnconfiguredLlmClient } from './unconfigured-llm.client';
 
 /**
- * Keyed by `LlmProvider` rather than switched on, so adding a provider to
- * `LLM_PROVIDERS` without writing its subclass is a compile error here instead
- * of a silent fall-through to OpenAI at runtime.
+ * Keyed by provider rather than switched on, so adding one to `LLM_PROVIDERS`
+ * without writing its client is a compile error here instead of a silent
+ * fall-through to OpenAI at runtime.
+ *
+ * Agent CLIs are excluded: they all share one class parameterised by an
+ * adapter, so the exhaustiveness that matters for them is `AGENT_ADAPTERS`, and
+ * naming each one here again would make a new adapter two edits instead of one.
  */
-const CLIENT_BY_PROVIDER: Record<
-  LlmProvider,
-  new (settings: LlmSettings) => LlmClient
+const SDK_CLIENT_BY_PROVIDER: Record<
+  Exclude<LlmProvider, AgentProvider>,
+  (settings: LlmSettings) => LlmClient
 > = {
-  openai: OpenAiLlmClient,
-  gemini: GeminiLlmClient,
+  openai: (settings) => new OpenAiLlmClient(settings),
+  gemini: (settings) => new GeminiLlmClient(settings),
 };
 
 /**
@@ -23,7 +34,12 @@ const CLIENT_BY_PROVIDER: Record<
  * boot failure.
  */
 export function createLlmClient(settings: LlmSettings | null): LlmClient {
-  return settings
-    ? new CLIENT_BY_PROVIDER[settings.provider](settings)
-    : new UnconfiguredLlmClient();
+  if (!settings) return new UnconfiguredLlmClient();
+  return isAgentProvider(settings.provider)
+    ? new AgentCliLlmClient(
+        settings,
+        AGENT_ADAPTERS[settings.provider],
+        agentCliDetector,
+      )
+    : SDK_CLIENT_BY_PROVIDER[settings.provider](settings);
 }

@@ -31,6 +31,10 @@ export const SECRET_KEYS = [
   'OPENAI_BRIEF_MODEL',
   'GEMINI_COMMIT_ANALYSIS_MODEL',
   'GEMINI_BRIEF_MODEL',
+  // Claude Code has no key of its own — it authenticates through `claude
+  // /login` — so only its two model overrides ride the bundle.
+  'CLAUDE_CODE_COMMIT_ANALYSIS_MODEL',
+  'CLAUDE_CODE_BRIEF_MODEL',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];

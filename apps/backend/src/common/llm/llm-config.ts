@@ -1,7 +1,11 @@
 import type { ConfigService } from '@nestjs/config';
+import { isAgentProvider, type AgentProvider } from './agents';
 
-export const LLM_PROVIDERS = ['openai', 'gemini'] as const;
+export const LLM_PROVIDERS = ['openai', 'gemini', 'claude-code'] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
+/** The two calls the app makes, each with its own model. */
+export type LlmJob = 'commitAnalysis' | 'brief';
 
 /**
  * Gemini's OpenAI-compatible endpoint. Pointing the `openai` SDK at it is what
@@ -12,14 +16,30 @@ export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 export const GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai/';
 
-const API_KEY_VAR: Record<LlmProvider, string> = {
+// Only the providers reached with a key have one. An agent CLI authenticates
+// itself, so `Record<LlmProvider, …>` here would demand a var that cannot
+// exist.
+const API_KEY_VAR: Record<Exclude<LlmProvider, AgentProvider>, string> = {
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
 };
 
-export const DEFAULT_MODELS: Record<LlmProvider, string> = {
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-3.1-flash-lite',
+/**
+ * Per provider **and** per job. Claude Code wants the cheap model for
+ * per-commit volume and a stronger one for the brief people actually read,
+ * which one string per provider cannot express; OpenAI and Gemini keep the same
+ * value in both slots.
+ */
+export const DEFAULT_MODELS: Record<
+  LlmProvider,
+  { commitAnalysis: string; brief: string }
+> = {
+  openai: { commitAnalysis: 'gpt-4o-mini', brief: 'gpt-4o-mini' },
+  gemini: {
+    commitAnalysis: 'gemini-3.1-flash-lite',
+    brief: 'gemini-3.1-flash-lite',
+  },
+  'claude-code': { commitAnalysis: 'haiku', brief: 'sonnet' },
 };
 
 /** Everything an `LlmClient` needs to talk to one provider. */
@@ -70,17 +90,28 @@ export interface LoadLlmSettingsOptions {
   providerVar: string;
   /** Model env var per provider, e.g. `{ openai: 'OPENAI_BRIEF_MODEL', … }`. */
   modelVars: Record<LlmProvider, string>;
+  /** Which of the provider's two defaults applies when no override is set. */
+  job: LlmJob;
 }
 
 /**
  * Null when the selected provider has no API key — callers turn that into the
- * existing stub-that-rejects pattern rather than failing boot.
+ * existing stub-that-rejects pattern rather than failing boot. A CLI provider
+ * is never null: it has no key to be missing, and whether the binary is
+ * actually there is the detector's question at call time. A config read must
+ * not spawn a process.
  */
 export function loadLlmSettings(
   config: ConfigService,
   opts: LoadLlmSettingsOptions,
 ): LlmSettings | null {
   const provider = resolveLlmProvider(config, opts.providerVar);
+  const model =
+    config.get<string>(opts.modelVars[provider])?.trim() ||
+    DEFAULT_MODELS[provider][opts.job];
+
+  if (isAgentProvider(provider)) return { provider, model };
+
   const apiKey = config.get<string>(API_KEY_VAR[provider])?.trim();
   if (!apiKey) return null;
 
@@ -88,8 +119,6 @@ export function loadLlmSettings(
     provider,
     apiKey,
     baseURL: provider === 'gemini' ? GEMINI_BASE_URL : undefined,
-    model:
-      config.get<string>(opts.modelVars[provider])?.trim() ||
-      DEFAULT_MODELS[provider],
+    model,
   };
 }

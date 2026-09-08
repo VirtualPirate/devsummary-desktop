@@ -7,6 +7,8 @@ import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { z } from 'zod';
 import {
+  AgentCliLlmClient,
+  DEFAULT_MODELS,
   GEMINI_BASE_URL,
   GeminiLlmClient,
   LiveLlmClient,
@@ -314,7 +316,9 @@ describe('provider resolution', () => {
           modelVars: {
             openai: 'OPENAI_BRIEF_MODEL',
             gemini: 'GEMINI_BRIEF_MODEL',
+            'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
           },
+          job: 'brief',
         },
       ),
     ).toEqual({
@@ -334,7 +338,9 @@ describe('provider resolution', () => {
           modelVars: {
             openai: 'OPENAI_BRIEF_MODEL',
             gemini: 'GEMINI_BRIEF_MODEL',
+            'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
           },
+          job: 'brief',
         },
       ),
     ).toBeNull();
@@ -348,6 +354,7 @@ describe('LiveLlmClient', () => {
   const modelVars = {
     openai: 'OPENAI_BRIEF_MODEL',
     gemini: 'GEMINI_BRIEF_MODEL',
+    'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
   };
 
   function liveClient(env: Record<string, string | undefined>): LlmClient {
@@ -355,6 +362,7 @@ describe('LiveLlmClient', () => {
       loadLlmSettings({ get: (key: string) => env[key] } as never, {
         providerVar: 'BRIEFS_LLM_PROVIDER',
         modelVars,
+        job: 'brief',
       }),
     );
   }
@@ -495,5 +503,71 @@ describe('LlmClient.validate', () => {
       raised = err;
     }
     expect(raised).toMatchObject({ code: 'OPENAI_RESPONSE_INVALID' });
+  });
+});
+
+describe('claude-code as a provider', () => {
+  const cfg = (values: Record<string, string | undefined>) =>
+    ({ get: (key: string) => values[key] }) as never;
+
+  const opts = (job: 'commitAnalysis' | 'brief') => ({
+    providerVar: 'BRIEFS_LLM_PROVIDER',
+    modelVars: {
+      openai: 'OPENAI_BRIEF_MODEL',
+      gemini: 'GEMINI_BRIEF_MODEL',
+      'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+    },
+    job,
+  });
+
+  // A CLI has no key to be missing, so it must never be the null that produces
+  // the rejecting stub — whether the binary is there is the detector's question
+  // at call time, and a config read must not spawn.
+  it('resolves settings with no API key at all', () => {
+    expect(
+      loadLlmSettings(cfg({ LLM_PROVIDER: 'claude-code' }), opts('brief')),
+    ).toEqual({ provider: 'claude-code', model: 'sonnet' });
+  });
+
+  it('splits its defaults per job: haiku for volume, sonnet for the brief', () => {
+    expect(DEFAULT_MODELS['claude-code']).toEqual({
+      commitAnalysis: 'haiku',
+      brief: 'sonnet',
+    });
+    expect(
+      loadLlmSettings(
+        cfg({ LLM_PROVIDER: 'claude-code' }),
+        opts('commitAnalysis'),
+      ),
+    ).toMatchObject({ model: 'haiku' });
+  });
+
+  it('keeps one value in both slots for the key providers', () => {
+    expect(DEFAULT_MODELS.openai).toEqual({
+      commitAnalysis: 'gpt-4o-mini',
+      brief: 'gpt-4o-mini',
+    });
+    expect(DEFAULT_MODELS.gemini).toEqual({
+      commitAnalysis: 'gemini-3.1-flash-lite',
+      brief: 'gemini-3.1-flash-lite',
+    });
+  });
+
+  it('honours the model override var', () => {
+    expect(
+      loadLlmSettings(
+        cfg({
+          LLM_PROVIDER: 'claude-code',
+          CLAUDE_CODE_BRIEF_MODEL: 'claude-opus-4-6',
+        }),
+        opts('brief'),
+      ),
+    ).toMatchObject({ model: 'claude-opus-4-6' });
+  });
+
+  it('builds the agent CLI client from the factory', () => {
+    expect(
+      createLlmClient({ provider: 'claude-code', model: 'haiku' }),
+    ).toBeInstanceOf(AgentCliLlmClient);
   });
 });

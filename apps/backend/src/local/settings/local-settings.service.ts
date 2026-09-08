@@ -51,10 +51,10 @@ export class LocalSettingsService {
       // model the run will never use in front of the user.
       commitAnalysisModel:
         this.secrets.get(COMMIT_ANALYSIS_MODEL_VARS[llmProvider]) ??
-        DEFAULT_MODELS[llmProvider],
+        DEFAULT_MODELS[llmProvider].commitAnalysis,
       briefModel:
         this.secrets.get(BRIEF_MODEL_VARS[llmProvider]) ??
-        DEFAULT_MODELS[llmProvider],
+        DEFAULT_MODELS[llmProvider].brief,
     };
   }
 

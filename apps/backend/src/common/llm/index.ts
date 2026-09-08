@@ -1,3 +1,4 @@
+export * from './agents';
 export * from './llm-config';
 export * from './llm-client';
 export * from './openai-llm.client';

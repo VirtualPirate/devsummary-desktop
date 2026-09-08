@@ -1,5 +1,5 @@
 /** The AI providers a local install can be pointed at. */
-export type LlmProviderName = "openai" | "gemini";
+export type LlmProviderName = "openai" | "gemini" | "claude-code";
 
 /**
  * The AI providers that are a coding-agent CLI on the user's machine rather
