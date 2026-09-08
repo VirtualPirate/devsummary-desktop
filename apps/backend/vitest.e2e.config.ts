@@ -66,9 +66,12 @@ export default defineConfig({
     // maxWorkers (the plan was written against Vitest 3, which spelled this
     // poolOptions.forks.maxForks). There is no minWorkers counterpart.
     maxWorkers: 4,
-    // Replaying the 16 migrations into a fresh PGlite is ~1.2 s per file; the
-    // old 120 s allowance existed for a cold `postgres:18` pull.
-    hookTimeout: 30_000,
-    testTimeout: 30_000,
+    // The 30 s figure assumed the per-file cost was just ~1.2 s of migration
+    // replay into a fresh PGlite. It is not: on an 8-core laptop with 4 forks,
+    // cold PGlite plus the Nest bootstrap in `beforeAll` exceeds 30 s and most
+    // spec files time out there with zero assertion failures (reproduced on
+    // the pre-sync base commit, so it is not a regression from the port).
+    hookTimeout: 180_000,
+    testTimeout: 180_000,
   },
 });
