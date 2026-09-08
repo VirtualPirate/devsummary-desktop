@@ -2,11 +2,15 @@ import { useState } from "react";
 import { Check, Key, Sparkles, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import type {
+  AgentCliProviderName,
   AgentCliStatus,
   LlmProviderName,
 } from "@launchstack/api-interfaces";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
-import { AgentCliCard } from "@/components/integrations/agent-cli-card";
+import {
+  AgentCliCard,
+  AgentCliErrorCard,
+} from "@/components/integrations/agent-cli-card";
 import { IntegrationTabs } from "@/components/integrations/integration-tabs";
 import {
   BADGE,
@@ -91,6 +95,10 @@ type KeyProviderName = Exclude<LlmProviderName, "claude-code">;
 
 const isKeyProvider = (p: LlmProviderName): p is KeyProviderName =>
   PROVIDERS[p].kind === "key";
+
+/** A settled detect that listed no CLI at all: not expected, still recoverable. */
+const DETECT_UNKNOWN =
+  "Detection returned no result for this CLI. Press Refresh to try again.";
 
 const PAGE_DESCRIPTION =
   "DevSummary classifies every commit and writes every brief with your own provider key — billed to you, never to us.";
@@ -561,14 +569,34 @@ function UsageCard() {
 function FirstRun({
   provider,
   claudeCode,
+  detectError,
 }: {
   provider: LlmProviderName;
   claudeCode: AgentCliStatus | null;
+  /** The detect failed, so "not installed" is not a thing we know. */
+  detectError: string | null;
 }) {
   const update = useUpdateLocalCredentials();
+  /**
+   * Picking the CLI here is local only: a first run is by definition the state
+   * where it is not installed, and that is exactly what the credentials
+   * endpoint rejects with 400. So the tile changes what this screen shows, and
+   * the card's own `Use Claude Code` is what saves it once a detect says it can
+   * run. `null` means "whatever the server has", which is what a key pick
+   * writes through to.
+   */
+  const [pickedCli, setPickedCli] = useState<AgentCliProviderName | null>(
+    isKeyProvider(provider) ? null : "claude-code",
+  );
+  const selected: LlmProviderName = pickedCli ?? provider;
 
   const handleSelect = async (next: LlmProviderName) => {
-    if (next === provider) return;
+    if (next === selected) return;
+    if (!isKeyProvider(next)) {
+      setPickedCli(next);
+      return;
+    }
+    setPickedCli(null);
     try {
       await update.mutateAsync({ llmProvider: next });
       toast.success(`Using ${PROVIDERS[next].label}`);
@@ -598,9 +626,11 @@ function FirstRun({
             const meta = PROVIDERS[option];
             const sub =
               meta.kind === "cli"
-                ? claudeCode?.installed
-                  ? `installed · ${meta.defaultModels.commitAnalysis} · ${meta.defaultModels.brief}`
-                  : "not installed"
+                ? detectError
+                  ? "detection failed"
+                  : claudeCode?.installed
+                    ? `installed · ${meta.defaultModels.commitAnalysis} · ${meta.defaultModels.brief}`
+                    : "not installed"
                 : `${meta.defaultModels.commitAnalysis} by default`;
             return (
               <button
@@ -611,7 +641,7 @@ function FirstRun({
                 className={cn(
                   PROVIDER_CARD,
                   "text-left",
-                  option === provider && PROVIDER_CARD_SELECTED,
+                  option === selected && PROVIDER_CARD_SELECTED,
                 )}
               >
                 <div className="flex items-center gap-3">
@@ -624,7 +654,7 @@ function FirstRun({
                       {sub}
                     </div>
                   </div>
-                  {option === provider ? (
+                  {option === selected ? (
                     <Badge className={cn(BADGE, TONE.brand)}>
                       <Check className="size-3" />
                       Selected
@@ -635,21 +665,31 @@ function FirstRun({
             );
           })}
         </div>
-        {isKeyProvider(provider) ? (
+        {isKeyProvider(selected) ? (
           <Card className="gap-4 rounded-lg p-5">
             {/* Keyed on the provider: a key typed for one must not be submitted
                 against the other after the picker changes. */}
-            <KeyForm key={provider} provider={provider} size="default" />
+            <KeyForm key={selected} provider={selected} size="default" />
           </Card>
         ) : claudeCode ? (
+          // Not `active`: nothing is in use yet, so `Use Claude Code` stays on
+          // screen — disabled until the CLI is installed, which is the one
+          // thing that has to change here.
           <AgentCliCard
             status={claudeCode}
-            host={PROVIDERS[provider].host}
-            Mark={PROVIDERS[provider].Mark}
-            active
-            blocked={!claudeCode.installed || claudeCode.authenticated === false}
+            host={PROVIDERS[selected].host}
+            Mark={PROVIDERS[selected].Mark}
+            active={false}
+            blocked
           />
-        ) : null}
+        ) : (
+          <AgentCliErrorCard
+            displayName={PROVIDERS[selected].name}
+            host={PROVIDERS[selected].host}
+            Mark={PROVIDERS[selected].Mark}
+            detail={detectError ?? DETECT_UNKNOWN}
+          />
+        )}
       </div>
     </div>
   );
@@ -687,6 +727,10 @@ export function IntegrationsAiPage() {
   const provider = status?.llmProvider ?? "openai";
   const claudeCode =
     agents.data?.data.find((cli) => cli.id === "claude-code") ?? null;
+  // A failed detect is not "not installed": nothing is known either way, and
+  // the only way back is the card's own Refresh, so the message has to reach a
+  // card rather than die in the query.
+  const detectError = agents.isError ? extractErrorMessage(agents.error) : null;
   const stored = {
     openai: status?.openai ?? false,
     gemini: status?.gemini ?? false,
@@ -697,7 +741,11 @@ export function IntegrationsAiPage() {
     return (
       <>
         <IntegrationTabs active="ai" />
-        <FirstRun provider={provider} claudeCode={claudeCode} />
+        <FirstRun
+          provider={provider}
+          claudeCode={claudeCode}
+          detectError={detectError}
+        />
       </>
     );
   }
@@ -735,6 +783,20 @@ export function IntegrationsAiPage() {
                   <code className="font-mono">NOT_CONFIGURED</code> until a{" "}
                   {PROVIDERS[provider].label} key is saved, or another provider
                   is put in use.
+                </p>
+              </div>
+            ) : detectError ? (
+              // Third state, and not the same as "not installed": the detect
+              // itself failed, so what is wrong is unknown until it is re-run.
+              <div>
+                <b className="block font-semibold">
+                  {PROVIDERS[provider].label} is selected but could not be
+                  detected.
+                </b>
+                <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
+                  Commit analysis and every scheduled brief will fail until it
+                  answers. {detectError} Press Refresh on its card to try
+                  again.
                 </p>
               </div>
             ) : claudeCode?.installed ? (
@@ -794,7 +856,15 @@ export function IntegrationsAiPage() {
                   active={option === provider}
                   blocked={blocked}
                 />
-              ) : null,
+              ) : (
+                <AgentCliErrorCard
+                  key={option}
+                  displayName={PROVIDERS[option].name}
+                  host={PROVIDERS[option].host}
+                  Mark={PROVIDERS[option].Mark}
+                  detail={detectError ?? DETECT_UNKNOWN}
+                />
+              ),
             )}
           </div>
         </section>
