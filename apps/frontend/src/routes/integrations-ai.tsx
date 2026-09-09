@@ -59,7 +59,9 @@ type ProviderMeta = {
   | { kind: "key"; keyPlaceholder: string }
   // What a model id looks like for *this* CLI. The two disagree — aliases for
   // one, `provider/model` for the other — so the Models card cannot say it.
-  | { kind: "cli"; modelHint: string }
+  // A node rather than a string: the command in it wants the mono treatment
+  // every other command on this page gets.
+  | { kind: "cli"; modelHint: React.ReactNode }
 );
 
 const PROVIDERS = {
@@ -90,7 +92,12 @@ const PROVIDERS = {
     label: "Claude Code",
     host: "local CLI · claude",
     defaultModels: { commitAnalysis: "haiku", brief: "sonnet" },
-    modelHint: "Model aliases or full ids accepted by claude --model.",
+    modelHint: (
+      <>
+        Model aliases or full ids accepted by{" "}
+        <code className="font-mono">claude --model</code>.
+      </>
+    ),
     Mark: ClaudeMark,
   },
   opencode: {
@@ -102,7 +109,12 @@ const PROVIDERS = {
       commitAnalysis: "opencode/big-pickle",
       brief: "opencode/big-pickle",
     },
-    modelHint: "provider/model ids as printed by opencode models.",
+    modelHint: (
+      <>
+        <code className="font-mono">provider/model</code> ids as printed by{" "}
+        <code className="font-mono">opencode models</code>.
+      </>
+    ),
     Mark: OpenCodeMark,
   },
 } as const satisfies Record<LlmProviderName, ProviderMeta>;
