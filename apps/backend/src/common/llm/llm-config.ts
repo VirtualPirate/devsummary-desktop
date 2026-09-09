@@ -1,7 +1,12 @@
 import type { ConfigService } from '@nestjs/config';
 import { isAgentProvider, type AgentProvider } from './agents';
 
-export const LLM_PROVIDERS = ['openai', 'gemini', 'claude-code'] as const;
+export const LLM_PROVIDERS = [
+  'openai',
+  'gemini',
+  'claude-code',
+  'opencode',
+] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
 /** The two calls the app makes, each with its own model. */
@@ -40,6 +45,12 @@ export const DEFAULT_MODELS: Record<
     brief: 'gemini-3.1-flash-lite',
   },
   'claude-code': { commitAnalysis: 'haiku', brief: 'sonnet' },
+  // OpenCode ids are always `provider/model`. One value in both slots: Zen's
+  // free tier is the point of the default, and it has no cheaper sibling.
+  opencode: {
+    commitAnalysis: 'opencode/big-pickle',
+    brief: 'opencode/big-pickle',
+  },
 };
 
 /** Everything an `LlmClient` needs to talk to one provider. */

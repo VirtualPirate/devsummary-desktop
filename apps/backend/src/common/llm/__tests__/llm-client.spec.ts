@@ -11,6 +11,7 @@ import {
   DEFAULT_MODELS,
   GEMINI_BASE_URL,
   GeminiLlmClient,
+  LLM_PROVIDERS,
   LiveLlmClient,
   LlmClient,
   OpenAiLlmClient,
@@ -317,6 +318,7 @@ describe('provider resolution', () => {
             openai: 'OPENAI_BRIEF_MODEL',
             gemini: 'GEMINI_BRIEF_MODEL',
             'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+            opencode: 'OPENCODE_BRIEF_MODEL',
           },
           job: 'brief',
         },
@@ -339,6 +341,7 @@ describe('provider resolution', () => {
             openai: 'OPENAI_BRIEF_MODEL',
             gemini: 'GEMINI_BRIEF_MODEL',
             'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+            opencode: 'OPENCODE_BRIEF_MODEL',
           },
           job: 'brief',
         },
@@ -355,6 +358,7 @@ describe('LiveLlmClient', () => {
     openai: 'OPENAI_BRIEF_MODEL',
     gemini: 'GEMINI_BRIEF_MODEL',
     'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+    opencode: 'OPENCODE_BRIEF_MODEL',
   };
 
   function liveClient(env: Record<string, string | undefined>): LlmClient {
@@ -516,6 +520,7 @@ describe('claude-code as a provider', () => {
       openai: 'OPENAI_BRIEF_MODEL',
       gemini: 'GEMINI_BRIEF_MODEL',
       'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+      opencode: 'OPENCODE_BRIEF_MODEL',
     },
     job,
   });
@@ -568,6 +573,44 @@ describe('claude-code as a provider', () => {
   it('builds the agent CLI client from the factory', () => {
     expect(
       createLlmClient({ provider: 'claude-code', model: 'haiku' }),
+    ).toBeInstanceOf(AgentCliLlmClient);
+  });
+});
+
+describe('opencode as a provider', () => {
+  const cfg = (values: Record<string, string | undefined>) =>
+    ({ get: (key: string) => values[key] }) as never;
+
+  // Also the source of the settings endpoint's `llmProvider` enum, which is
+  // `z.enum(LLM_PROVIDERS)` rather than a repeated literal list.
+  it('is selectable and needs no API key', () => {
+    expect(LLM_PROVIDERS).toContain('opencode');
+    expect(
+      loadLlmSettings(cfg({ LLM_PROVIDER: 'opencode' }), {
+        providerVar: 'BRIEFS_LLM_PROVIDER',
+        modelVars: {
+          openai: 'OPENAI_BRIEF_MODEL',
+          gemini: 'GEMINI_BRIEF_MODEL',
+          'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+          opencode: 'OPENCODE_BRIEF_MODEL',
+        },
+        job: 'brief',
+      }),
+    ).toEqual({ provider: 'opencode', model: 'opencode/big-pickle' });
+  });
+
+  // OpenCode ids are always `provider/model`, and the default is Zen's free
+  // tier for both jobs.
+  it('defaults both jobs to opencode/big-pickle', () => {
+    expect(DEFAULT_MODELS.opencode).toEqual({
+      commitAnalysis: 'opencode/big-pickle',
+      brief: 'opencode/big-pickle',
+    });
+  });
+
+  it('builds the same agent CLI client from the factory', () => {
+    expect(
+      createLlmClient({ provider: 'opencode', model: 'opencode/big-pickle' }),
     ).toBeInstanceOf(AgentCliLlmClient);
   });
 });

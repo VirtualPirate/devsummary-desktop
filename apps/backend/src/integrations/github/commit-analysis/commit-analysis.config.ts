@@ -13,6 +13,7 @@ export const COMMIT_ANALYSIS_MODEL_VARS = {
   openai: 'OPENAI_COMMIT_ANALYSIS_MODEL',
   gemini: 'GEMINI_COMMIT_ANALYSIS_MODEL',
   'claude-code': 'CLAUDE_CODE_COMMIT_ANALYSIS_MODEL',
+  opencode: 'OPENCODE_COMMIT_ANALYSIS_MODEL',
 } as const satisfies Record<LlmProvider, string>;
 
 export interface CommitAnalysisConfig {

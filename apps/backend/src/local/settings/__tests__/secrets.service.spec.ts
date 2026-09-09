@@ -159,7 +159,14 @@ describe('SECRET_KEYS', () => {
     expect(SECRET_KEYS).toContain('CLAUDE_CODE_BRIEF_MODEL');
   });
 
-  it('does not invent a Claude Code API key', () => {
+  it('carries the OpenCode model overrides', () => {
+    expect(SECRET_KEYS).toContain('OPENCODE_COMMIT_ANALYSIS_MODEL');
+    expect(SECRET_KEYS).toContain('OPENCODE_BRIEF_MODEL');
+  });
+
+  // Neither CLI has one: each uses the login already in the user's terminal.
+  it('does not invent an API key for either CLI', () => {
     expect(SECRET_KEYS).not.toContain('CLAUDE_CODE_API_KEY');
+    expect(SECRET_KEYS).not.toContain('OPENCODE_API_KEY');
   });
 });

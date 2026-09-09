@@ -102,6 +102,31 @@ describe('LocalSettingsService.updateCredentials with a CLI provider', () => {
     });
   });
 
+  // The whole point of the seam: a second CLI is an adapter file, and the
+  // settings write is keyed on its id with no branch anywhere here.
+  it('stores a second CLI under its own provider id and model vars', async () => {
+    const { svc, secrets, detector } = makeService();
+    detector.detect.mockResolvedValue({
+      ...INSTALLED,
+      id: 'opencode' as const,
+      displayName: 'OpenCode',
+      path: '/opt/homebrew/bin/opencode',
+      version: '1.1.53',
+      authenticated: null,
+    });
+
+    await svc.updateCredentials('org-1', {
+      llmProvider: 'opencode',
+      briefModel: 'opencode/big-pickle',
+    });
+
+    expect(detector.detect).toHaveBeenCalledWith('opencode', { force: true });
+    expect(secrets.update).toHaveBeenCalledWith({
+      LLM_PROVIDER: 'opencode',
+      OPENCODE_BRIEF_MODEL: 'opencode/big-pickle',
+    });
+  });
+
   it('does not detect anything when a key provider is selected', async () => {
     const { svc, detector } = makeService();
     await svc.updateCredentials('org-1', { llmProvider: 'openai' });

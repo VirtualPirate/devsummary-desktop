@@ -1,4 +1,5 @@
 import { claudeCodeAdapter } from './claude-code.adapter';
+import { opencodeAdapter } from './opencode.adapter';
 
 /**
  * Every agent CLI the app knows, in the order their cards appear. `AgentProvider`
@@ -8,7 +9,7 @@ import { claudeCodeAdapter } from './claude-code.adapter';
  * Every value here must also be an `LlmProvider` — enforced by `isAgentProvider`,
  * whose narrowing is only legal while the two sets agree.
  */
-export const AGENT_PROVIDERS = ['claude-code'] as const;
+export const AGENT_PROVIDERS = ['claude-code', 'opencode'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -78,11 +79,12 @@ export interface AgentCliAdapter {
  * It lives beside the interface rather than in the barrel because the detector
  * reads it: a barrel that both re-exports the detector and is imported by it is
  * a require cycle whose correctness depends on statement ordering. The
- * back-edge to `./claude-code.adapter` is a value import, and that file imports
- * only types from here, so there is no cycle at runtime.
+ * back-edge to the adapter files is a value import, and they import only types
+ * from here, so there is no cycle at runtime.
  */
 export const AGENT_ADAPTERS: Record<AgentProvider, AgentCliAdapter> = {
   'claude-code': claudeCodeAdapter,
+  opencode: opencodeAdapter,
 };
 
 /**
