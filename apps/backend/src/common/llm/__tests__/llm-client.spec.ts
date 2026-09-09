@@ -320,6 +320,7 @@ describe('provider resolution', () => {
             'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
             opencode: 'OPENCODE_BRIEF_MODEL',
             cursor: 'CURSOR_BRIEF_MODEL',
+            codex: 'CODEX_BRIEF_MODEL',
           },
           job: 'brief',
         },
@@ -344,6 +345,7 @@ describe('provider resolution', () => {
             'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
             opencode: 'OPENCODE_BRIEF_MODEL',
             cursor: 'CURSOR_BRIEF_MODEL',
+            codex: 'CODEX_BRIEF_MODEL',
           },
           job: 'brief',
         },
@@ -362,6 +364,7 @@ describe('LiveLlmClient', () => {
     'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
     opencode: 'OPENCODE_BRIEF_MODEL',
     cursor: 'CURSOR_BRIEF_MODEL',
+    codex: 'CODEX_BRIEF_MODEL',
   };
 
   function liveClient(env: Record<string, string | undefined>): LlmClient {
@@ -525,6 +528,7 @@ describe('claude-code as a provider', () => {
       'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
       opencode: 'OPENCODE_BRIEF_MODEL',
       cursor: 'CURSOR_BRIEF_MODEL',
+      codex: 'CODEX_BRIEF_MODEL',
     },
     job,
   });
@@ -598,6 +602,7 @@ describe('opencode as a provider', () => {
           'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
           opencode: 'OPENCODE_BRIEF_MODEL',
           cursor: 'CURSOR_BRIEF_MODEL',
+          codex: 'CODEX_BRIEF_MODEL',
         },
         job: 'brief',
       }),
@@ -632,6 +637,7 @@ describe('cursor as a provider', () => {
       'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
       opencode: 'OPENCODE_BRIEF_MODEL',
       cursor: 'CURSOR_BRIEF_MODEL',
+      codex: 'CODEX_BRIEF_MODEL',
     },
     job,
   });

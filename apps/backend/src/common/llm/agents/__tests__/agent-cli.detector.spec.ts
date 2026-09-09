@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   AgentCliDetector,
   claudeCodeAdapter,
+  codexAdapter,
   type CliResult,
   type RunCli,
 } from '..';
@@ -50,6 +51,37 @@ afterEach(() => {
 });
 
 describe('AgentCliDetector.detect', () => {
+  // `codex login status` writes its one line to stderr and leaves stdout
+  // empty. Reading stdout alone reported a logged-in user as signed out on
+  // the provider card.
+  it('reads the login probe off stderr when stdout is empty', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-cli-bin-'));
+    const bin = join(dir, 'codex');
+    await writeFile(bin, '#!/bin/sh\n');
+    await chmod(bin, 0o755);
+    process.env.PATH = `${dir}:${emptyDir}`;
+
+    const { run } = recorder((_file, args) =>
+      Promise.resolve(
+        args[0] === '--version'
+          ? done('codex-cli 0.153.4\n')
+          : {
+              code: 0,
+              stdout: '',
+              stderr: 'Logged in using an API key - sk-proj-***abcd\n',
+              timedOut: false,
+            },
+      ),
+    );
+
+    expect(await new AgentCliDetector(run).detect('codex')).toMatchObject({
+      installed: true,
+      version: 'codex-cli 0.153.4',
+      authenticated: true,
+    });
+    expect(codexAdapter.authArgs).toEqual(['login', 'status']);
+  });
+
   // Headless dev and CI find the binary on the inherited PATH, and must not
   // pay for a login shell to learn that.
   it('finds an executable on process.env.PATH without spawning a shell', async () => {
@@ -382,6 +414,7 @@ describe('AgentCliDetector.binaryPath and detectAll', () => {
       expect.objectContaining({ id: 'claude-code', installed: false }),
       expect.objectContaining({ id: 'opencode', installed: false }),
       expect.objectContaining({ id: 'cursor', installed: false }),
+      expect.objectContaining({ id: 'codex', installed: false }),
     ]);
   });
 });

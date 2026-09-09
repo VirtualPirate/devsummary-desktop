@@ -39,6 +39,8 @@ export const SECRET_KEYS = [
   'OPENCODE_BRIEF_MODEL',
   'CURSOR_COMMIT_ANALYSIS_MODEL',
   'CURSOR_BRIEF_MODEL',
+  'CODEX_COMMIT_ANALYSIS_MODEL',
+  'CODEX_BRIEF_MODEL',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];

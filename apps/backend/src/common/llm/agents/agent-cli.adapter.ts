@@ -1,4 +1,5 @@
 import { claudeCodeAdapter } from './claude-code.adapter';
+import { codexAdapter } from './codex.adapter';
 import { cursorAdapter } from './cursor.adapter';
 import { opencodeAdapter } from './opencode.adapter';
 
@@ -10,7 +11,12 @@ import { opencodeAdapter } from './opencode.adapter';
  * Every value here must also be an `LlmProvider` — enforced by `isAgentProvider`,
  * whose narrowing is only legal while the two sets agree.
  */
-export const AGENT_PROVIDERS = ['claude-code', 'opencode', 'cursor'] as const;
+export const AGENT_PROVIDERS = [
+  'claude-code',
+  'opencode',
+  'cursor',
+  'codex',
+] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -63,6 +69,14 @@ export interface AgentCliAdapter {
    */
   workspaceDir?: string;
   /**
+   * Files the CLI needs on disk before it runs, keyed by absolute path. The
+   * client creates each parent directory and writes the content atomically,
+   * after `workspaceDir`. It exists because codex takes its response schema as
+   * `--output-schema <file>` and has no inline form; keep the paths
+   * deterministic, because concurrent calls share this directory.
+   */
+  files?(req: AgentCliRequest): Record<string, string>;
+  /**
    * Extra env for the child, merged over `process.env`. Undefined = argv is
    * enough. It exists because not every CLI is configured on argv: OpenCode
    * takes its system prompt *and* its tool policy as one inline JSON agent
@@ -104,6 +118,7 @@ export const AGENT_ADAPTERS: Record<AgentProvider, AgentCliAdapter> = {
   'claude-code': claudeCodeAdapter,
   opencode: opencodeAdapter,
   cursor: cursorAdapter,
+  codex: codexAdapter,
 };
 
 /**

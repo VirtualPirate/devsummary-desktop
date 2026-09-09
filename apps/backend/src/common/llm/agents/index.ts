@@ -1,5 +1,6 @@
 export * from './agent-cli.adapter';
 export * from './claude-code.adapter';
+export * from './codex.adapter';
 export * from './cursor.adapter';
 export * from './opencode.adapter';
 export * from './run-cli';

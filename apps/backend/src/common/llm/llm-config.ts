@@ -7,6 +7,7 @@ export const LLM_PROVIDERS = [
   'claude-code',
   'opencode',
   'cursor',
+  'codex',
 ] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
@@ -56,6 +57,9 @@ export const DEFAULT_MODELS: Record<
     commitAnalysis: 'composer-2.5-fast',
     brief: 'composer-2.5',
   },
+  // Codex's own model notes: Luna is the nano-like tier, Terra the mid one,
+  // "use Sol only if quality requires it".
+  codex: { commitAnalysis: 'gpt-5.6-luna', brief: 'gpt-5.6-terra' },
 };
 
 /** Everything an `LlmClient` needs to talk to one provider. */

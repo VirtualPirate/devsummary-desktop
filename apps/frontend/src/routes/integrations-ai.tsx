@@ -22,6 +22,7 @@ import {
 } from "@/components/integrations/provider-card.styles";
 import {
   ClaudeMark,
+  CodexMark,
   CursorMark,
   GeminiMark,
   OpenAiMark,
@@ -133,6 +134,25 @@ const PROVIDERS = {
       </>
     ),
     Mark: CursorMark,
+  },
+  codex: {
+    kind: "cli",
+    name: "Codex",
+    label: "Codex",
+    host: "local CLI · codex",
+    defaultModels: {
+      commitAnalysis: "gpt-5.6-luna",
+      brief: "gpt-5.6-terra",
+    },
+    modelHint: (
+      <>
+        Model ids accepted by <code className="font-mono">codex exec -m</code> —{" "}
+        <code className="font-mono">gpt-5.6-luna</code>,{" "}
+        <code className="font-mono">gpt-5.6-terra</code>,{" "}
+        <code className="font-mono">gpt-5.6-sol</code>.
+      </>
+    ),
+    Mark: CodexMark,
   },
 } as const satisfies Record<LlmProviderName, ProviderMeta>;
 

@@ -1,5 +1,11 @@
 import type { AgentCliAdapter, AgentCliOutput } from './agent-cli.adapter';
-import { firstLine, jsonContractPrompt, stripFence } from './agent-cli.helpers';
+import {
+  firstLine,
+  jsonContractPrompt,
+  lastOfType,
+  parseJsonLines,
+  stripFence,
+} from './agent-cli.helpers';
 
 /**
  * The inline agent this adapter defines and then selects with `--agent`. Its
@@ -64,33 +70,6 @@ const SESSION_ERROR =
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 /**
- * stdout is JSON lines, one event per line — not one envelope. Anything that
- * is not an object with a string `type` is dropped rather than failing the
- * run: the stream is not guaranteed to be JSON-only, and a progress notice
- * must not cost the answer printed after it.
- */
-function parseEvents(stdout: string): OpencodeEvent[] {
-  const events: OpencodeEvent[] = [];
-  for (const line of stdout.split('\n')) {
-    if (!line.trim()) continue;
-    let value: unknown;
-    try {
-      value = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (
-      typeof value === 'object' &&
-      value !== null &&
-      typeof (value as { type?: unknown }).type === 'string'
-    ) {
-      events.push(value as OpencodeEvent);
-    }
-  }
-  return events;
-}
-
-/**
  * The CLI's last word when stdout says nothing. A throttled OpenCode Zen call
  * is the case that needs it: opencode retries internally with backoff and
  * emits **no** JSON event at all, so without this the user waits out the whole
@@ -106,12 +85,6 @@ function sessionError(stderr: string): string | null {
   }
   return null;
 }
-
-/** The stream is incremental, so the *last* event of a type is the real one. */
-const lastOfType = (
-  events: OpencodeEvent[],
-  type: string,
-): OpencodeEvent | undefined => events.filter((e) => e.type === type).at(-1);
 
 export const opencodeAdapter: AgentCliAdapter = {
   id: 'opencode',
@@ -208,7 +181,7 @@ export const opencodeAdapter: AgentCliAdapter = {
       };
     }
 
-    const events = parseEvents(stdout);
+    const events = parseJsonLines<OpencodeEvent>(stdout);
 
     // Gated on the event, not on its payload: an `error` event is a failure
     // whether or not it carried one.

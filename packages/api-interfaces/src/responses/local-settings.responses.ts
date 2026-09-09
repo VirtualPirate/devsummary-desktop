@@ -4,13 +4,18 @@ export type LlmProviderName =
   | "gemini"
   | "claude-code"
   | "opencode"
-  | "cursor";
+  | "cursor"
+  | "codex";
 
 /**
  * The AI providers that are a coding-agent CLI on the user's machine rather
  * than an API key. Every value is also an `LlmProviderName`.
  */
-export type AgentCliProviderName = "claude-code" | "opencode" | "cursor";
+export type AgentCliProviderName =
+  | "claude-code"
+  | "opencode"
+  | "cursor"
+  | "codex";
 
 /**
  * Whether one agent CLI can actually run here. Served by

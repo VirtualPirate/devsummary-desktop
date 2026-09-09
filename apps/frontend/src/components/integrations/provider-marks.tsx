@@ -124,3 +124,25 @@ export function CursorMark({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * A chevron in a box — a terminal, not Codex's official logomark; same call as
+ * the other CLI cards, which avoid shipping an external brand asset.
+ */
+export function CodexMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.4" />
+      <path d="M8 10.2 10.6 12 8 13.8M12.8 14.6h3.4" />
+    </svg>
+  );
+}

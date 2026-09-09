@@ -1,4 +1,6 @@
-import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import { AppError } from '../../errors';
 import {
@@ -59,6 +61,21 @@ const clamp = (reason: string): string =>
     : reason;
 
 /**
+ * Written under a unique name and renamed into place, because the paths an
+ * adapter asks for are deterministic and two concurrent calls can therefore
+ * name the same file. The bytes are identical when they do, but a plain write
+ * truncates first, and the loser of that race would hand its CLI half a file.
+ * `rename` within one directory is atomic, so a reader sees the old file or
+ * the new one.
+ */
+async function writeAtomic(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const staging = `${path}.${randomUUID()}.tmp`;
+  await writeFile(staging, content);
+  await rename(staging, path);
+}
+
+/**
  * One `LlmClient` for every agent CLI, parameterised by an adapter — so an
  * additional CLI is one adapter file and no change here.
  *
@@ -108,6 +125,11 @@ export class AgentCliLlmClient extends LlmClient {
     try {
       if (this.adapter.workspaceDir) {
         await mkdir(this.adapter.workspaceDir, { recursive: true });
+      }
+      for (const [path, content] of Object.entries(
+        this.adapter.files?.(req) ?? {},
+      )) {
+        await writeAtomic(path, content);
       }
       result = await this.run(bin, argv, {
         timeoutMs: TIMEOUT_MS,

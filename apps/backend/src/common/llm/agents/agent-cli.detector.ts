@@ -136,7 +136,12 @@ export class AgentCliDetector {
       const result = await this.run(path, adapter.authArgs, {
         timeoutMs: PROBE_TIMEOUT_MS,
       });
-      return adapter.parseAuth(result.stdout);
+      // stderr only when stdout said nothing: `codex login status` prints its
+      // one line there, and reading stdout alone reported every logged-in user
+      // as signed out (`docs/receipts/AGENT-CLI-CODEX.md`). An adapter that
+      // answers on stdout never reaches the fallback, and one that cannot
+      // parse what it is given already returns false.
+      return adapter.parseAuth(result.stdout.trim() || result.stderr);
     } catch {
       return false;
     }

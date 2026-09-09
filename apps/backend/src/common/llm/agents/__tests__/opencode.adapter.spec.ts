@@ -430,6 +430,7 @@ describe('AGENT_ADAPTERS', () => {
     expect(isAgentProvider('opencode')).toBe(true);
     expect(Object.keys(AGENT_ADAPTERS).sort()).toEqual([
       'claude-code',
+      'codex',
       'cursor',
       'opencode',
     ]);

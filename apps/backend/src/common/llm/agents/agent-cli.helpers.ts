@@ -115,3 +115,44 @@ export const jsonContractPrompt = (req: {
   jsonSchema: Record<string, unknown>;
 }): string =>
   `${req.systemPrompt}\n\nAnswer with exactly one JSON object matching the JSON Schema named ${req.schemaName} below — no markdown fences, no prose, nothing before or after it.\n${JSON.stringify(req.jsonSchema)}`;
+
+/** The one field a JSON-lines event has to have for anything here to read it. */
+export interface JsonLineEvent {
+  type: string;
+}
+
+/**
+ * stdout as JSON lines, one event per line — for the CLIs that stream events
+ * rather than printing one envelope. Anything that is not an object with a
+ * string `type` is dropped rather than failing the run: the stream is not
+ * guaranteed to be JSON-only, and a progress notice on stdout must not cost
+ * the answer printed after it.
+ *
+ * The caller names the event shape, because only it knows the CLI's fields.
+ */
+export function parseJsonLines<T extends JsonLineEvent>(stdout: string): T[] {
+  const events: T[] = [];
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as { type?: unknown }).type === 'string'
+    ) {
+      events.push(value as T);
+    }
+  }
+  return events;
+}
+
+/** The stream is incremental, so the *last* event of a type is the real one. */
+export const lastOfType = <T extends JsonLineEvent>(
+  events: T[],
+  type: string,
+): T | undefined => events.filter((event) => event.type === type).at(-1);
