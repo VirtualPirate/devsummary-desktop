@@ -7,7 +7,7 @@ import {
   type StructuredPromptArgs,
 } from '../llm-client';
 import type { LlmSettings } from '../llm-config';
-import type { AgentCliAdapter } from './agent-cli.adapter';
+import type { AgentCliAdapter, AgentCliRequest } from './agent-cli.adapter';
 import { agentCliDetector, type AgentCliDetector } from './agent-cli.detector';
 import { runCli, type CliResult, type RunCli } from './run-cli';
 
@@ -76,13 +76,16 @@ export class AgentCliLlmClient extends LlmClient {
       });
     }
 
-    const argv = this.adapter.buildArgs({
+    // One request object for both hooks: argv and env must never describe
+    // different calls.
+    const req: AgentCliRequest = {
       model: this.settings.model,
       systemPrompt: args.systemPrompt,
       // The same call `gemini-schema.ts` makes, without the Gemini pruning.
       jsonSchema: z.toJSONSchema(schema, { target: 'draft-7', io: 'output' }),
       schemaName,
-    });
+    };
+    const argv = this.adapter.buildArgs(req);
 
     const release = await this.gate.acquire();
     let result: CliResult;
@@ -91,6 +94,7 @@ export class AgentCliLlmClient extends LlmClient {
         timeoutMs: TIMEOUT_MS,
         // The prompt never goes on argv: diffs reach 60k chars.
         stdin: args.userPrompt,
+        env: this.adapter.env?.(req),
       });
     } catch (err) {
       throw AppError.OPENAI_API_FAILED({

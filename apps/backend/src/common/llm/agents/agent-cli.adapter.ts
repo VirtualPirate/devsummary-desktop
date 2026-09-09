@@ -50,6 +50,13 @@ export interface AgentCliAdapter {
   installHint: string;
   /** Argv after the binary. The user prompt is always written to stdin. */
   buildArgs(req: AgentCliRequest): string[];
+  /**
+   * Extra env for the child, merged over `process.env`. Undefined = argv is
+   * enough. It exists because not every CLI is configured on argv: OpenCode
+   * takes its system prompt *and* its tool policy as one inline JSON agent
+   * definition in `OPENCODE_CONFIG_CONTENT`, with no flag for either.
+   */
+  env?(req: AgentCliRequest): Record<string, string>;
   /** Turn the process result into a normalized answer. Never throws. */
   parseOutput(result: {
     code: number | null;

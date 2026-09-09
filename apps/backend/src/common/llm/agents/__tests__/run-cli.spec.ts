@@ -39,4 +39,19 @@ describe('runCli', () => {
       reason: 'output exceeded 64 bytes',
     });
   });
+
+  // A merge, not a replacement: OpenCode's whole agent definition arrives this
+  // way, and the child still has to find its own binary, config and home.
+  it('merges the caller’s env over the parent’s rather than replacing it', async () => {
+    const result = await runCli(
+      process.execPath,
+      [
+        '-e',
+        'process.stdout.write(`${process.env.X_PROBE}|${!!process.env.PATH}`)',
+      ],
+      { timeoutMs: 5_000, env: { X_PROBE: 'from-the-adapter' } },
+    );
+
+    expect(result.stdout).toBe('from-the-adapter|true');
+  });
 });

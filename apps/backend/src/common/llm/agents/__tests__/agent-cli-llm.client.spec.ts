@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   AgentCliLlmClient,
   claudeCodeAdapter,
+  type AgentCliAdapter,
   type AgentCliDetector,
   type CliOptions,
   type CliResult,
@@ -86,6 +87,35 @@ describe('AgentCliLlmClient success path', () => {
       required: ['ok'],
     });
     expect(calls[0].args[calls[0].args.indexOf('--model') + 1]).toBe('haiku');
+  });
+
+  // A CLI that takes its system prompt or its tool policy through the
+  // environment instead of argv (OpenCode) gets it from the same request the
+  // argv was built from — so the two can never describe different calls.
+  it('passes the adapter’s env to the runner, and none when it defines none', async () => {
+    const withEnv: AgentCliAdapter = {
+      ...claudeCodeAdapter,
+      env: (req) => ({ AGENT_SYSTEM_PROMPT: req.systemPrompt }),
+    };
+    const finished = {
+      code: 0,
+      stdout: envelope(),
+      stderr: '',
+      timedOut: false,
+    };
+
+    const withHook = fixedRun(finished);
+    await new AgentCliLlmClient(
+      SETTINGS,
+      withEnv,
+      detectorFor('/usr/bin/claude'),
+      withHook.run,
+    ).parse(SCHEMA, 'agent_cli_test', PROMPTS);
+    expect(withHook.calls[0].opts.env).toEqual({ AGENT_SYSTEM_PROMPT: 'sys' });
+
+    const without = fixedRun(finished);
+    await client(without.run).parse(SCHEMA, 'agent_cli_test', PROMPTS);
+    expect(without.calls[0].opts.env).toBeUndefined();
   });
 
   it('falls back to the configured model when the CLI names none', async () => {

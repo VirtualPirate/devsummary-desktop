@@ -24,6 +24,9 @@ export interface CliOptions {
    * never go on argv — there are no length limits or quoting rules here.
    */
   stdin?: string;
+  /** Merged over `process.env`, never replacing it — the child still has to
+   *  find its own config and home. */
+  env?: Record<string, string>;
 }
 
 export type RunCli = (
@@ -51,7 +54,7 @@ export const runCli: RunCli = (file, args, opts) =>
       {
         timeout: opts.timeoutMs,
         maxBuffer,
-        env: process.env,
+        env: opts.env ? { ...process.env, ...opts.env } : process.env,
         encoding: 'utf8',
       },
       (err: ExecFileException | null, stdout, stderr) => {
