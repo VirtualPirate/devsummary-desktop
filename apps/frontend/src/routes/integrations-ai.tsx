@@ -22,6 +22,7 @@ import {
   ClaudeMark,
   GeminiMark,
   OpenAiMark,
+  OpenCodeMark,
 } from "@/components/integrations/provider-marks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,12 @@ type ProviderMeta = {
   host: string;
   defaultModels: { commitAnalysis: string; brief: string };
   Mark: (props: { className?: string }) => React.ReactNode;
-} & ({ kind: "key"; keyPlaceholder: string } | { kind: "cli" });
+} & (
+  | { kind: "key"; keyPlaceholder: string }
+  // What a model id looks like for *this* CLI. The two disagree — aliases for
+  // one, `provider/model` for the other — so the Models card cannot say it.
+  | { kind: "cli"; modelHint: string }
+);
 
 const PROVIDERS = {
   openai: {
@@ -84,14 +90,27 @@ const PROVIDERS = {
     label: "Claude Code",
     host: "local CLI · claude",
     defaultModels: { commitAnalysis: "haiku", brief: "sonnet" },
+    modelHint: "Model aliases or full ids accepted by claude --model.",
     Mark: ClaudeMark,
+  },
+  opencode: {
+    kind: "cli",
+    name: "OpenCode",
+    label: "OpenCode",
+    host: "local CLI · opencode",
+    defaultModels: {
+      commitAnalysis: "opencode/big-pickle",
+      brief: "opencode/big-pickle",
+    },
+    modelHint: "provider/model ids as printed by opencode models.",
+    Mark: OpenCodeMark,
   },
 } as const satisfies Record<LlmProviderName, ProviderMeta>;
 
 const ALL_PROVIDERS = Object.keys(PROVIDERS) as LlmProviderName[];
 
 /** The providers whose card body is a key field. */
-type KeyProviderName = Exclude<LlmProviderName, "claude-code">;
+type KeyProviderName = Exclude<LlmProviderName, AgentCliProviderName>;
 
 const isKeyProvider = (p: LlmProviderName): p is KeyProviderName =>
   PROVIDERS[p].kind === "key";
@@ -436,24 +455,16 @@ function ModelsCard({
   commitAnalysisModel: string;
   briefModel: string;
 }) {
+  const meta = PROVIDERS[provider];
   return (
     <Card className="gap-0 rounded-lg py-0">
       <div className={cn(CARD_HEAD, "flex items-center justify-between gap-4")}>
         <div className="min-w-0">
           <h3 className="text-[0.9375rem] font-semibold">Models</h3>
           <p className={SECTION_BODY}>
-            {PROVIDERS[provider].kind === "cli" ? (
-              <>
-                Model aliases or full ids accepted by{" "}
-                <code className="font-mono">claude --model</code>. Each provider
-                keeps its own pair — switching provider switches these too.
-              </>
-            ) : (
-              <>
-                Used by {PROVIDERS[provider].label}. Each provider keeps its own
-                pair — switching provider switches these too.
-              </>
-            )}
+            {meta.kind === "cli" ? meta.modelHint : `Used by ${meta.label}.`}{" "}
+            Each provider keeps its own pair — switching provider switches these
+            too.
           </p>
         </div>
         <Badge className={cn(BADGE, TONE.mute, "font-mono")}>{provider}</Badge>
@@ -568,11 +579,12 @@ function UsageCard() {
  */
 function FirstRun({
   provider,
-  claudeCode,
+  clis,
   detectError,
 }: {
   provider: LlmProviderName;
-  claudeCode: AgentCliStatus | null;
+  /** Every detected CLI, in server order. */
+  clis: AgentCliStatus[];
   /** The detect failed, so "not installed" is not a thing we know. */
   detectError: string | null;
 }) {
@@ -581,14 +593,15 @@ function FirstRun({
    * Picking the CLI here is local only: a first run is by definition the state
    * where it is not installed, and that is exactly what the credentials
    * endpoint rejects with 400. So the tile changes what this screen shows, and
-   * the card's own `Use Claude Code` is what saves it once a detect says it can
-   * run. `null` means "whatever the server has", which is what a key pick
-   * writes through to.
+   * the card's own `Use <CLI>` is what saves it once a detect says it can run.
+   * `null` means "whatever the server has", which is what a key pick writes
+   * through to.
    */
   const [pickedCli, setPickedCli] = useState<AgentCliProviderName | null>(
-    isKeyProvider(provider) ? null : "claude-code",
+    isKeyProvider(provider) ? null : provider,
   );
   const selected: LlmProviderName = pickedCli ?? provider;
+  const selectedCli = clis.find((cli) => cli.id === selected) ?? null;
 
   const handleSelect = async (next: LlmProviderName) => {
     if (next === selected) return;
@@ -624,12 +637,20 @@ function FirstRun({
         <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
           {ALL_PROVIDERS.map((option) => {
             const meta = PROVIDERS[option];
+            // Deduped: a provider whose two defaults are the same model would
+            // otherwise print it twice on a line that already truncates.
+            const models = [
+              ...new Set([
+                meta.defaultModels.commitAnalysis,
+                meta.defaultModels.brief,
+              ]),
+            ].join(" · ");
             const sub =
               meta.kind === "cli"
                 ? detectError
                   ? "detection failed"
-                  : claudeCode?.installed
-                    ? `installed · ${meta.defaultModels.commitAnalysis} · ${meta.defaultModels.brief}`
+                  : clis.find((cli) => cli.id === option)?.installed
+                    ? `installed · ${models}`
                     : "not installed"
                 : `${meta.defaultModels.commitAnalysis} by default`;
             return (
@@ -671,12 +692,12 @@ function FirstRun({
                 against the other after the picker changes. */}
             <KeyForm key={selected} provider={selected} size="default" />
           </Card>
-        ) : claudeCode ? (
-          // Not `active`: nothing is in use yet, so `Use Claude Code` stays on
+        ) : selectedCli ? (
+          // Not `active`: nothing is in use yet, so `Use <CLI>` stays on
           // screen — disabled until the CLI is installed, which is the one
           // thing that has to change here.
           <AgentCliCard
-            status={claudeCode}
+            status={selectedCli}
             host={PROVIDERS[selected].host}
             Mark={PROVIDERS[selected].Mark}
             active={false}
@@ -713,9 +734,9 @@ export function IntegrationsAiPage() {
         />
         <div className="space-y-6">
           <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
-            <Skeleton className="h-[9.5rem]" />
-            <Skeleton className="h-[9.5rem]" />
-            <Skeleton className="h-[9.5rem]" />
+            {ALL_PROVIDERS.map((option) => (
+              <Skeleton key={option} className="h-[9.5rem]" />
+            ))}
           </div>
           <Skeleton className="h-[11rem]" />
           <Skeleton className="h-[9rem]" />
@@ -725,8 +746,10 @@ export function IntegrationsAiPage() {
   }
 
   const provider = status?.llmProvider ?? "openai";
-  const claudeCode =
-    agents.data?.data.find((cli) => cli.id === "claude-code") ?? null;
+  // Every CLI the server detected, in its order. A page that derives one of
+  // them cannot show a second.
+  const clis = agents.data?.data ?? [];
+  const selectedCli = clis.find((cli) => cli.id === provider) ?? null;
   // A failed detect is not "not installed": nothing is known either way, and
   // the only way back is the card's own Refresh, so the message has to reach a
   // card rather than die in the query.
@@ -736,25 +759,23 @@ export function IntegrationsAiPage() {
     gemini: status?.gemini ?? false,
   };
 
-  // A stored key or an installed CLI both make this page real.
-  if (!stored.openai && !stored.gemini && !claudeCode?.installed) {
+  // A stored key or *any* installed CLI makes this page real.
+  if (!stored.openai && !stored.gemini && !clis.some((cli) => cli.installed)) {
     return (
       <>
         <IntegrationTabs active="ai" />
-        <FirstRun
-          provider={provider}
-          claudeCode={claudeCode}
-          detectError={detectError}
-        />
+        <FirstRun provider={provider} clis={clis} detectError={detectError} />
       </>
     );
   }
 
   // Selecting a provider that cannot answer no longer collapses the page — the
   // other providers have to stay on screen, because switching back is the fix.
+  // The *selected* CLI's state, not the first one's: another CLI being
+  // uninstalled is not this page's warning state.
   const blocked = isKeyProvider(provider)
     ? !stored[provider]
-    : !claudeCode?.installed || claudeCode.authenticated === false;
+    : !selectedCli?.installed || selectedCli.authenticated === false;
   // Active first, then the rest: the card that decides every job leads.
   const order: LlmProviderName[] = [
     provider,
@@ -799,17 +820,16 @@ export function IntegrationsAiPage() {
                   again.
                 </p>
               </div>
-            ) : claudeCode?.installed ? (
+            ) : selectedCli?.installed ? (
               <div>
                 <b className="block font-semibold">
                   {PROVIDERS[provider].label} is selected but not logged in.
                 </b>
                 <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
                   Commit analysis and every scheduled brief will fail with{" "}
-                  <code className="font-mono">API_FAILED</code> until you run{" "}
-                  <code className="font-mono">claude</code> in a terminal and{" "}
-                  <code className="font-mono">/login</code>. Then press Refresh
-                  on its card.
+                  <code className="font-mono">API_FAILED</code> until you log
+                  in to {PROVIDERS[provider].label} in a terminal. Then press
+                  Refresh on its card.
                 </p>
               </div>
             ) : (
@@ -820,7 +840,7 @@ export function IntegrationsAiPage() {
                 <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
                   Commit analysis and every scheduled brief will fail with{" "}
                   <code className="font-mono">NOT_CONFIGURED</code>.{" "}
-                  {claudeCode?.installHint ??
+                  {selectedCli?.installHint ??
                     "Install the CLI, then press Refresh on its card."}
                 </p>
               </div>
@@ -838,19 +858,23 @@ export function IntegrationsAiPage() {
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
-            {order.map((option) =>
-              isKeyProvider(option) ? (
-                <ProviderCard
-                  key={option}
-                  provider={option}
-                  active={option === provider}
-                  hasKey={stored[option]}
-                  blocked={blocked}
-                />
-              ) : claudeCode ? (
+            {order.map((option) => {
+              if (isKeyProvider(option)) {
+                return (
+                  <ProviderCard
+                    key={option}
+                    provider={option}
+                    active={option === provider}
+                    hasKey={stored[option]}
+                    blocked={blocked}
+                  />
+                );
+              }
+              const cli = clis.find((c) => c.id === option);
+              return cli ? (
                 <AgentCliCard
                   key={option}
-                  status={claudeCode}
+                  status={cli}
                   host={PROVIDERS[option].host}
                   Mark={PROVIDERS[option].Mark}
                   active={option === provider}
@@ -864,8 +888,8 @@ export function IntegrationsAiPage() {
                   Mark={PROVIDERS[option].Mark}
                   detail={detectError ?? DETECT_UNKNOWN}
                 />
-              ),
-            )}
+              );
+            })}
           </div>
         </section>
 

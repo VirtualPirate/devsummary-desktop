@@ -81,3 +81,25 @@ export function ClaudeMark({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * A terminal prompt, not OpenCode's official logomark — same call as the two
+ * above: the card draws a simple stroked mark and no external asset is worth
+ * shipping for it.
+ */
+export function OpenCodeMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M6.2 8.4 10 12l-3.8 3.6M12.8 15.8h5" />
+    </svg>
+  );
+}
