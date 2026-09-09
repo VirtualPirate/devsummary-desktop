@@ -259,14 +259,56 @@ describe('AgentCliLlmClient error mapping', () => {
     const { run } = fixedRun({
       code: null,
       stdout: '',
-      stderr: '',
+      stderr: 'noise the adapter has no hook for\n',
       timedOut: true,
     });
 
+    // The claude adapter defines no `stderrHint`, so its message is bare.
     await expect(
       client(run).parse(SCHEMA, 'agent_cli_test', PROMPTS),
     ).rejects.toMatchObject({
       code: 'OPENAI_API_FAILED',
+      details: { reason: 'timed out after 120s' },
+    });
+  });
+
+  // A CLI that retries a throttled provider internally prints nothing on
+  // stdout and gets killed here, so "timed out" would be the whole story. Its
+  // own log line is the only place the real cause exists.
+  it('appends the adapter’s stderr hint to a timeout when it has one', async () => {
+    const withHint: AgentCliAdapter = {
+      ...claudeCodeAdapter,
+      stderrHint: (stderr) => (stderr.includes('429') ? 'Rate limited' : null),
+    };
+    const timedOut = {
+      code: null,
+      stdout: '',
+      stderr: 'upstream said 429\n',
+      timedOut: true,
+    };
+
+    const hinted = fixedRun(timedOut);
+    await expect(
+      new AgentCliLlmClient(
+        SETTINGS,
+        withHint,
+        detectorFor('/usr/bin/claude'),
+        hinted.run,
+      ).parse(SCHEMA, 'agent_cli_test', PROMPTS),
+    ).rejects.toMatchObject({
+      details: { reason: 'timed out after 120s; last CLI error: Rate limited' },
+    });
+
+    // Nothing to add: the hook answered null, so the message stays bare.
+    const silent = fixedRun({ ...timedOut, stderr: 'nothing useful\n' });
+    await expect(
+      new AgentCliLlmClient(
+        SETTINGS,
+        withHint,
+        detectorFor('/usr/bin/claude'),
+        silent.run,
+      ).parse(SCHEMA, 'agent_cli_test', PROMPTS),
+    ).rejects.toMatchObject({
       details: { reason: 'timed out after 120s' },
     });
   });

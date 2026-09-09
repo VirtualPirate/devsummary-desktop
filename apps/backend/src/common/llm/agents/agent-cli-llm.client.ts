@@ -105,8 +105,14 @@ export class AgentCliLlmClient extends LlmClient {
     }
 
     if (result.timedOut) {
+      // A CLI that retries a throttled provider internally prints nothing on
+      // stdout and is killed here, so "timed out" would be the whole story.
+      // Its own log line is what names the real cause.
+      const hint = this.adapter.stderrHint?.(result.stderr);
       throw AppError.OPENAI_API_FAILED({
-        reason: `timed out after ${TIMEOUT_MS / 1000}s`,
+        reason: `timed out after ${TIMEOUT_MS / 1000}s${
+          hint ? `; last CLI error: ${hint}` : ''
+        }`,
       });
     }
 

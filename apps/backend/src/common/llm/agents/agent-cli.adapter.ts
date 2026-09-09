@@ -58,6 +58,13 @@ export interface AgentCliAdapter {
    * definition in `OPENCODE_CONFIG_CONTENT`, with no flag for either.
    */
   env?(req: AgentCliRequest): Record<string, string>;
+  /**
+   * The CLI's own last word, dug out of stderr, for when stdout carries
+   * nothing usable. Consulted on a timeout and when no event or envelope
+   * arrived — a CLI that retries internally can go quiet for the whole
+   * timeout, and then this is the only place the real reason exists.
+   */
+  stderrHint?(stderr: string): string | null;
   /** Turn the process result into a normalized answer. Never throws. */
   parseOutput(result: {
     code: number | null;
