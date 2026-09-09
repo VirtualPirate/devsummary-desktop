@@ -4,7 +4,6 @@ import type {
   ApiResponse,
   LocalSettingsStatus,
   LocalSettingsTestResult,
-  LocalSettingsUsage,
 } from '@launchstack/api-interfaces';
 import {
   OrgMembership,
@@ -37,16 +36,6 @@ export class LocalSettingsController {
   @RequireOrgRole('member')
   async status(): Promise<ApiResponse<LocalSettingsStatus>> {
     return { data: await this.svc.status(), message: 'OK', success: true };
-  }
-
-  /** Running OpenAI token spend for this workspace. Read-only. */
-  @Get('usage')
-  @RequireOrgRole('member')
-  async usage(
-    @OrgMembership() membership: OrgMembershipContext,
-  ): Promise<ApiResponse<LocalSettingsUsage>> {
-    const data = await this.svc.usage(membership.organizationId);
-    return { data, message: 'OK', success: true };
   }
 
   @Put('credentials')

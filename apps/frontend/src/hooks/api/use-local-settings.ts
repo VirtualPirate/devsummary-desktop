@@ -5,14 +5,11 @@ import type {
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
 import { LocalSettingsAPI } from "@/api/local-settings.api";
-import { useActiveOrganizationStore } from "@/stores/active-organization-store";
 
 // Machine-wide, not workspace-scoped: one secrets bundle per install, so no orgId in
-// the status key. Usage is the exception — token spend is per workspace, so it
-// keys on the active one like every other org-scoped query.
+// the status key.
 export const localSettingsKeys = {
   status: ["local-settings", "status"] as const,
-  usage: (orgId: string | null) => ["local-settings", "usage", orgId] as const,
   // Machine-wide like status: which CLIs are installed has nothing to do with
   // the active workspace.
   agents: ["local-settings", "agents"] as const,
@@ -22,15 +19,6 @@ export function useLocalSettings() {
   return useQuery({
     queryKey: localSettingsKeys.status,
     queryFn: () => LocalSettingsAPI.status(),
-  });
-}
-
-export function useLocalSettingsUsage() {
-  const orgId = useActiveOrganizationStore((s) => s.activeOrganizationId);
-  return useQuery({
-    queryKey: localSettingsKeys.usage(orgId),
-    queryFn: () => LocalSettingsAPI.usage(),
-    enabled: !!orgId,
   });
 }
 

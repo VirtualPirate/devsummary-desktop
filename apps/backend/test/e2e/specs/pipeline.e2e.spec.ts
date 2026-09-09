@@ -351,22 +351,12 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     expect(sent?.to).toEqual(['stakeholder@example.com']);
   }, 30_000);
 
-  it('drains the jobs table and reports the tokens it spent', async () => {
+  it('drains the jobs table', async () => {
     // Every enqueue in this file — scan, backfill, analyze, collaborator sync,
     // the boot sweep and the brief — succeeded, and the runner deletes a job
     // row on success. Anything left is a failure the assertions above missed.
     const left = await db.selectFrom('jobs').selectAll().execute();
     expect(left).toEqual([]);
-
-    const res = await api(testApp.server)
-      .get('/api/local-settings/usage')
-      .expect(200);
-    expect(res.body.data).toEqual({
-      analysisPromptTokens: 20,
-      analysisCompletionTokens: 40,
-      briefPromptTokens: 30,
-      briefCompletionTokens: 40,
-    });
   });
 });
 

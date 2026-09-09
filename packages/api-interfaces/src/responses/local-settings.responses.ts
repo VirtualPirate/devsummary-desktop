@@ -52,18 +52,6 @@ export interface LocalSettingsStatus {
   briefModel: string;
 }
 
-/**
- * Running AI spend, from the token counts already stored on every commit
- * analysis and every brief. Workspace-scoped, like everything else the settings
- * screen reads through `X-Organization-Id`.
- */
-export interface LocalSettingsUsage {
-  analysisPromptTokens: number;
-  analysisCompletionTokens: number;
-  briefPromptTokens: number;
-  briefCompletionTokens: number;
-}
-
 /** Bot scopes the Slack app must be granted, shown next to the token field. */
 export const SLACK_BOT_SCOPES = [
   "chat:write",

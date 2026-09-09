@@ -29,7 +29,6 @@ function makeService(bundle: Record<string, string | undefined> = {}) {
   const settings = {
     desktopNotificationsEnabled: jest.fn().mockResolvedValue(false),
     setDesktopNotifications: jest.fn(),
-    tokenTotals: jest.fn(),
   };
   const slackInstalls = { connectToken: jest.fn() };
   const detector = {

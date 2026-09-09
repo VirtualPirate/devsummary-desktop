@@ -6,7 +6,6 @@ import type {
   LlmProviderName,
   LocalSettingsStatus,
   LocalSettingsTestResult,
-  LocalSettingsUsage,
   UpdateLocalCredentialsRequest,
 } from '@launchstack/api-interfaces';
 import { BRIEF_MODEL_VARS } from '../../briefs/briefs-config';
@@ -75,10 +74,6 @@ export class LocalSettingsService {
         this.secrets.get(BRIEF_MODEL_VARS[llmProvider]) ??
         DEFAULT_MODELS[llmProvider].brief,
     };
-  }
-
-  usage(organizationId: string): Promise<LocalSettingsUsage> {
-    return this.settings.tokenTotals(organizationId);
   }
 
   /**
