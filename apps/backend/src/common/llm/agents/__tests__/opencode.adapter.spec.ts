@@ -426,10 +426,11 @@ describe('AGENT_ADAPTERS', () => {
     expect(opencodeAdapter.parseAuth).toBeUndefined();
   });
 
-  it('is keyed for both CLIs', () => {
+  it('is keyed for every CLI', () => {
     expect(isAgentProvider('opencode')).toBe(true);
     expect(Object.keys(AGENT_ADAPTERS).sort()).toEqual([
       'claude-code',
+      'cursor',
       'opencode',
     ]);
   });

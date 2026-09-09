@@ -319,6 +319,7 @@ describe('provider resolution', () => {
             gemini: 'GEMINI_BRIEF_MODEL',
             'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
             opencode: 'OPENCODE_BRIEF_MODEL',
+            cursor: 'CURSOR_BRIEF_MODEL',
           },
           job: 'brief',
         },
@@ -342,6 +343,7 @@ describe('provider resolution', () => {
             gemini: 'GEMINI_BRIEF_MODEL',
             'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
             opencode: 'OPENCODE_BRIEF_MODEL',
+            cursor: 'CURSOR_BRIEF_MODEL',
           },
           job: 'brief',
         },
@@ -359,6 +361,7 @@ describe('LiveLlmClient', () => {
     gemini: 'GEMINI_BRIEF_MODEL',
     'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
     opencode: 'OPENCODE_BRIEF_MODEL',
+    cursor: 'CURSOR_BRIEF_MODEL',
   };
 
   function liveClient(env: Record<string, string | undefined>): LlmClient {
@@ -521,6 +524,7 @@ describe('claude-code as a provider', () => {
       gemini: 'GEMINI_BRIEF_MODEL',
       'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
       opencode: 'OPENCODE_BRIEF_MODEL',
+      cursor: 'CURSOR_BRIEF_MODEL',
     },
     job,
   });
@@ -593,6 +597,7 @@ describe('opencode as a provider', () => {
           gemini: 'GEMINI_BRIEF_MODEL',
           'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
           opencode: 'OPENCODE_BRIEF_MODEL',
+          cursor: 'CURSOR_BRIEF_MODEL',
         },
         job: 'brief',
       }),
@@ -611,6 +616,46 @@ describe('opencode as a provider', () => {
   it('builds the same agent CLI client from the factory', () => {
     expect(
       createLlmClient({ provider: 'opencode', model: 'opencode/big-pickle' }),
+    ).toBeInstanceOf(AgentCliLlmClient);
+  });
+});
+
+describe('cursor as a provider', () => {
+  const cfg = (values: Record<string, string | undefined>) =>
+    ({ get: (key: string) => values[key] }) as never;
+
+  const opts = (job: 'commitAnalysis' | 'brief') => ({
+    providerVar: 'BRIEFS_LLM_PROVIDER',
+    modelVars: {
+      openai: 'OPENAI_BRIEF_MODEL',
+      gemini: 'GEMINI_BRIEF_MODEL',
+      'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
+      opencode: 'OPENCODE_BRIEF_MODEL',
+      cursor: 'CURSOR_BRIEF_MODEL',
+    },
+    job,
+  });
+
+  it('is selectable and needs no API key', () => {
+    expect(LLM_PROVIDERS).toContain('cursor');
+    expect(
+      loadLlmSettings(cfg({ LLM_PROVIDER: 'cursor' }), opts('brief')),
+    ).toEqual({ provider: 'cursor', model: 'composer-2.5' });
+  });
+
+  it('splits its defaults per job', () => {
+    expect(DEFAULT_MODELS.cursor).toEqual({
+      commitAnalysis: 'composer-2.5-fast',
+      brief: 'composer-2.5',
+    });
+    expect(
+      loadLlmSettings(cfg({ LLM_PROVIDER: 'cursor' }), opts('commitAnalysis')),
+    ).toMatchObject({ model: 'composer-2.5-fast' });
+  });
+
+  it('builds the same agent CLI client from the factory', () => {
+    expect(
+      createLlmClient({ provider: 'cursor', model: 'composer-2.5-fast' }),
     ).toBeInstanceOf(AgentCliLlmClient);
   });
 });

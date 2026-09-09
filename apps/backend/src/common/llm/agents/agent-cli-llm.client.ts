@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { z } from 'zod';
 import { AppError } from '../../errors';
 import {
@@ -43,8 +44,23 @@ class Semaphore {
 }
 
 /**
- * One `LlmClient` for every agent CLI, parameterised by an adapter — so a
- * second CLI is one adapter file and no change here.
+ * A reason is stored in `failure_reason` and rendered in the UI, so it has to
+ * stay a sentence. Cursor answers an unknown model with its entire catalogue —
+ * 8 KB on one line, measured in `docs/receipts/AGENT-CLI-CURSOR.md` row 4a —
+ * and the part that tells the user anything is the first clause. Clamped here
+ * rather than in each adapter: every CLI can be verbose, and none of them
+ * should have to remember.
+ */
+const MAX_REASON_CHARS = 300;
+
+const clamp = (reason: string): string =>
+  reason.length > MAX_REASON_CHARS
+    ? `${reason.slice(0, MAX_REASON_CHARS).trimEnd()}…`
+    : reason;
+
+/**
+ * One `LlmClient` for every agent CLI, parameterised by an adapter — so an
+ * additional CLI is one adapter file and no change here.
  *
  * `parse()` is overridden rather than `request()` implemented, for the same
  * reason `LiveLlmClient` and `UnconfiguredLlmClient` override it: the base
@@ -90,10 +106,13 @@ export class AgentCliLlmClient extends LlmClient {
     const release = await this.gate.acquire();
     let result: CliResult;
     try {
+      if (this.adapter.workspaceDir) {
+        await mkdir(this.adapter.workspaceDir, { recursive: true });
+      }
       result = await this.run(bin, argv, {
         timeoutMs: TIMEOUT_MS,
         // The prompt never goes on argv: diffs reach 60k chars.
-        stdin: args.userPrompt,
+        stdin: this.adapter.stdin?.(req, args.userPrompt) ?? args.userPrompt,
         env: this.adapter.env?.(req),
       });
     } catch (err) {
@@ -121,9 +140,10 @@ export class AgentCliLlmClient extends LlmClient {
       // The adapter already drew the line between a failed process and a
       // usable one that answered badly; keeping it is what stops a malformed
       // body from being retried as a network fault.
+      const reason = clamp(output.reason);
       throw output.kind === 'transport'
-        ? AppError.OPENAI_API_FAILED({ reason: output.reason })
-        : AppError.OPENAI_RESPONSE_INVALID({ reason: output.reason });
+        ? AppError.OPENAI_API_FAILED({ reason })
+        : AppError.OPENAI_RESPONSE_INVALID({ reason });
     }
 
     return this.validate(schema, {

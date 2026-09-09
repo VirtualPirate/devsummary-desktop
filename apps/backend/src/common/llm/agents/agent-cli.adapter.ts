@@ -1,4 +1,5 @@
 import { claudeCodeAdapter } from './claude-code.adapter';
+import { cursorAdapter } from './cursor.adapter';
 import { opencodeAdapter } from './opencode.adapter';
 
 /**
@@ -9,7 +10,7 @@ import { opencodeAdapter } from './opencode.adapter';
  * Every value here must also be an `LlmProvider` — enforced by `isAgentProvider`,
  * whose narrowing is only legal while the two sets agree.
  */
-export const AGENT_PROVIDERS = ['claude-code', 'opencode'] as const;
+export const AGENT_PROVIDERS = ['claude-code', 'opencode', 'cursor'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -34,7 +35,7 @@ export type AgentCliOutput =
 /**
  * One coding-agent CLI, normalized. The adapter **never spawns** — it only
  * builds argv and interprets what came back, which is what makes it pure and
- * testable against fixtures, and what makes a second CLI one file.
+ * testable against fixtures, and what makes another CLI one file.
  *
  * `parseOutput` splits `transport` (the CLI failed, is not logged in, exited
  * non-zero) from `invalid` (it ran fine and the body is unusable). The SDK
@@ -51,6 +52,16 @@ export interface AgentCliAdapter {
   installHint: string;
   /** Argv after the binary. The user prompt is always written to stdin. */
   buildArgs(req: AgentCliRequest): string[];
+  /**
+   * Complete stdin for CLIs that need the system prompt and schema in the
+   * prompt body. Undefined writes the caller's user prompt unchanged.
+   */
+  stdin?(req: AgentCliRequest, userPrompt: string): string;
+  /**
+   * Scratch working directory for CLIs that discover project instructions.
+   * The client creates it recursively before spawning.
+   */
+  workspaceDir?: string;
   /**
    * Extra env for the child, merged over `process.env`. Undefined = argv is
    * enough. It exists because not every CLI is configured on argv: OpenCode
@@ -92,6 +103,7 @@ export interface AgentCliAdapter {
 export const AGENT_ADAPTERS: Record<AgentProvider, AgentCliAdapter> = {
   'claude-code': claudeCodeAdapter,
   opencode: opencodeAdapter,
+  cursor: cursorAdapter,
 };
 
 /**

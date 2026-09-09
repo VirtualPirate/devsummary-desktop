@@ -1,8 +1,5 @@
-import type {
-  AgentCliAdapter,
-  AgentCliOutput,
-  AgentCliRequest,
-} from './agent-cli.adapter';
+import type { AgentCliAdapter, AgentCliOutput } from './agent-cli.adapter';
+import { firstLine, jsonContractPrompt, stripFence } from './agent-cli.helpers';
 
 /**
  * The inline agent this adapter defines and then selects with `--agent`. Its
@@ -66,22 +63,6 @@ const SESSION_ERROR =
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;]*m/g;
 
-/** ```` ```json … ``` ```` the model added despite being told not to. */
-const FENCE = /^```[a-z]*\n?([\s\S]*?)\n?```$/i;
-
-/**
- * The first line matching `pattern`, else the first non-blank line, else ''.
- */
-function firstLine(text: string, pattern?: RegExp): string {
-  const lines = text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return (
-    (pattern && lines.find((line) => pattern.test(line))) || lines[0] || ''
-  );
-}
-
 /**
  * stdout is JSON lines, one event per line — not one envelope. Anything that
  * is not an object with a string `type` is dropped rather than failing the
@@ -132,13 +113,6 @@ const lastOfType = (
   type: string,
 ): OpencodeEvent | undefined => events.filter((e) => e.type === type).at(-1);
 
-/**
- * The system prompt carries the schema, because there is no `--json-schema`
- * flag and no structured-output mode: the instruction is the only contract.
- */
-const systemPrompt = (req: AgentCliRequest): string =>
-  `${req.systemPrompt}\n\nAnswer with exactly one JSON object matching the JSON Schema named ${req.schemaName} below — no markdown fences, no prose, nothing before or after it.\n${JSON.stringify(req.jsonSchema)}`;
-
 export const opencodeAdapter: AgentCliAdapter = {
   id: 'opencode',
   displayName: 'OpenCode',
@@ -187,7 +161,9 @@ export const opencodeAdapter: AgentCliAdapter = {
       agent: {
         [AGENT_NAME]: {
           mode: 'primary',
-          prompt: systemPrompt(req),
+          // No `--json-schema` flag and no structured-output mode: the
+          // instruction is the only contract there is.
+          prompt: jsonContractPrompt(req),
           permission: { '*': 'deny' },
         },
       },
@@ -254,11 +230,9 @@ export const opencodeAdapter: AgentCliAdapter = {
 
     const answer = lastOfType(events, 'text')?.part?.text;
     if (typeof answer === 'string') {
-      const body = answer.trim();
-      const json = FENCE.exec(body)?.[1]?.trim() ?? body;
       let raw: unknown;
       try {
-        raw = JSON.parse(json);
+        raw = JSON.parse(stripFence(answer));
       } catch {
         // The process ran fine and the body cannot change on a retry, so this
         // is `invalid` — never transport.
@@ -304,7 +278,7 @@ export const opencodeAdapter: AgentCliAdapter = {
         // The log line first: a throttled provider is the one failure whose
         // reason exists nowhere else.
         sessionError(stderr) ||
-        firstLine(stderr.replace(ANSI, ''), ERROR_LINE) ||
+        firstLine(stderr, ERROR_LINE) ||
         firstLine(stdout) ||
         (code === 0
           ? 'opencode produced no output'

@@ -31,13 +31,14 @@ export const SECRET_KEYS = [
   'OPENAI_BRIEF_MODEL',
   'GEMINI_COMMIT_ANALYSIS_MODEL',
   'GEMINI_BRIEF_MODEL',
-  // Neither CLI has a key of its own — Claude Code authenticates through
-  // `claude /login`, OpenCode through `opencode auth login` — so only their
-  // model overrides ride the bundle.
+  // Agent CLIs have no key of their own — they use the login already held by
+  // their local binary — so only their model overrides ride the bundle.
   'CLAUDE_CODE_COMMIT_ANALYSIS_MODEL',
   'CLAUDE_CODE_BRIEF_MODEL',
   'OPENCODE_COMMIT_ANALYSIS_MODEL',
   'OPENCODE_BRIEF_MODEL',
+  'CURSOR_COMMIT_ANALYSIS_MODEL',
+  'CURSOR_BRIEF_MODEL',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];

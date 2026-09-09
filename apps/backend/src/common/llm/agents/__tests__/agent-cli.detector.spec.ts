@@ -381,6 +381,7 @@ describe('AgentCliDetector.binaryPath and detectAll', () => {
     expect(await new AgentCliDetector(run).detectAll()).toEqual([
       expect.objectContaining({ id: 'claude-code', installed: false }),
       expect.objectContaining({ id: 'opencode', installed: false }),
+      expect.objectContaining({ id: 'cursor', installed: false }),
     ]);
   });
 });

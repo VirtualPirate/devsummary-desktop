@@ -22,6 +22,7 @@ import {
 } from "@/components/integrations/provider-card.styles";
 import {
   ClaudeMark,
+  CursorMark,
   GeminiMark,
   OpenAiMark,
   OpenCodeMark,
@@ -55,8 +56,8 @@ type ProviderMeta = {
   Mark: (props: { className?: string }) => React.ReactNode;
 } & (
   | { kind: "key"; keyPlaceholder: string }
-  // What a model id looks like for *this* CLI. The two disagree — aliases for
-  // one, `provider/model` for the other — so the Models card cannot say it.
+  // What a model id looks like for *this* CLI. Their formats disagree, so the
+  // Models card cannot state one shared rule.
   // A node rather than a string: the command in it wants the mono treatment
   // every other command on this page gets.
   | { kind: "cli"; modelHint: React.ReactNode }
@@ -114,6 +115,24 @@ const PROVIDERS = {
       </>
     ),
     Mark: OpenCodeMark,
+  },
+  cursor: {
+    kind: "cli",
+    name: "Cursor",
+    label: "Cursor",
+    host: "local CLI · agent",
+    defaultModels: {
+      commitAnalysis: "composer-2.5-fast",
+      brief: "composer-2.5",
+    },
+    modelHint: (
+      <>
+        Model ids as printed by{" "}
+        <code className="font-mono">agent --list-models</code>;{" "}
+        <code className="font-mono">auto</code> is valid.
+      </>
+    ),
+    Mark: CursorMark,
   },
 } as const satisfies Record<LlmProviderName, ProviderMeta>;
 

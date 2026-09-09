@@ -6,6 +6,7 @@ export const LLM_PROVIDERS = [
   'gemini',
   'claude-code',
   'opencode',
+  'cursor',
 ] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
@@ -30,10 +31,10 @@ const API_KEY_VAR: Record<Exclude<LlmProvider, AgentProvider>, string> = {
 };
 
 /**
- * Per provider **and** per job. Claude Code wants the cheap model for
- * per-commit volume and a stronger one for the brief people actually read,
- * which one string per provider cannot express; OpenAI and Gemini keep the same
- * value in both slots.
+ * Per provider **and** per job. Agent CLIs can use a cheap model for per-commit
+ * volume and a stronger one for the brief people actually read, which one
+ * string per provider cannot express; OpenAI and Gemini keep the same value in
+ * both slots.
  */
 export const DEFAULT_MODELS: Record<
   LlmProvider,
@@ -50,6 +51,10 @@ export const DEFAULT_MODELS: Record<
   opencode: {
     commitAnalysis: 'opencode/big-pickle',
     brief: 'opencode/big-pickle',
+  },
+  cursor: {
+    commitAnalysis: 'composer-2.5-fast',
+    brief: 'composer-2.5',
   },
 };
 

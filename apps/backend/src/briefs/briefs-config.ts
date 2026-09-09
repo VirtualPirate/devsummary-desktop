@@ -13,6 +13,7 @@ export const BRIEF_MODEL_VARS = {
   gemini: 'GEMINI_BRIEF_MODEL',
   'claude-code': 'CLAUDE_CODE_BRIEF_MODEL',
   opencode: 'OPENCODE_BRIEF_MODEL',
+  cursor: 'CURSOR_BRIEF_MODEL',
 } as const satisfies Record<LlmProvider, string>;
 /**
  * Fan-out cap on backfilled briefs per schedule. `MAX_HISTORY_DAYS` is the

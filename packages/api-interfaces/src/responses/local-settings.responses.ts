@@ -1,11 +1,16 @@
 /** The AI providers a local install can be pointed at. */
-export type LlmProviderName = "openai" | "gemini" | "claude-code" | "opencode";
+export type LlmProviderName =
+  | "openai"
+  | "gemini"
+  | "claude-code"
+  | "opencode"
+  | "cursor";
 
 /**
  * The AI providers that are a coding-agent CLI on the user's machine rather
  * than an API key. Every value is also an `LlmProviderName`.
  */
-export type AgentCliProviderName = "claude-code" | "opencode";
+export type AgentCliProviderName = "claude-code" | "opencode" | "cursor";
 
 /**
  * Whether one agent CLI can actually run here. Served by

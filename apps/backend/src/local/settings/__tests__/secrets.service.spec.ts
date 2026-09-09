@@ -164,9 +164,15 @@ describe('SECRET_KEYS', () => {
     expect(SECRET_KEYS).toContain('OPENCODE_BRIEF_MODEL');
   });
 
-  // Neither CLI has one: each uses the login already in the user's terminal.
-  it('does not invent an API key for either CLI', () => {
+  it('carries the Cursor model overrides', () => {
+    expect(SECRET_KEYS).toContain('CURSOR_COMMIT_ANALYSIS_MODEL');
+    expect(SECRET_KEYS).toContain('CURSOR_BRIEF_MODEL');
+  });
+
+  // No CLI has one: each uses the login already in the user's terminal.
+  it('does not invent an API key for any CLI', () => {
     expect(SECRET_KEYS).not.toContain('CLAUDE_CODE_API_KEY');
     expect(SECRET_KEYS).not.toContain('OPENCODE_API_KEY');
+    expect(SECRET_KEYS).not.toContain('CURSOR_API_KEY');
   });
 });

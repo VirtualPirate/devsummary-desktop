@@ -1,3 +1,6 @@
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import {
   AgentCliLlmClient,
@@ -45,6 +48,44 @@ const client = (run: RunCli, path: string | null = '/usr/bin/claude') =>
   new AgentCliLlmClient(SETTINGS, claudeCodeAdapter, detectorFor(path), run);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+describe('AgentCliLlmClient failure reasons', () => {
+  // Cursor answers an unknown model with its whole catalogue on one line. The
+  // reason is stored in `failure_reason` and rendered, so it stays a sentence.
+  it('clamps a reason the CLI made enormous', async () => {
+    const { run } = fixedRun({
+      code: 1,
+      stdout: '',
+      stderr: `Cannot use this model. Available models: ${'a,'.repeat(9000)}`,
+      timedOut: false,
+    });
+
+    await expect(
+      client(run).parse(SCHEMA, 'agent_cli_test', PROMPTS),
+    ).rejects.toMatchObject({
+      response: {
+        details: {
+          reason: expect.stringMatching(/^Cannot use this model\..{0,300}…$/),
+        },
+      },
+    });
+  });
+
+  it('leaves a reason that is already short alone', async () => {
+    const { run } = fixedRun({
+      code: 1,
+      stdout: '',
+      stderr: 'Not logged in',
+      timedOut: false,
+    });
+
+    await expect(
+      client(run).parse(SCHEMA, 'agent_cli_test', PROMPTS),
+    ).rejects.toMatchObject({
+      response: { details: { reason: 'Not logged in' } },
+    });
+  });
+});
 
 describe('AgentCliLlmClient success path', () => {
   it('spawns the detected binary, sends the user prompt on stdin, and sums tokens', async () => {
@@ -116,6 +157,61 @@ describe('AgentCliLlmClient success path', () => {
     const without = fixedRun(finished);
     await client(without.run).parse(SCHEMA, 'agent_cli_test', PROMPTS);
     expect(without.calls[0].opts.env).toBeUndefined();
+  });
+
+  it('uses the adapter’s stdin hook when it defines one', async () => {
+    const withStdin: AgentCliAdapter = {
+      ...claudeCodeAdapter,
+      stdin: (req, userPrompt) =>
+        `${req.systemPrompt}\n${req.schemaName}\n${userPrompt}`,
+    };
+    const finished = {
+      code: 0,
+      stdout: envelope(),
+      stderr: '',
+      timedOut: false,
+    };
+    const recorded = fixedRun(finished);
+
+    await new AgentCliLlmClient(
+      SETTINGS,
+      withStdin,
+      detectorFor('/usr/bin/claude'),
+      recorded.run,
+    ).parse(SCHEMA, 'agent_cli_test', PROMPTS);
+
+    expect(recorded.calls[0].opts.stdin).toBe(
+      'sys\nagent_cli_test\nthe whole diff',
+    );
+  });
+
+  it('creates an adapter’s scratch workspace recursively before spawning', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-cli-workspace-test-'));
+    const workspaceDir = join(root, 'nested', 'workspace');
+    const withWorkspace: AgentCliAdapter = {
+      ...claudeCodeAdapter,
+      workspaceDir,
+    };
+    const recorded = fixedRun({
+      code: 0,
+      stdout: envelope(),
+      stderr: '',
+      timedOut: false,
+    });
+
+    try {
+      await new AgentCliLlmClient(
+        SETTINGS,
+        withWorkspace,
+        detectorFor('/usr/bin/claude'),
+        recorded.run,
+      ).parse(SCHEMA, 'agent_cli_test', PROMPTS);
+
+      expect((await stat(workspaceDir)).isDirectory()).toBe(true);
+      expect(recorded.calls).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('falls back to the configured model when the CLI names none', async () => {

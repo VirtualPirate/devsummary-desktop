@@ -103,3 +103,24 @@ export function OpenCodeMark({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * A cursor pointer, not Cursor's official logomark — same call as the other
+ * CLI cards: a simple stroked mark avoids shipping an external brand asset.
+ */
+export function CursorMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M5.2 3.4 18.8 12l-6.2 1.2-3.2 5.4z" />
+    </svg>
+  );
+}

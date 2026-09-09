@@ -1,4 +1,10 @@
 import type { AgentCliAdapter, AgentCliOutput } from './agent-cli.adapter';
+import {
+  firstLine,
+  isEnvelope,
+  parseStdout,
+  sumTokens,
+} from './agent-cli.helpers';
 
 /** The `claude -p --output-format json` envelope, only the fields we read. */
 interface ClaudeResult {
@@ -14,38 +20,8 @@ interface ClaudeResult {
   modelUsage?: Record<string, unknown>;
 }
 
-const firstLine = (text: string): string =>
-  text.trim().split('\n')[0]?.trim() ?? '';
-
-/** One JSON object, or null for anything else — including a bare array. */
-function parseJsonObject(stdout: string): Record<string, unknown> | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-/**
- * Whether this object is the `-p --output-format json` result envelope: its own
- * `type` marker, or any of the three fields the adapter reads. JSON that
- * carries none of them is not an answer to interpret.
- */
-const isEnvelope = (body: Record<string, unknown>): boolean =>
-  body.type === 'result' ||
-  'is_error' in body ||
-  'result' in body ||
-  'structured_output' in body;
-
-/** Null only when the envelope reported no usage at all. */
-function sumTokens(...values: Array<number | undefined>): number | null {
-  const present = values.filter((v): v is number => typeof v === 'number');
-  return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null;
-}
+/** The fields that mark this CLI's result envelope. */
+const ENVELOPE_MARKERS = ['is_error', 'result', 'structured_output'] as const;
 
 /**
  * The resolved model id, which the CLI reports as the sole key of `modelUsage`.
@@ -96,8 +72,11 @@ export const claudeCodeAdapter: AgentCliAdapter = {
    * only speaks for runs that produced no envelope at all.
    */
   parseOutput: ({ code, stdout, stderr }): AgentCliOutput => {
-    const json = parseJsonObject(stdout);
-    const body = json && isEnvelope(json) ? (json as ClaudeResult) : null;
+    const json = parseStdout(stdout);
+    const body =
+      json.object && isEnvelope(json.object, ENVELOPE_MARKERS)
+        ? (json.object as ClaudeResult)
+        : null;
 
     if (body) {
       // `is_error` is the CLI reporting its own failure — transport, not a bad
@@ -151,9 +130,11 @@ export const claudeCodeAdapter: AgentCliAdapter = {
     // Exited cleanly with no envelope. JSON that is simply not the envelope is
     // a usable process answering badly, which is `invalid` — calling it
     // transport would put a body that cannot change back on the retry path.
+    // Gated on `parsed`, not on `object`: a bare array is just as unfixable by
+    // a retry as an object with the wrong keys.
     return {
       ok: false,
-      kind: json ? 'invalid' : 'transport',
+      kind: json.parsed ? 'invalid' : 'transport',
       reason: firstLine(stdout) || 'claude produced no output',
     };
   },
