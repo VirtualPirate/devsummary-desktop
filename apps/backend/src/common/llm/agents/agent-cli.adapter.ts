@@ -82,6 +82,9 @@ export const AGENT_ADAPTERS: Record<AgentProvider, AgentCliAdapter> = {
  * Takes a `string` rather than `LlmProvider` so nothing under `agents/` depends
  * on the provider enum at runtime — the dependency runs the other way. It
  * narrows an `LlmProvider` union at the call site all the same.
+ *
+ * `hasOwn` rather than `in`: every object inherits `toString`, and a provider
+ * string reaches this from stored settings and from a request body.
  */
 export const isAgentProvider = (p: string): p is AgentProvider =>
-  p in AGENT_ADAPTERS;
+  Object.hasOwn(AGENT_ADAPTERS, p);

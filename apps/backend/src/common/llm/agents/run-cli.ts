@@ -3,6 +3,9 @@ import { execFile, type ExecFileException } from 'node:child_process';
 /** 16 MiB: a JSON envelope wrapping a brief, with room to spare. */
 const DEFAULT_MAX_BUFFER = 16 * 1024 * 1024;
 
+/** How long a SIGTERM'd child has to die before it is killed outright. */
+const DEFAULT_KILL_GRACE_MS = 5_000;
+
 export interface CliResult {
   /** `null` only when the process was killed rather than exiting. */
   code: number | null;
@@ -13,6 +16,8 @@ export interface CliResult {
 
 export interface CliOptions {
   timeoutMs: number;
+  /** Grace after `timeoutMs` before SIGKILL. Only tests shorten it. */
+  killGraceMs?: number;
   maxBuffer?: number;
   /**
    * Written to the child's stdin and closed. Prompts reach 60k chars, so they
@@ -38,18 +43,34 @@ export type RunCli = (
  */
 export const runCli: RunCli = (file, args, opts) =>
   new Promise<CliResult>((resolve, reject) => {
+    const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER;
+
     const child = execFile(
       file,
       args,
       {
         timeout: opts.timeoutMs,
-        maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
+        maxBuffer,
         env: process.env,
         encoding: 'utf8',
       },
       (err: ExecFileException | null, stdout, stderr) => {
+        clearTimeout(escalate);
         if (!err) {
           resolve({ code: 0, stdout, stderr, timedOut: false });
+          return;
+        }
+        // Node kills the child to stop reading it, so an overflow arrives
+        // looking like every other killed process. It is not a slow answer and
+        // must not be reported as one: waiting longer would never help, and the
+        // stderr line is what the user sees as the reason.
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+          resolve({
+            code: null,
+            stdout,
+            stderr: `output exceeded ${maxBuffer} bytes`,
+            timedOut: false,
+          });
           return;
         }
         if (err.killed) {
@@ -71,6 +92,21 @@ export const runCli: RunCli = (file, args, opts) =>
         );
       },
     );
+
+    // Declared after the spawn because it needs the child, and read from the
+    // callback above, which cannot run before this statement does.
+    //
+    // `execFile`'s own `timeout` sends SIGTERM once and then waits for `close`.
+    // A child that traps SIGTERM never closes, so the callback never fires,
+    // this promise never settles, and the caller's `finally` never gives its
+    // semaphore slot back — two of those wedge the client until a restart. So
+    // follow up with the one signal nothing can trap. `unref` because a pending
+    // escalation must not be a reason for the process to stay alive.
+    const escalate = setTimeout(
+      () => child.kill('SIGKILL'),
+      opts.timeoutMs + (opts.killGraceMs ?? DEFAULT_KILL_GRACE_MS),
+    );
+    escalate.unref();
 
     if (opts.stdin !== undefined) {
       // A child that dies before it reads makes this write EPIPE, which is an

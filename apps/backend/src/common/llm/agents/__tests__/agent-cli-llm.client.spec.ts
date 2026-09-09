@@ -134,20 +134,41 @@ describe('AgentCliLlmClient concurrency', () => {
     await expect(Promise.all(calls)).resolves.toHaveLength(5);
   });
 
+  // Four calls against two slots, the first three failing: the fourth can only
+  // ever spawn if a failed call hands its slot back. Two sequential calls would
+  // pass with the release deleted — there is a free slot for the second either
+  // way — so the count is the assertion that matters here.
   it('releases its slot when a call fails', async () => {
     const results: CliResult[] = [
       { code: 1, stdout: '', stderr: 'boom\n', timedOut: false },
+      { code: 1, stdout: '', stderr: 'boom\n', timedOut: false },
+      { code: 1, stdout: '', stderr: 'boom\n', timedOut: false },
       { code: 0, stdout: envelope(), stderr: '', timedOut: false },
     ];
-    const run: RunCli = () => Promise.resolve(results.shift()!);
+    const spawns: string[] = [];
+    const run: RunCli = (file) => {
+      spawns.push(file);
+      return Promise.resolve(results.shift()!);
+    };
     const subject = client(run);
 
-    await expect(
-      subject.parse(SCHEMA, 'agent_cli_test', PROMPTS),
-    ).rejects.toMatchObject({ code: 'OPENAI_API_FAILED' });
-    await expect(
-      subject.parse(SCHEMA, 'agent_cli_test', PROMPTS),
-    ).resolves.toMatchObject({ parsed: { ok: true } });
+    // Settled eagerly, in this tick: an unhandled rejection here would fail the
+    // suite from somewhere else entirely.
+    const outcomes = [1, 2, 3, 4].map(() =>
+      subject.parse(SCHEMA, 'agent_cli_test', PROMPTS).then(
+        () => 'resolved',
+        (err: { code: string }) => err.code,
+      ),
+    );
+
+    await flush();
+    expect(spawns).toHaveLength(4);
+    await expect(Promise.all(outcomes)).resolves.toEqual([
+      'OPENAI_API_FAILED',
+      'OPENAI_API_FAILED',
+      'OPENAI_API_FAILED',
+      'resolved',
+    ]);
   });
 });
 

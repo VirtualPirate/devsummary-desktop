@@ -262,5 +262,7 @@ describe('AGENT_ADAPTERS', () => {
     expect(isAgentProvider('claude-code')).toBe(true);
     expect(isAgentProvider('openai')).toBe(false);
     expect(isAgentProvider('codex')).toBe(false);
+    // An inherited key is not a registered provider.
+    expect(isAgentProvider('toString')).toBe(false);
   });
 });

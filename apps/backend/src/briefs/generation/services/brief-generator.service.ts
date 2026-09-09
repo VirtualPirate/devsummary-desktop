@@ -58,10 +58,12 @@ export class BriefGeneratorService {
   ) {}
 
   async generate(input: GenerateInput): Promise<GenerateOutput> {
-    // `config.llm` is resolved live and is null until the user pastes a key for
-    // the selected provider. Fail with the registered code up front rather than
-    // letting the LLM call throw it deep in the generation path, where the
-    // reason is less legible.
+    // `config.llm` is resolved live and is null until the selected provider is
+    // usable — a pasted key, for OpenAI and Gemini. A CLI provider is never
+    // null here: it has no key to be missing, and whether its binary is there
+    // is answered per call by the detector. Fail with the registered code up
+    // front rather than letting the LLM call throw it deep in the generation
+    // path, where the reason is less legible.
     const config = this.config;
     if (!config.llm) throw AppError.OPENAI_NOT_CONFIGURED();
 
