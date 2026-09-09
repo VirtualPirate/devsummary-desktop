@@ -35,14 +35,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAgentClis,
   useLocalSettings,
-  useLocalSettingsUsage,
   useUpdateLocalCredentials,
 } from "@/hooks/api/use-local-settings";
-import { useCurrentOrganization } from "@/hooks/api/use-organizations";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { cn } from "@/lib/utils";
-
-const tokens = new Intl.NumberFormat();
 
 /**
  * Everything that differs between providers on this page. `kind` splits the two
@@ -138,10 +134,6 @@ const PAGE_DESCRIPTION =
 
 const SECTION_TITLE = "text-[0.9375rem] font-semibold tracking-[-0.01em]";
 const SECTION_BODY = "mt-0.5 text-[0.8125rem] text-muted-foreground";
-/** The demo's `.card-h` / `.card-b`: 1.125rem × 1.25rem, then a 1.25rem body. */
-const CARD_HEAD = "border-b px-5 py-[1.125rem]";
-const EMPTY_BOX =
-  "rounded-md border border-dashed border-border-strong p-6 text-center text-[0.8125rem] text-muted-foreground";
 
 function ProviderTile({ provider }: { provider: LlmProviderName }) {
   const { Mark } = PROVIDERS[provider];
@@ -489,92 +481,6 @@ function ModelsBlock({
         value={briefModel}
       />
     </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: number;
-  sub: string;
-}) {
-  return (
-    <dl className="rounded-md border bg-card px-4 py-3.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 font-mono text-[1.375rem] tracking-[-0.02em]">
-        {tokens.format(value)}
-      </dd>
-      <dd className="mt-1 font-mono text-[0.6875rem] text-muted-foreground">
-        {sub}
-      </dd>
-    </dl>
-  );
-}
-
-function UsageCard() {
-  const usage = useLocalSettingsUsage();
-  const org = useCurrentOrganization();
-  const data = usage.data?.data;
-  const workspace = org.data?.data.organization.name ?? "this workspace";
-
-  const analysis =
-    (data?.analysisPromptTokens ?? 0) + (data?.analysisCompletionTokens ?? 0);
-  const briefs =
-    (data?.briefPromptTokens ?? 0) + (data?.briefCompletionTokens ?? 0);
-
-  return (
-    <Card className="gap-0 rounded-lg py-0">
-      <div className={CARD_HEAD}>
-        <h3 className="text-[0.9375rem] font-semibold">Token usage</h3>
-        <p className={SECTION_BODY}>
-          Everything {workspace} has spent with your AI provider, counted from
-          each stored commit analysis and brief.
-        </p>
-      </div>
-      <div className="space-y-4 p-5">
-        {usage.isError ? (
-          <div className={EMPTY_BOX}>
-            Couldn&rsquo;t load usage. {extractErrorMessage(usage.error)}
-          </div>
-        ) : usage.isPending || !data ? (
-          // A pending query is not "nothing spent" — never flash four zeros.
-          <Skeleton className="h-[5.5rem] w-full" />
-        ) : analysis + briefs === 0 ? (
-          <div className={EMPTY_BOX}>
-            Nothing spent yet. Counts appear after the first repository sync
-            analyses a commit, or after the first brief runs.
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-3">
-              <Stat
-                label="Commit analysis"
-                value={analysis}
-                sub={`${tokens.format(data.analysisPromptTokens)} in · ${tokens.format(data.analysisCompletionTokens)} out`}
-              />
-              <Stat
-                label="Briefs"
-                value={briefs}
-                sub={`${tokens.format(data.briefPromptTokens)} in · ${tokens.format(data.briefCompletionTokens)} out`}
-              />
-              <Stat
-                label="Total"
-                value={analysis + briefs}
-                sub="since first ingest"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Tokens only. DevSummary does not estimate cost — pricing depends
-              on the exact model and your account, and a wrong number here is
-              worse than none.
-            </p>
-          </>
-        )}
-      </div>
-    </Card>
   );
 }
 
@@ -949,8 +855,6 @@ export function IntegrationsAiPage() {
             ))}
           </div>
         </section>
-
-        <UsageCard />
       </div>
       <p className="mt-6 text-xs text-muted-foreground">
         Keys are encrypted on this machine by your OS credential store, and are
