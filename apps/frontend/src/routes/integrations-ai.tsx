@@ -14,7 +14,9 @@ import {
 import { IntegrationTabs } from "@/components/integrations/integration-tabs";
 import {
   BADGE,
+  PROVIDER_ACTIONS,
   PROVIDER_CARD,
+  PROVIDER_CARD_ROW,
   PROVIDER_CARD_SELECTED,
   TONE,
 } from "@/components/integrations/provider-card.styles";
@@ -224,7 +226,7 @@ function KeyForm({
             `Encrypted on this machine by your OS credential store. Never sent anywhere except ${label}.`}
         </p>
       </div>
-      <div className="flex gap-2">
+      <div className={PROVIDER_ACTIONS}>
         <Button type="submit" size={size} disabled={!value.trim() || update.isPending}>
           {update.isPending ? "Saving…" : "Save key"}
         </Button>
@@ -249,12 +251,14 @@ function ProviderCard({
   active,
   hasKey,
   blocked,
+  children,
 }: {
   provider: KeyProviderName;
   active: boolean;
   hasKey: boolean;
   /** The selected provider has no key, so this page is in its warning state. */
   blocked: boolean;
+  children?: React.ReactNode;
 }) {
   const update = useUpdateLocalCredentials();
   const [replacing, setReplacing] = useState(false);
@@ -291,14 +295,38 @@ function ProviderCard({
         // failing here, so nothing goes amber.
         { tone: TONE.mute, icon: null, text: "No key" };
 
-  const keyLine = active
-    ? "Key stored, encrypted on this machine"
-    : blocked
+  const rowHost =
+    hasKey && blocked
       ? "Ready — put it back in use to unblock briefs"
-      : "Key stored — its models appear once it is in use";
+      : host;
+
+  if (!active) {
+    return (
+      <article className={PROVIDER_CARD_ROW}>
+        <ProviderTile provider={provider} />
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
+            {name}
+          </div>
+          <div className="truncate font-mono text-xs text-muted-foreground">
+            {rowHost}
+          </div>
+        </div>
+        <Badge className={cn(BADGE, badge.tone)}>
+          {badge.icon}
+          {badge.text}
+        </Badge>
+        <div className={PROVIDER_ACTIONS}>
+          <Button size="sm" onClick={handleUse} disabled={update.isPending}>
+            Use {label}
+          </Button>
+        </div>
+      </article>
+    );
+  }
 
   return (
-    <article className={cn(PROVIDER_CARD, active && PROVIDER_CARD_SELECTED)}>
+    <article className={cn(PROVIDER_CARD, "gap-3.5", PROVIDER_CARD_SELECTED)}>
       <div className="flex items-center gap-3">
         <ProviderTile provider={provider} />
         <div className="min-w-0 flex-1">
@@ -316,49 +344,30 @@ function ProviderCard({
       </div>
 
       {!hasKey || replacing ? (
-        <div className="border-t pt-3.5">
-          <KeyForm
-            provider={provider}
-            size="sm"
-            onSaved={() => setReplacing(false)}
-            onCancel={hasKey ? () => setReplacing(false) : undefined}
-          />
-        </div>
+        <KeyForm
+          provider={provider}
+          size="sm"
+          onSaved={() => setReplacing(false)}
+          onCancel={hasKey ? () => setReplacing(false) : undefined}
+        />
       ) : (
         <>
-          <div className="flex items-center gap-2 border-t pt-3.5 text-[0.8125rem] text-muted-foreground">
-            <Key className="size-3.5 flex-none" />
-            {keyLine}
+          <div className="flex items-start gap-2 text-[0.8125rem] text-muted-foreground">
+            <Key className="mt-0.5 size-3.5 flex-none" />
+            Key stored, encrypted on this machine
           </div>
-          <div className="mt-auto flex gap-2">
-            {active ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setReplacing(true)}
-              >
-                Replace key
-              </Button>
-            ) : (
-              <>
-                <Button size="sm" onClick={handleUse} disabled={update.isPending}>
-                  Use {label}
-                </Button>
-                {blocked ? null : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground"
-                    onClick={() => setReplacing(true)}
-                  >
-                    Replace key
-                  </Button>
-                )}
-              </>
-            )}
+          <div className={PROVIDER_ACTIONS}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setReplacing(true)}
+            >
+              Replace key
+            </Button>
           </div>
         </>
       )}
+      {hasKey ? children : null}
     </article>
   );
 }
@@ -458,44 +467,28 @@ function ModelRow({
   );
 }
 
-function ModelsCard({
-  provider,
+function ModelsBlock({
   commitAnalysisModel,
   briefModel,
 }: {
-  provider: LlmProviderName;
   commitAnalysisModel: string;
   briefModel: string;
 }) {
-  const meta = PROVIDERS[provider];
   return (
-    <Card className="gap-0 rounded-lg py-0">
-      <div className={cn(CARD_HEAD, "flex items-center justify-between gap-4")}>
-        <div className="min-w-0">
-          <h3 className="text-[0.9375rem] font-semibold">Models</h3>
-          <p className={SECTION_BODY}>
-            {meta.kind === "cli" ? meta.modelHint : `Used by ${meta.label}.`}{" "}
-            Each provider keeps its own pair — switching provider switches these
-            too.
-          </p>
-        </div>
-        <Badge className={cn(BADGE, TONE.mute, "font-mono")}>{provider}</Badge>
-      </div>
-      <div className="p-5">
-        <ModelRow
-          field="commitAnalysisModel"
-          title="Commit analysis"
-          description="Runs once per commit at ingest. High volume — a small model is the usual choice."
-          value={commitAnalysisModel}
-        />
-        <ModelRow
-          field="briefModel"
-          title="Brief writing"
-          description="Runs once per schedule window, over the analysed commits. This is the text people read."
-          value={briefModel}
-        />
-      </div>
-    </Card>
+    <div className="border-t pt-1">
+      <ModelRow
+        field="commitAnalysisModel"
+        title="Commit analysis"
+        description="Runs once per commit at ingest. High volume — a small model is the usual choice."
+        value={commitAnalysisModel}
+      />
+      <ModelRow
+        field="briefModel"
+        title="Brief writing"
+        description="Runs once per schedule window, over the analysed commits. This is the text people read."
+        value={briefModel}
+      />
+    </div>
   );
 }
 
@@ -646,7 +639,7 @@ function FirstRun({
         </p>
       </div>
       <div className="w-full max-w-[46rem] space-y-4">
-        <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 min-[640px]:grid-cols-2">
           {ALL_PROVIDERS.map((option) => {
             const meta = PROVIDERS[option];
             // Deduped: a provider whose two defaults are the same model would
@@ -705,14 +698,14 @@ function FirstRun({
             <KeyForm key={selected} provider={selected} size="default" />
           </Card>
         ) : selectedCli ? (
-          // Not `active`: nothing is in use yet, so `Use <CLI>` stays on
+          // Not `hero`: nothing is in use yet, so `Use <CLI>` stays on
           // screen — disabled until the CLI is installed, which is the one
           // thing that has to change here.
           <AgentCliCard
             status={selectedCli}
             host={PROVIDERS[selected].host}
             Mark={PROVIDERS[selected].Mark}
-            active={false}
+            variant="card"
             blocked
           />
         ) : (
@@ -721,10 +714,63 @@ function FirstRun({
             host={PROVIDERS[selected].host}
             Mark={PROVIDERS[selected].Mark}
             detail={detectError ?? DETECT_UNKNOWN}
+            variant="card"
           />
         )}
       </div>
     </div>
+  );
+}
+
+function ProviderSlot({
+  option,
+  active,
+  stored,
+  clis,
+  detectError,
+  blocked,
+  children,
+}: {
+  option: LlmProviderName;
+  active: boolean;
+  stored: { openai: boolean; gemini: boolean };
+  clis: AgentCliStatus[];
+  detectError: string | null;
+  blocked: boolean;
+  children?: React.ReactNode;
+}) {
+  if (isKeyProvider(option)) {
+    return (
+      <ProviderCard
+        provider={option}
+        active={active}
+        hasKey={stored[option]}
+        blocked={blocked}
+      >
+        {children}
+      </ProviderCard>
+    );
+  }
+  const cli = clis.find((c) => c.id === option);
+  const variant = active ? "hero" : "row";
+  return cli ? (
+    <AgentCliCard
+      status={cli}
+      host={PROVIDERS[option].host}
+      Mark={PROVIDERS[option].Mark}
+      variant={variant}
+      blocked={blocked}
+    >
+      {children}
+    </AgentCliCard>
+  ) : (
+    <AgentCliErrorCard
+      displayName={PROVIDERS[option].name}
+      host={PROVIDERS[option].host}
+      Mark={PROVIDERS[option].Mark}
+      detail={detectError ?? DETECT_UNKNOWN}
+      variant={variant}
+    />
   );
 }
 
@@ -744,14 +790,11 @@ export function IntegrationsAiPage() {
           title="AI"
           description={PAGE_DESCRIPTION}
         />
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
-            {ALL_PROVIDERS.map((option) => (
-              <Skeleton key={option} className="h-[9.5rem]" />
-            ))}
-          </div>
-          <Skeleton className="h-[11rem]" />
-          <Skeleton className="h-[9rem]" />
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-36 w-full" />
+          <Skeleton className="h-[4.5rem] w-full" />
+          <Skeleton className="h-[4.5rem] w-full" />
+          <Skeleton className="h-[4.5rem] w-full" />
         </div>
       </>
     );
@@ -788,11 +831,15 @@ export function IntegrationsAiPage() {
   const blocked = isKeyProvider(provider)
     ? !stored[provider]
     : !selectedCli?.installed || selectedCli.authenticated === false;
-  // Active first, then the rest: the card that decides every job leads.
-  const order: LlmProviderName[] = [
-    provider,
-    ...ALL_PROVIDERS.filter((p) => p !== provider),
-  ];
+  const others = ALL_PROVIDERS.filter((p) => p !== provider);
+  // Models stay on the hero except: no-key key provider, detect-failed CLI.
+  const heroModels =
+    (isKeyProvider(provider) ? stored[provider] : Boolean(selectedCli)) ? (
+      <ModelsBlock
+        commitAnalysisModel={status?.commitAnalysisModel ?? ""}
+        briefModel={status?.briefModel ?? ""}
+      />
+    ) : null;
 
   return (
     <>
@@ -862,54 +909,47 @@ export function IntegrationsAiPage() {
 
         <section>
           <div className="mb-3">
-            <h2 className={SECTION_TITLE}>Provider</h2>
+            <h2 className={SECTION_TITLE}>In use</h2>
             <p className={cn(SECTION_BODY, "max-w-[70ch]")}>
-              Every key can be stored and every installed CLI is offered; only
-              the selected provider is used. A change applies to the next job —
-              no restart.
+              A change applies to the next job — no restart. Each provider keeps
+              its own model pair.
             </p>
           </div>
-          <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-3">
-            {order.map((option) => {
-              if (isKeyProvider(option)) {
-                return (
-                  <ProviderCard
-                    key={option}
-                    provider={option}
-                    active={option === provider}
-                    hasKey={stored[option]}
-                    blocked={blocked}
-                  />
-                );
-              }
-              const cli = clis.find((c) => c.id === option);
-              return cli ? (
-                <AgentCliCard
-                  key={option}
-                  status={cli}
-                  host={PROVIDERS[option].host}
-                  Mark={PROVIDERS[option].Mark}
-                  active={option === provider}
-                  blocked={blocked}
-                />
-              ) : (
-                <AgentCliErrorCard
-                  key={option}
-                  displayName={PROVIDERS[option].name}
-                  host={PROVIDERS[option].host}
-                  Mark={PROVIDERS[option].Mark}
-                  detail={detectError ?? DETECT_UNKNOWN}
-                />
-              );
-            })}
+          <ProviderSlot
+            option={provider}
+            active
+            stored={stored}
+            clis={clis}
+            detectError={detectError}
+            blocked={blocked}
+          >
+            {heroModels}
+          </ProviderSlot>
+        </section>
+
+        <section>
+          <div className="mb-3">
+            <h2 className={SECTION_TITLE}>Other providers</h2>
+            <p className={cn(SECTION_BODY, "max-w-[70ch]")}>
+              Every key can be stored and every installed CLI is offered.
+              Putting one in use is what switches the jobs.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {others.map((option) => (
+              <ProviderSlot
+                key={option}
+                option={option}
+                active={false}
+                stored={stored}
+                clis={clis}
+                detectError={detectError}
+                blocked={blocked}
+              />
+            ))}
           </div>
         </section>
 
-        <ModelsCard
-          provider={provider}
-          commitAnalysisModel={status?.commitAnalysisModel ?? ""}
-          briefModel={status?.briefModel ?? ""}
-        />
         <UsageCard />
       </div>
       <p className="mt-6 text-xs text-muted-foreground">

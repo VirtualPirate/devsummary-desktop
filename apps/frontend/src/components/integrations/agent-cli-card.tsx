@@ -12,7 +12,9 @@ import { extractErrorMessage } from "@/lib/extract-error";
 import { cn } from "@/lib/utils";
 import {
   BADGE,
+  PROVIDER_ACTIONS,
   PROVIDER_CARD,
+  PROVIDER_CARD_ROW,
   PROVIDER_CARD_SELECTED,
   TONE,
 } from "./provider-card.styles";
@@ -20,6 +22,9 @@ import {
 type MarkFn = (props: { className?: string }) => React.ReactNode;
 
 type CardBadge = { tone: string; icon: React.ReactNode; text: string };
+
+/** Hero on the configured page, switcher row, or first-run setup card. */
+export type AgentCliCardVariant = "hero" | "row" | "card";
 
 /**
  * Forcing a re-detect is the recovery for every failure a CLI card can show, so
@@ -52,20 +57,19 @@ function RefreshButton({ displayName }: { displayName: string }) {
   );
 }
 
-/** The header both CLI cards share: mark, name, host, state badge. */
-function CardHead({
+function Identity({
   Mark,
   title,
   host,
-  badge,
+  hostTitle,
 }: {
   Mark: MarkFn;
   title: string;
   host: string;
-  badge: CardBadge;
+  hostTitle?: string;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <>
       <div className="flex size-9 flex-none items-center justify-center rounded-md border bg-muted">
         <Mark className="size-[1.125rem]" />
       </div>
@@ -77,17 +81,26 @@ function CardHead({
             clips it, and the host is not worth a taller card. */}
         <div
           className="truncate font-mono text-xs text-muted-foreground"
-          title={host}
+          title={hostTitle ?? host}
         >
           {host}
         </div>
       </div>
-      <Badge className={cn(BADGE, badge.tone)}>
-        {badge.icon}
-        {badge.text}
-      </Badge>
-    </div>
+    </>
   );
+}
+
+function StatusBadge({ badge }: { badge: CardBadge }) {
+  return (
+    <Badge className={cn(BADGE, badge.tone)}>
+      {badge.icon}
+      {badge.text}
+    </Badge>
+  );
+}
+
+function installedLine(status: AgentCliStatus): string {
+  return `${status.version ? `${status.version} · ` : ""}${status.path ?? ""}`;
 }
 
 /**
@@ -100,15 +113,17 @@ export function AgentCliCard({
   status,
   host,
   Mark,
-  active,
+  variant,
   blocked,
+  children,
 }: {
   status: AgentCliStatus;
   host: string;
   Mark: MarkFn;
-  active: boolean;
+  variant: AgentCliCardVariant;
   /** The selected provider cannot run, so this page is in its warning state. */
   blocked: boolean;
+  children?: React.ReactNode;
 }) {
   const update = useUpdateLocalCredentials();
   const test = useTestAgentCli();
@@ -139,7 +154,7 @@ export function AgentCliCard({
           icon: <TriangleAlert className="size-3" />,
           text: "Not logged in",
         }
-      : active
+      : variant === "hero"
         ? {
             tone: TONE.brand,
             icon: <Check className="size-3" />,
@@ -153,54 +168,113 @@ export function AgentCliCard({
             }
           : { tone: TONE.mute, icon: null, text: "Installed" };
 
+  const useBtn = (
+    <Button
+      size="sm"
+      onClick={handleUse}
+      disabled={!status.installed || update.isPending}
+    >
+      Use {status.displayName}
+    </Button>
+  );
+  const testBtn = (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={handleTest}
+      disabled={!status.installed || test.isPending}
+    >
+      <Play className="size-3.5" />
+      {test.isPending ? "Testing…" : "Run test"}
+    </Button>
+  );
+  const refreshBtn = <RefreshButton displayName={status.displayName} />;
+
+  const actions =
+    variant === "hero" ? (
+      <>
+        {testBtn}
+        {refreshBtn}
+      </>
+    ) : variant === "row" ? (
+      !status.installed ? (
+        <>
+          {useBtn}
+          {refreshBtn}
+        </>
+      ) : loggedOut ? (
+        <>
+          {useBtn}
+          {testBtn}
+          {refreshBtn}
+        </>
+      ) : (
+        <>
+          {useBtn}
+          {testBtn}
+        </>
+      )
+    ) : (
+      <>
+        {useBtn}
+        {testBtn}
+        {refreshBtn}
+      </>
+    );
+
+  const body = status.installed ? (
+    <span
+      className="truncate font-mono text-xs"
+      title={status.path ?? undefined}
+    >
+      {installedLine(status)}
+    </span>
+  ) : (
+    <span>{status.installHint}</span>
+  );
+
+  if (variant === "row") {
+    return (
+      <article className={PROVIDER_CARD_ROW}>
+        <Identity
+          Mark={Mark}
+          title={status.displayName}
+          host={status.installed ? installedLine(status) : status.installHint}
+          hostTitle={status.path ?? undefined}
+        />
+        <StatusBadge badge={badge} />
+        <div className={PROVIDER_ACTIONS}>{actions}</div>
+      </article>
+    );
+  }
+
   return (
-    <article className={cn(PROVIDER_CARD, active && PROVIDER_CARD_SELECTED)}>
-      <CardHead
-        Mark={Mark}
-        title={status.displayName}
-        host={host}
-        badge={badge}
-      />
+    <article
+      className={cn(
+        PROVIDER_CARD,
+        variant === "hero" && "gap-3.5",
+        variant === "hero" && PROVIDER_CARD_SELECTED,
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <Identity Mark={Mark} title={status.displayName} host={host} />
+        <StatusBadge badge={badge} />
+      </div>
 
-      <div className="flex items-start gap-2 border-t pt-3.5 text-[0.8125rem] leading-[1.45] text-muted-foreground">
+      <div
+        className={cn(
+          "flex items-start gap-2 text-[0.8125rem] leading-[1.45] text-muted-foreground",
+          variant === "card" && "border-t pt-3.5",
+        )}
+      >
         <Terminal className="mt-px size-3.5 flex-none" />
-        {status.installed ? (
-          // The absolute path is the one thing on this card that answers
-          // "which binary is this", and the line truncates well before the end
-          // of it at the default window width — so it has to be hoverable.
-          <span
-            className="truncate font-mono text-xs"
-            title={status.path ?? undefined}
-          >
-            {status.version ? `${status.version} · ` : ""}
-            {status.path}
-          </span>
-        ) : (
-          <span>{status.installHint}</span>
-        )}
+        {body}
       </div>
 
-      <div className="mt-auto flex gap-2">
-        {active ? null : (
-          <Button
-            size="sm"
-            onClick={handleUse}
-            disabled={!status.installed || update.isPending}
-          >
-            Use {status.displayName}
-          </Button>
-        )}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleTest}
-          disabled={!status.installed || test.isPending}
-        >
-          <Play className="size-3.5" />
-          {test.isPending ? "Testing…" : "Run test"}
-        </Button>
-        <RefreshButton displayName={status.displayName} />
+      <div className={cn(PROVIDER_ACTIONS, variant === "card" && "mt-auto")}>
+        {actions}
       </div>
+      {variant === "hero" ? children : null}
     </article>
   );
 }
@@ -215,27 +289,63 @@ export function AgentCliErrorCard({
   host,
   Mark,
   detail,
+  variant,
 }: {
   displayName: string;
   host: string;
   Mark: MarkFn;
   /** Already extracted — the page owns the query, not this card. */
   detail: string;
+  variant: AgentCliCardVariant;
 }) {
-  return (
-    <article className={PROVIDER_CARD}>
-      <CardHead
-        Mark={Mark}
-        title={displayName}
-        host={host}
-        badge={{
-          tone: TONE.warn,
-          icon: <TriangleAlert className="size-3" />,
-          text: "Detection failed",
-        }}
-      />
+  const badge: CardBadge = {
+    tone: TONE.warn,
+    icon: <TriangleAlert className="size-3" />,
+    text: "Detection failed",
+  };
 
-      <div className="flex items-start gap-2 border-t pt-3.5 text-[0.8125rem] leading-[1.45] text-muted-foreground">
+  const actions = (
+    <>
+      <Button size="sm" disabled>
+        Use {displayName}
+      </Button>
+      <Button size="sm" variant="outline" disabled>
+        <Play className="size-3.5" />
+        Run test
+      </Button>
+      <RefreshButton displayName={displayName} />
+    </>
+  );
+
+  if (variant === "row") {
+    return (
+      <article className={PROVIDER_CARD_ROW}>
+        <Identity Mark={Mark} title={displayName} host={detail} />
+        <StatusBadge badge={badge} />
+        <div className={PROVIDER_ACTIONS}>{actions}</div>
+      </article>
+    );
+  }
+
+  return (
+    <article
+      className={cn(
+        PROVIDER_CARD,
+        variant === "hero" && "gap-3.5",
+        variant === "hero" && PROVIDER_CARD_SELECTED,
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <Identity Mark={Mark} title={displayName} host={host} />
+        <StatusBadge badge={badge} />
+      </div>
+
+      <div
+        className={cn(
+          "flex items-start gap-2 text-[0.8125rem] leading-[1.45] text-muted-foreground",
+          variant === "card" && "border-t pt-3.5",
+        )}
+      >
         <Terminal className="mt-px size-3.5 flex-none" />
         <span>{detail}</span>
       </div>
@@ -243,15 +353,8 @@ export function AgentCliErrorCard({
       {/* Disabled rather than hidden: these two are what a CLI card is for, and
           dropping them reads as "this provider has none". Neither can be
           answered while the detect is the thing that failed. */}
-      <div className="mt-auto flex gap-2">
-        <Button size="sm" disabled>
-          Use {displayName}
-        </Button>
-        <Button size="sm" variant="outline" disabled>
-          <Play className="size-3.5" />
-          Run test
-        </Button>
-        <RefreshButton displayName={displayName} />
+      <div className={cn(PROVIDER_ACTIONS, variant === "card" && "mt-auto")}>
+        {actions}
       </div>
     </article>
   );

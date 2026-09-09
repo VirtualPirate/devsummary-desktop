@@ -4,6 +4,10 @@
 export const PROVIDER_CARD =
   "flex flex-col gap-4 rounded-lg border bg-card px-5 py-[1.125rem] shadow-e1";
 export const PROVIDER_CARD_SELECTED = "border-brand ring-1 ring-brand";
+/** Switcher row: same surface, tighter padding, horizontal + wrap so actions don't clip. */
+export const PROVIDER_CARD_ROW =
+  "flex flex-wrap items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-e1";
+export const PROVIDER_ACTIONS = "flex flex-wrap gap-2";
 
 export const BADGE = "gap-1.5 rounded-full px-2.5";
 export const TONE = {
