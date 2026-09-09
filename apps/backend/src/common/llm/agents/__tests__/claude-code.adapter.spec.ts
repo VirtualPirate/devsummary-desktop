@@ -119,19 +119,53 @@ describe('claudeCodeAdapter.parseOutput', () => {
     });
   });
 
-  // This is where a logged-out CLI lands. Exit code is 0, so only `is_error`
-  // tells us — and it is transport, not a bad body, so the retry path stays
-  // correct.
-  it('maps is_error to transport with the CLI’s own reason', () => {
+  // This is where a logged-out CLI lands, and the exit code is **1**, not 0
+  // (verified against claude 2.1.265 — see
+  // docs/receipts/AGENT-CLI-CLAUDE-CODE.md). The envelope is still on stdout
+  // and still carries the one sentence a user can act on, so it has to beat
+  // the exit code; reading the code first put the whole ~1.5 KB blob in the
+  // reason. Transport, not a bad body, so the retry path stays correct.
+  it('prefers the envelope’s own reason over a non-zero exit', () => {
     const body = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
       is_error: true,
       result: 'Not logged in · Please run /login',
+      terminal_reason: 'api_error',
+      usage: { input_tokens: 0, output_tokens: 0 },
+      modelUsage: {},
+    });
+    expect(
+      claudeCodeAdapter.parseOutput({ code: 1, stdout: body, stderr: '' }),
+    ).toEqual({
+      ok: false,
+      kind: 'transport',
+      reason: 'Not logged in · Please run /login',
+    });
+  });
+
+  it('maps is_error to transport with the CLI’s own reason on a clean exit', () => {
+    const body = JSON.stringify({
+      is_error: true,
+      result: 'Credit balance too low',
       terminal_reason: 'api_error',
     });
     expect(claudeCodeAdapter.parseOutput(ok(body))).toEqual({
       ok: false,
       kind: 'transport',
-      reason: 'Not logged in · Please run /login',
+      reason: 'Credit balance too low',
+    });
+  });
+
+  // A good answer is a good answer: the exit code does not get to veto an
+  // envelope that parsed and carried `structured_output`.
+  it('accepts a complete envelope even on a non-zero exit', () => {
+    expect(
+      claudeCodeAdapter.parseOutput({ code: 1, stdout: SUCCESS, stderr: '' }),
+    ).toMatchObject({
+      ok: true,
+      raw: { commit_type: 'chore' },
+      model: 'claude-haiku-4-5-20251001',
     });
   });
 
@@ -169,6 +203,22 @@ describe('claudeCodeAdapter.parseOutput', () => {
       ok: false,
       kind: 'transport',
       reason: 'Welcome to Claude Code',
+    });
+  });
+
+  // Parsed, but none of the envelope's markers: the process ran fine and the
+  // body is unusable, so it must not go back on the transport retry path.
+  it('maps JSON that is not the envelope to invalid on a clean exit', () => {
+    expect(
+      claudeCodeAdapter.parseOutput({
+        code: 0,
+        stdout: '{"hello":"world"}',
+        stderr: '',
+      }),
+    ).toEqual({
+      ok: false,
+      kind: 'invalid',
+      reason: '{"hello":"world"}',
     });
   });
 

@@ -73,7 +73,12 @@ function CardHead({
         <div className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
           {title}
         </div>
-        <div className="truncate font-mono text-xs text-muted-foreground">
+        {/* `title` because the line truncates: a wider badge ("Not logged in")
+            clips it, and the host is not worth a taller card. */}
+        <div
+          className="truncate font-mono text-xs text-muted-foreground"
+          title={host}
+        >
           {host}
         </div>
       </div>
@@ -160,7 +165,13 @@ export function AgentCliCard({
       <div className="flex items-start gap-2 border-t pt-3.5 text-[0.8125rem] leading-[1.45] text-muted-foreground">
         <Terminal className="mt-px size-3.5 flex-none" />
         {status.installed ? (
-          <span className="truncate font-mono text-xs">
+          // The absolute path is the one thing on this card that answers
+          // "which binary is this", and the line truncates well before the end
+          // of it at the default window width — so it has to be hoverable.
+          <span
+            className="truncate font-mono text-xs"
+            title={status.path ?? undefined}
+          >
             {status.version ? `${status.version} · ` : ""}
             {status.path}
           </span>
