@@ -101,7 +101,7 @@ const DETECT_UNKNOWN =
   "Detection returned no result for this CLI. Press Refresh to try again.";
 
 const PAGE_DESCRIPTION =
-  "DevSummary classifies every commit and writes every brief with your own provider key — billed to you, never to us.";
+  "DevSummary classifies every commit and writes every brief with the AI provider you choose — your own API key or a coding-agent CLI on this machine, billed to you, never to us.";
 
 const SECTION_TITLE = "text-[0.9375rem] font-semibold tracking-[-0.01em]";
 const SECTION_BODY = "mt-0.5 text-[0.8125rem] text-muted-foreground";

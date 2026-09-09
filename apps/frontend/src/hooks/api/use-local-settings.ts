@@ -57,6 +57,9 @@ export function useAgentClis() {
   return useQuery({
     queryKey: localSettingsKeys.agents,
     queryFn: () => LocalSettingsAPI.agents(),
+    // Matches the detector's own 60 s cache: a refetch inside that window can
+    // only get the same answer back, at the price of a request.
+    staleTime: 60_000,
     // A detect can spawn a login shell; three retries would triple that for a
     // failure the page shows rather than hides.
     retry: false,
@@ -79,7 +82,17 @@ export function useRefreshAgentClis() {
 }
 
 export function useTestAgentCli() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: AgentCliProviderName) => LocalSettingsAPI.testAgentCli(id),
+    // A test that passed is proof of a login the card may still be showing as
+    // "Not logged in" from an older detect. The backend forces a re-detect to
+    // run the test, so the refetch reads that fresh result rather than a
+    // request the 60 s cache would answer with the stale one.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: localSettingsKeys.agents,
+      });
+    },
   });
 }
