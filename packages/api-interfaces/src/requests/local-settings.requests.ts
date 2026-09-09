@@ -11,7 +11,8 @@ import type { LlmProviderName } from "../responses/local-settings.responses";
 export interface UpdateLocalCredentialsRequest {
   /**
    * Switches which provider answers AI calls; the stored keys are untouched.
-   * A CLI provider (`claude-code`) is rejected with 400 when the binary is not
+   * A CLI provider (`claude-code`, `opencode`) is rejected with 400 when the
+   * binary is not
    * installed — nothing is stored in that case.
    */
   llmProvider?: LlmProviderName;
