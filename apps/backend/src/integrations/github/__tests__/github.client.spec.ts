@@ -37,6 +37,18 @@ function pages(...batches: unknown[][]) {
   });
 }
 
+/**
+ * The paging *failure* cases: an iterable whose first pull rejects. Written
+ * as an iterator rather than `async *` with a bare `throw`, which is a
+ * generator that never yields — a lint error. `for await` sees the same
+ * failure either way.
+ */
+function failingPages(err: Error) {
+  return () => ({
+    [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(err) }),
+  });
+}
+
 describe('GithubAppClient', () => {
   beforeEach(() => {
     (Octokit as unknown as { __reset: () => void }).__reset();
@@ -171,10 +183,12 @@ describe('GithubAppClient', () => {
         (_route: string, params: { repo: string }) => {
           const verdict = replies[params.repo];
           if (verdict === 'ok') return Promise.resolve({ data: [] });
-          const err: any = new Error('nope');
-          err.status = verdict;
-          err.response = { headers: { 'x-ratelimit-remaining': '4999' } };
-          return Promise.reject(err);
+          return Promise.reject(
+            Object.assign(new Error('nope'), {
+              status: verdict,
+              response: { headers: { 'x-ratelimit-remaining': '4999' } },
+            }),
+          );
         },
       );
 
@@ -208,12 +222,14 @@ describe('GithubAppClient', () => {
     it('keeps the list unfiltered when a rate limit interrupts probing', async () => {
       const client = makeClient();
       twoPublicOnePrivate();
-      kit().request.mockImplementation(() => {
-        const err: any = new Error('API rate limit exceeded');
-        err.status = 403;
-        err.response = { headers: { 'x-ratelimit-remaining': '0' } };
-        return Promise.reject(err);
-      });
+      kit().request.mockImplementation(() =>
+        Promise.reject(
+          Object.assign(new Error('API rate limit exceeded'), {
+            status: 403,
+            response: { headers: { 'x-ratelimit-remaining': '0' } },
+          }),
+        ),
+      );
 
       const repos = await client.listInstallationRepos(1n);
 
@@ -225,11 +241,7 @@ describe('GithubAppClient', () => {
 
   it('wraps API errors as GITHUB_API_FAILED', async () => {
     const client = makeClient();
-    kit().iterator.mockImplementation(() => ({
-      async *[Symbol.asyncIterator]() {
-        throw new Error('boom');
-      },
-    }));
+    kit().iterator.mockImplementation(failingPages(new Error('boom')));
 
     await expect(client.listInstallationRepos(1n)).rejects.toMatchObject({
       status: 502,
@@ -396,11 +408,7 @@ describe('GithubAppClient', () => {
   it('rethrows 403/404 from collaborators untouched', async () => {
     const client = makeClient();
     const err = Object.assign(new Error('nope'), { status: 404 });
-    kit().iterator.mockImplementation(() => ({
-      async *[Symbol.asyncIterator]() {
-        throw err;
-      },
-    }));
+    kit().iterator.mockImplementation(failingPages(err));
 
     await expect(client.listRepoCollaborators(9n, 'acme', 'api')).rejects.toBe(
       err,

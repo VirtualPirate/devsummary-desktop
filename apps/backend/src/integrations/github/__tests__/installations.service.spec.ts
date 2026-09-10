@@ -224,12 +224,17 @@ describe('GithubInstallationsService', () => {
 
     it('rejects a token that cannot list repositories', async () => {
       const { svc, mocks } = makeService();
+      // An iterator rather than `async *` with a bare `throw`: a generator
+      // that never yields does not lint, and `for await` fails the same way.
       kit().iterator.mockImplementation(() => ({
-        async *[Symbol.asyncIterator]() {
-          throw Object.assign(new Error('Resource not accessible'), {
-            status: 403,
-          });
-        },
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            Promise.reject(
+              Object.assign(new Error('Resource not accessible'), {
+                status: 403,
+              }),
+            ),
+        }),
       }));
 
       await expect(

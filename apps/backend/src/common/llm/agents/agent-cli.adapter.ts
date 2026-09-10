@@ -64,10 +64,20 @@ export interface AgentCliAdapter {
    */
   stdin?(req: AgentCliRequest, userPrompt: string): string;
   /**
-   * Scratch working directory for CLIs that discover project instructions.
-   * The client creates it recursively before spawning.
+   * Scratch working directory. The client creates it recursively and runs the
+   * child *in* it, because every one of these CLIs reads its working
+   * directory's instruction files into the model prompt — see `scratchDir`.
+   * A CLI that also takes the directory as a flag passes this same value.
    */
   workspaceDir?: string;
+  /**
+   * Processes this CLI may have in flight at once, when the machine-derived
+   * `DEFAULT_MAX_CONCURRENT` is wrong for it. Only OpenCode sets it: its
+   * default model is OpenCode Zen's free tier, which throttles, and a
+   * throttled call is a silent internal retry loop until our 120 s timeout
+   * rather than an error — so more processes buy nothing and lose the batch.
+   */
+  maxConcurrent?: number;
   /**
    * Files the CLI needs on disk before it runs, keyed by absolute path. The
    * client creates each parent directory and writes the content atomically,

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import { dirname } from 'node:path';
 import { z } from 'zod';
 import { AppError } from '../../errors';
@@ -14,8 +15,33 @@ import type { AgentCliAdapter, AgentCliRequest } from './agent-cli.adapter';
 import { agentCliDetector, type AgentCliDetector } from './agent-cli.detector';
 import { runCli, type CliResult, type RunCli } from './run-cli';
 
-// ponytail: fixed cap of 2 and a fixed 120 s; make them settings if users ask.
-const MAX_CONCURRENT = 2;
+/**
+ * Processes in flight per client: **half the machine's cores, 2 to 5**.
+ *
+ * A key provider's fan-out spends one metered quota, so its cap is about the
+ * quota; a CLI spawns a whole agent runtime per call, so this one is about the
+ * laptop. Measured on an M3 (8 cores, 16 GB) with `claude`, own children only:
+ * one process peaks at 296 MB and 94 % of a core, five at 1224 MB and 320 % of
+ * 800 %, and the batch of five takes 19 s where one call alone takes 14 —
+ * throughput ×3.7. The cost is concentrated in each CLI's *startup*; after
+ * that they sit on a socket.
+ *
+ * Hence the ceiling of five (`BATCH` in `commit-analysis.jobs.ts` — the
+ * analysis fan-out asks for five at a time, and a higher cap here would never
+ * be reached) and, more to the point, the floor of two: this is a desktop app
+ * the user is looking at, and half the cores is what keeps the other half for
+ * them. On a 4-core machine that is 2, exactly what shipped before.
+ *
+ * An adapter whose *provider* throttles overrides it down
+ * (`AgentCliAdapter.maxConcurrent`).
+ *
+ * ponytail: derived, not a setting; make it one if a user wants their whole
+ * machine spent on a sweep.
+ */
+export const DEFAULT_MAX_CONCURRENT = Math.max(
+  2,
+  Math.min(5, Math.floor(availableParallelism() / 2)),
+);
 const TIMEOUT_MS = 120_000;
 
 /**
@@ -86,7 +112,7 @@ async function writeAtomic(path: string, content: string): Promise<void> {
  * result shape still come from the base, via `validate()`.
  */
 export class AgentCliLlmClient extends LlmClient {
-  private readonly gate = new Semaphore(MAX_CONCURRENT);
+  private readonly gate: Semaphore;
 
   constructor(
     settings: LlmSettings,
@@ -95,6 +121,7 @@ export class AgentCliLlmClient extends LlmClient {
     private readonly run: RunCli = runCli,
   ) {
     super(settings);
+    this.gate = new Semaphore(adapter.maxConcurrent ?? DEFAULT_MAX_CONCURRENT);
   }
 
   async parse<T>(
@@ -133,6 +160,10 @@ export class AgentCliLlmClient extends LlmClient {
       }
       result = await this.run(bin, argv, {
         timeoutMs: TIMEOUT_MS,
+        // Run *in* the scratch directory, not merely next to it: a CLI reads
+        // its cwd's instruction files into the prompt whether or not it also
+        // takes the directory as a flag.
+        cwd: this.adapter.workspaceDir,
         // The prompt never goes on argv: diffs reach 60k chars.
         stdin: this.adapter.stdin?.(req, args.userPrompt) ?? args.userPrompt,
         env: this.adapter.env?.(req),

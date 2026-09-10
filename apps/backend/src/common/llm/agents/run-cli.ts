@@ -27,6 +27,12 @@ export interface CliOptions {
   /** Merged over `process.env`, never replacing it — the child still has to
    *  find its own config and home. */
   env?: Record<string, string>;
+  /**
+   * Where to run the child. Every agent CLI reads its working directory's
+   * instruction files into the model prompt, so a caller that has a scratch
+   * directory passes it here. Must exist: a missing cwd is a spawn failure.
+   */
+  cwd?: string;
 }
 
 export type RunCli = (
@@ -54,6 +60,7 @@ export const runCli: RunCli = (file, args, opts) =>
       {
         timeout: opts.timeoutMs,
         maxBuffer,
+        cwd: opts.cwd,
         env: opts.env ? { ...process.env, ...opts.env } : process.env,
         encoding: 'utf8',
       },

@@ -19,3 +19,22 @@ export const CommitAnalysisOutputSchema = z.object({
 });
 
 export type CommitAnalysisOutput = z.infer<typeof CommitAnalysisOutputSchema>;
+
+/**
+ * Several commits answered by one call, each keyed by the sha it was given.
+ *
+ * `extend`ed from the single-commit schema rather than restated: the two are
+ * the same contract, and a second copy would drift the day a field is added —
+ * with nothing failing to compile, because the model is what reads it.
+ */
+export const CommitAnalysisBatchOutputSchema = z.object({
+  analyses: z
+    .array(
+      CommitAnalysisOutputSchema.extend({ sha: z.string().min(7).max(64) }),
+    )
+    .min(1),
+});
+
+export type CommitAnalysisBatchOutput = z.infer<
+  typeof CommitAnalysisBatchOutputSchema
+>;

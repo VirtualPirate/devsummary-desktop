@@ -10,6 +10,10 @@ const PAGE = 500;
  * Commits analysed concurrently. Was 50 on the cloud, where the fan-out ran
  * against a pooled organisation key; here it spends the user's own OpenAI
  * quota from one laptop, so 5 (plan R11).
+ *
+ * It is a ceiling, not a promise: an agent-CLI provider gates itself lower
+ * still (`DEFAULT_MAX_CONCURRENT`, half the machine's cores), because there a
+ * call is a local process rather than a socket.
  */
 const BATCH = 5;
 
@@ -132,16 +136,45 @@ export class CommitAnalysisJobs implements OnModuleInit {
         after: cursor,
       });
 
-      for (let i = 0; i < planned.commitIds.length; i += BATCH) {
-        const batch = planned.commitIds.slice(i, i + BATCH);
-        // allSettled (not all): a single commit exhausting its retries must not
-        // abort the rest of the batch, the page, or the pages after it — the
-        // per-commit failure is already persisted by `recordFailed` before it
-        // throws, so nothing is silently lost here.
-        await Promise.allSettled(
-          batch.map((commitId) => this.commits.analyzeCommit({ commitId })),
-        );
+      // A rolling pool of `BATCH` workers over chunks, not lockstep slices.
+      // One analysis is a whole CLI process on an agent provider and its
+      // latency varies wildly — 13.3 s to 29.1 s across three commits,
+      // measured — so a fixed slice left every finished slot idle until the
+      // slowest of its five returned. A worker that takes the next id instead
+      // keeps all five busy to the end of the page. `next++` needs no lock:
+      // the increment is synchronous and there is no await between the read
+      // and the write.
+      //
+      // Each worker swallows its own failures for the reason the previous
+      // `allSettled` did: one commit exhausting its retries must not abort the
+      // rest of the page or the pages after it, and `recordFailed` has already
+      // persisted the reason before the throw, so nothing is lost here.
+      // Chunked by what one LLM call should carry — one commit for a keyed
+      // provider, `COMMITS_PER_CALL` for an agent CLI, where a call is a
+      // process and its startup is most of the cost. Read per page, so
+      // switching provider in the settings screen lands on the next page.
+      const perCall = this.commits.commitsPerCall;
+      const chunks: string[][] = [];
+      for (let i = 0; i < planned.commitIds.length; i += perCall) {
+        chunks.push(planned.commitIds.slice(i, i + perCall));
       }
+
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(BATCH, chunks.length) }, async () => {
+          while (next < chunks.length) {
+            // Re-checked per chunk, not per page: an abort during a long page
+            // used to run to the end of it.
+            if (this.queue.isAborted(input.organizationId)) return;
+            const commitIds = chunks[next++];
+            try {
+              await this.commits.analyzeCommitBatch({ commitIds });
+            } catch {
+              // Recorded by `recordFailed`; the job row carries the retry.
+            }
+          }
+        }),
+      );
 
       cursor = planned.nextCursor;
     } while (cursor);

@@ -1,10 +1,10 @@
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentCliAdapter, AgentCliOutput } from './agent-cli.adapter';
 import {
   firstLine,
   lastOfType,
   parseJsonLines,
+  scratchDir,
   stripFence,
 } from './agent-cli.helpers';
 
@@ -25,28 +25,21 @@ interface CodexEvent {
   usage?: { input_tokens?: unknown; output_tokens?: unknown };
 }
 
-const scratch = process.env.DATA_DIR ?? tmpdir();
-
 /**
  * An empty directory to run in. `-C` sets the working root, which defaults to
  * the process cwd — this repository in development — and codex reads the root's
  * `AGENTS.md` into the prompt. The point of this directory is that there is
- * nothing in it to read.
- *
- * Under `DATA_DIR` rather than `tmpdir()` for the same reason Cursor's is: on
- * Linux `tmpdir()` is the shared `/tmp`, a fixed path there can be pre-created
- * or symlinked by any other local user, and `mkdir(…, { recursive: true })`
- * follows the symlink and succeeds. `DATA_DIR` is the Electron `userData`
- * folder, which is per user; the fallback is for headless dev only.
+ * nothing in it to read. `scratchDir` is where it lives, and why it lives
+ * there.
  */
-const workspaceDir = join(scratch, 'codex-workspace');
+const workspaceDir = scratchDir('codex-workspace');
 
 /**
  * `--output-schema` takes a **path**, not inline JSON, which is why this
  * adapter has a `files` hook at all. Kept out of `workspaceDir` so the working
  * root stays empty.
  */
-const schemaDir = join(scratch, 'codex-schemas');
+const schemaDir = scratchDir('codex-schemas');
 
 /**
  * One file per schema, so two concurrent calls either share a file whose bytes

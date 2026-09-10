@@ -13,6 +13,28 @@
  * unchecking every call site.
  */
 
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+/**
+ * A scratch directory for one CLI to work in, so it never runs in the process
+ * cwd — which in development is this repository, `AGENTS.md` and all. Every one
+ * of these CLIs reads its working directory's instruction files into the model
+ * prompt: measured on `claude`, the same tiny commit cost **25 062** input
+ * tokens with cwd on the repo and **4 537** in an empty directory, 9.6 s
+ * against 6.4 s.
+ *
+ * Under `DATA_DIR` rather than `tmpdir()`, and that is the security-relevant
+ * half: on Linux `tmpdir()` is the shared `/tmp`, where a fixed path can be
+ * pre-created — or symlinked elsewhere — by any other local user before we get
+ * there. `mkdir(…, { recursive: true })` follows that symlink and succeeds, and
+ * we would hand the CLI a directory of someone else's choosing. `DATA_DIR` is
+ * the Electron `userData` folder, which is per user; the fallback is for
+ * headless dev only, where `DATA_DIR` is unset.
+ */
+export const scratchDir = (name: string): string =>
+  join(process.env.DATA_DIR ?? tmpdir(), name);
+
 /**
  * SGR colour codes. Every one of these CLIs writes its errors coloured, and the
  * line becomes a `failure_reason` that is stored and shown on screen — a user

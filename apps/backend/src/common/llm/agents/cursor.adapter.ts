@@ -1,11 +1,10 @@
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { AgentCliAdapter, AgentCliOutput } from './agent-cli.adapter';
 import {
   firstLine,
   isEnvelope,
   jsonContractPrompt,
   parseStdout,
+  scratchDir,
   stripFence,
   sumTokens,
 } from './agent-cli.helpers';
@@ -30,18 +29,10 @@ const ENVELOPE_MARKERS = ['is_error', 'result'] as const;
  * cwd — which for the packaged backend is wherever Electron started it, and in
  * development is this repository, `AGENTS.md` and all. Cursor reads the
  * workspace's instruction files into the prompt, so the point of this directory
- * is that there is nothing in it to read.
- *
- * Under `DATA_DIR` rather than `tmpdir()`, and that is the security-relevant
- * half: on Linux `tmpdir()` is the shared `/tmp`, where a fixed path can be
- * pre-created — or symlinked elsewhere — by any other local user before we get
- * there. `mkdir(…, { recursive: true })` follows that symlink and succeeds, and
- * we would hand Cursor a directory of someone else's choosing as the workspace,
- * which is exactly the leak this directory exists to close. `DATA_DIR` is the
- * Electron `userData` folder, which is per user. The `tmpdir()` fallback is for
- * headless dev only, where `DATA_DIR` is unset.
+ * is that there is nothing in it to read. `scratchDir` is where it lives, and
+ * why it lives there.
  */
-const workspaceDir = join(process.env.DATA_DIR ?? tmpdir(), 'cursor-workspace');
+const workspaceDir = scratchDir('cursor-workspace');
 
 export const cursorAdapter: AgentCliAdapter = {
   id: 'cursor',

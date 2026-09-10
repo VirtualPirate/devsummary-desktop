@@ -3,6 +3,7 @@ import {
   firstLine,
   isEnvelope,
   parseStdout,
+  scratchDir,
   sumTokens,
 } from './agent-cli.helpers';
 
@@ -41,6 +42,24 @@ export const claudeCodeAdapter: AgentCliAdapter = {
     'Install it with `npm i -g @anthropic-ai/claude-code`, then run `claude` once and `/login`.',
   versionArgs: ['--version'],
   authArgs: ['auth', 'status'],
+
+  /**
+   * `claude` has no flag for its working directory: it reads the cwd's
+   * `CLAUDE.md`/`AGENTS.md` chain and there is no `--workspace` to point
+   * elsewhere, so the *only* way to keep this repository out of a commit
+   * analysis is to spawn the child somewhere empty. That is what this is, and
+   * it is a throughput fix as much as a correctness one — the same tiny commit
+   * cost **25 062** input tokens with cwd on `apps/backend` and **4 537** in an
+   * empty directory, 9.6 s against 6.4 s. On a real diff the whole backend
+   * `AGENTS.md` was being prefixed to every single commit.
+   *
+   * The user's own `~/.claude/CLAUDE.md` still loads — there is no flag for
+   * that either, and it is the same ~4.5 k baseline the measurement above ends
+   * at. `--strict-mcp-config` and `--disable-slash-commands` were measured
+   * here too and changed the token count not at all (`--tools ''` already
+   * leaves nothing to load), so they are not passed.
+   */
+  workspaceDir: scratchDir('claude-workspace'),
 
   buildArgs: (req) => [
     '-p',

@@ -1,6 +1,9 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { LocalTokenGuard } from '../local-token.guard';
-import { LocalSessionMiddleware } from '../local-session.middleware';
+import {
+  LocalSessionMiddleware,
+  type LocalSession,
+} from '../local-session.middleware';
 import {
   LOCAL_USER_EMAIL,
   LOCAL_USER_ID,
@@ -99,7 +102,7 @@ describe('LocalTokenGuard', () => {
 
 describe('LocalSessionMiddleware', () => {
   it('populates request.session with the seeded local user', () => {
-    const req: { session?: unknown } = {};
+    const req: { session?: LocalSession } = {};
     const next = jest.fn();
     new LocalSessionMiddleware().use(req, null, next);
 

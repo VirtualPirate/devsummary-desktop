@@ -20,16 +20,44 @@ function makeJobs(
   locOverrides: Record<string, unknown> = {},
 ) {
   const commits = {
-    planRepoAnalysis: jest.fn(async () => ({
-      commitIds: [] as string[],
-      nextCursor: null,
-    })),
-    analyzeCommit: jest.fn(async () => undefined),
-    listSweepTargets: jest.fn(async () => ({
-      runDate: '2026-08-19',
-      targets: [],
-      nextCursor: null,
-    })),
+    // The params are declared, not inferred: `jest.fn(async () => …)` types
+    // `mock.calls` as an empty tuple, and the cases below read the planner's
+    // argument back off it.
+    planRepoAnalysis: jest.fn(
+      async (_input: {
+        repositoryId: string;
+        sinceISO: string;
+        force: boolean;
+        limit: number;
+        after?: { authoredAt: string; id: string } | null;
+      }) => ({
+        commitIds: [] as string[],
+        nextCursor: null,
+      }),
+    ),
+    analyzeCommit: jest.fn(async (_input: { commitId: string }) => undefined),
+    // One per call by default, which is what a keyed provider does — so the
+    // cases below assert on `analyzeCommit` exactly as they did before
+    // batching existed. `analyzeCommitBatch` delegating to it for a chunk of
+    // one is the real activity's own first line.
+    commitsPerCall: 1,
+    analyzeCommitBatch: jest.fn(async function (
+      this: { analyzeCommit: (i: { commitId: string }) => Promise<void> },
+      { commitIds }: { commitIds: string[] },
+    ) {
+      for (const commitId of commitIds)
+        await commits.analyzeCommit({ commitId });
+    }),
+    listSweepTargets: jest.fn(
+      async (_input: {
+        limit: number;
+        after?: { repositoryId: string; branch: string } | null;
+      }) => ({
+        runDate: '2026-08-19',
+        targets: [],
+        nextCursor: null,
+      }),
+    ),
     planIngest: jest.fn(async () => ({ skip: 'nothing-new' })),
     backfillFromLatest: jest.fn(async () => ({
       inserted: 0,
@@ -42,7 +70,11 @@ function makeJobs(
     zeroFillAndFindMissing: jest.fn(async () => ({
       repositoryIds: [] as string[],
     })),
-    pageRepo: jest.fn(async () => ({ nextCursor: null as string | null })),
+    pageRepo: jest.fn(
+      async (_input: { repositoryId: string; cursor: string | null }) => ({
+        nextCursor: null as string | null,
+      }),
+    ),
     ...locOverrides,
   };
   const queue = {
@@ -212,6 +244,71 @@ describe('CommitAnalysisJobs — analysis.analyzeRepo (was AnalyzeRepoWorkflow)'
     });
 
     expect(peak).toBe(5);
+  });
+
+  // The reason the fan-out is a rolling pool and not `allSettled` over slices
+  // of five. One analysis is a whole CLI process on an agent provider and its
+  // latency varies 13–29 s, so a slice that waits for its slowest member idles
+  // four slots while it does. Here one commit never settles until the end: a
+  // pool keeps working around it, lockstep slices would stall on the first
+  // slice forever.
+  it('keeps the other slots working while one analysis hangs', async () => {
+    let releaseHung = () => {};
+    const hung = new Promise<void>((resolve) => {
+      releaseHung = resolve;
+    });
+    const done: string[] = [];
+    const { jobs } = makeJobs({
+      planRepoAnalysis: jest.fn(async () => ({
+        commitIds: Array.from({ length: 12 }, (_, i) => `c${i}`),
+        nextCursor: null,
+      })),
+      analyzeCommit: jest.fn(async ({ commitId }: { commitId: string }) => {
+        if (commitId === 'c0') await hung;
+        done.push(commitId);
+      }),
+    });
+
+    const run = jobs.analyzeRepo({
+      repositoryId: 'r1',
+      sinceISO: '2026-01-01T00:00:00Z',
+      force: false,
+    });
+
+    // Every commit but the hung one, on four workers, while the fifth waits.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(done).toHaveLength(11);
+    expect(done).not.toContain('c0');
+
+    releaseHung();
+    await run;
+    expect(done).toHaveLength(12);
+  });
+
+  // On an agent CLI a call is a process, so the page is chunked and the pool
+  // works over chunks. 10 commits at 4 per call is 3 calls, the last short.
+  it('packs the page into calls of `commitsPerCall` for a CLI provider', async () => {
+    const { jobs, commits } = makeJobs({
+      commitsPerCall: 4,
+      planRepoAnalysis: jest.fn(async () => ({
+        commitIds: Array.from({ length: 10 }, (_, i) => `c${i}`),
+        nextCursor: null,
+      })),
+    });
+
+    await jobs.analyzeRepo({
+      repositoryId: 'r1',
+      sinceISO: '2026-01-01T00:00:00Z',
+      force: false,
+    });
+
+    expect(
+      commits.analyzeCommitBatch.mock.calls.map(([a]) => a.commitIds),
+    ).toEqual([
+      ['c0', 'c1', 'c2', 'c3'],
+      ['c4', 'c5', 'c6', 'c7'],
+      ['c8', 'c9'],
+    ]);
   });
 
   it('stops mid-loop when the organization is being torn down', async () => {

@@ -4,6 +4,7 @@ import {
   jsonContractPrompt,
   lastOfType,
   parseJsonLines,
+  scratchDir,
   stripFence,
 } from './agent-cli.helpers';
 
@@ -97,6 +98,26 @@ export const opencodeAdapter: AgentCliAdapter = {
   // No `authArgs`: credentials are per provider *inside* opencode
   // (`opencode auth login`, stored in its own `auth.json`), so there is no
   // single logged-in state to probe and the card reports none.
+
+  /**
+   * An empty directory to run in. OpenCode's inline agent replaces the build
+   * prompt, which is what empties its `<directories>` block — but "the cwd
+   * cannot matter" is a claim about a version, and an empty cwd makes it true
+   * instead. Unmeasured on this CLI, unlike `claude`, because its default
+   * model was throttled at the time; an empty directory can only shrink a
+   * prompt, so it costs nothing to be sure.
+   */
+  workspaceDir: scratchDir('opencode-workspace'),
+
+  /**
+   * Two, where the shared default is five. The default model is OpenCode Zen's
+   * free tier, and a spent quota is not an error here: opencode retries
+   * internally with backoff, emitting no JSON at all, so a throttled call
+   * burns the full 120 s timeout (`docs/receipts/AGENT-CLI-OPENCODE.md` row
+   * 5). Raising concurrency against a rate limit buys nothing and costs the
+   * whole batch.
+   */
+  maxConcurrent: 2,
 
   buildArgs: (req) => [
     'run',

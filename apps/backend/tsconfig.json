@@ -27,5 +27,14 @@
   // test/e2e has its own tsconfig (esnext/bundler): the harness is ESM,
   // transformed by swc under Vitest, and uses `import.meta` plus
   // extensionless relative imports — both errors under nodenext/CommonJS.
-  "exclude": ["node_modules", "dist", "test/e2e"]
+  // `vitest.e2e.config.ts` is the same case and for the same reason: Vite
+  // loads it as ESM and it reads `import.meta.url`, which is a TS1470 in a
+  // file this config would emit as CommonJS. tsconfig.build.json already
+  // excludes it.
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test/e2e",
+    "vitest.e2e.config.ts"
+  ]
 }

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   AgentCliLlmClient,
   claudeCodeAdapter,
+  DEFAULT_MAX_CONCURRENT,
   type AgentCliAdapter,
   type AgentCliDetector,
   type CliOptions,
@@ -209,6 +210,10 @@ describe('AgentCliLlmClient success path', () => {
 
       expect((await stat(workspaceDir)).isDirectory()).toBe(true);
       expect(recorded.calls).toHaveLength(1);
+      // Created *and* run in: `claude` has no flag for its working directory,
+      // so spawning the child in the empty directory is the only thing keeping
+      // the cwd's CLAUDE.md/AGENTS.md chain out of the prompt.
+      expect(recorded.calls[0].opts.cwd).toBe(workspaceDir);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -228,16 +233,64 @@ describe('AgentCliLlmClient success path', () => {
   });
 });
 
-// A CLI call is a whole process, not a socket. Commit analysis fans out five at
-// a time and five `claude` processes on a laptop is not a good trade.
+// A CLI call is a whole process, not a socket, so the client gates them.
+//
+// These use an adapter with no `workspaceDir`: the assertions are about what
+// has spawned by a given tick, and the real `mkdir` between acquiring a slot
+// and spawning would make a single `setImmediate` a race rather than a fact.
+const gated = (maxConcurrent?: number): AgentCliAdapter => ({
+  ...claudeCodeAdapter,
+  workspaceDir: undefined,
+  maxConcurrent,
+});
+
+const gatedClient = (run: RunCli, maxConcurrent?: number) =>
+  new AgentCliLlmClient(
+    SETTINGS,
+    gated(maxConcurrent),
+    detectorFor('/usr/bin/claude'),
+    run,
+  );
+
 describe('AgentCliLlmClient concurrency', () => {
-  it('runs at most two processes at once and admits the rest as they finish', async () => {
+  // Derived from the core count, so the expected number comes from the same
+  // export rather than a literal — a 4-core CI box gates at 2 and an M3 at 4,
+  // and a test that hardcoded either would be red on the other machine.
+  it('defaults to the machine-derived cap, between two and five', async () => {
+    expect(DEFAULT_MAX_CONCURRENT).toBeGreaterThanOrEqual(2);
+    expect(DEFAULT_MAX_CONCURRENT).toBeLessThanOrEqual(5);
+
     const resolvers: Array<(r: CliResult) => void> = [];
     const run: RunCli = () =>
       new Promise<CliResult>((resolve) => {
         resolvers.push(resolve);
       });
-    const subject = client(run);
+    const subject = gatedClient(run);
+
+    const total = DEFAULT_MAX_CONCURRENT + 1;
+    const calls = Array.from({ length: total }, () =>
+      subject.parse(SCHEMA, 'agent_cli_test', PROMPTS),
+    );
+    await flush();
+    expect(resolvers).toHaveLength(DEFAULT_MAX_CONCURRENT);
+
+    const finish = { code: 0, stdout: envelope(), stderr: '', timedOut: false };
+    resolvers.forEach((r) => r(finish));
+    await flush();
+    // The one held back is admitted by a released slot, not by the counter.
+    expect(resolvers).toHaveLength(total);
+
+    resolvers[total - 1](finish);
+    await expect(Promise.all(calls)).resolves.toHaveLength(total);
+  });
+
+  it('honours an adapter’s lower cap and admits the rest as they finish', async () => {
+    const resolvers: Array<(r: CliResult) => void> = [];
+    const run: RunCli = () =>
+      new Promise<CliResult>((resolve) => {
+        resolvers.push(resolve);
+      });
+    const subject = gatedClient(run, 2);
 
     const calls = [1, 2, 3, 4, 5].map(() =>
       subject.parse(SCHEMA, 'agent_cli_test', PROMPTS),
@@ -276,7 +329,7 @@ describe('AgentCliLlmClient concurrency', () => {
       spawns.push(file);
       return Promise.resolve(results.shift()!);
     };
-    const subject = client(run);
+    const subject = gatedClient(run, 2);
 
     // Settled eagerly, in this tick: an unhandled rejection here would fail the
     // suite from somewhere else entirely.

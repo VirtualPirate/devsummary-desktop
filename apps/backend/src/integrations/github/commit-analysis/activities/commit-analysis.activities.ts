@@ -1,12 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ApiException } from '../../../../common/errors';
 import { GithubAppClient, type GithubCommitDetail } from '../../github.client';
 import { GithubInstallationsRepository } from '../../repositories/installations.repository';
 import { GithubRepositoriesRepository } from '../../repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../repositories/repository-branches.repository';
 import { CommitAnalysesRepository } from '../repositories/commit-analyses.repository';
 import { CommitsRepository } from '../repositories/commits.repository';
-import { CommitAnalyzerService } from '../services/commit-analyzer.service';
+import {
+  CommitAnalyzerService,
+  type AnalyzeCommitResult,
+  type BatchAnalyzeInput,
+} from '../services/commit-analyzer.service';
 import { CommitBackfillService } from '../services/commit-backfill.service';
+
+/** One commit, read and ready for the model. */
+interface Prepared {
+  commitId: string;
+  additions: number;
+  deletions: number;
+  input: BatchAnalyzeInput;
+}
 
 @Injectable()
 export class CommitAnalysisActivities {
@@ -199,13 +212,31 @@ export class CommitAnalysisActivities {
     return { commitIds: toEnqueue, nextCursor };
   }
 
-  async analyzeCommit(input: { commitId: string }): Promise<void> {
-    const commit = await this.commits.findById(input.commitId);
+  /**
+   * How many commits one LLM call carries, decided by the provider that is
+   * selected *now*. Surfaced here because the fan-out in `analyzeRepo` is what
+   * chunks by it, and the jobs class holds activities rather than config.
+   */
+  get commitsPerCall(): number {
+    return this.analyzer.commitsPerCall;
+  }
+
+  /**
+   * Everything one analysis needs, or `null` when there is nothing to do.
+   *
+   * Extracted so the batch path and the single path cannot disagree about what
+   * counts as "already analysed" or "gone". A GitHub failure still throws
+   * after recording, exactly as it did when this was inline: it is the one
+   * outcome worth retrying, and the caller decides whether a sibling commit
+   * survives it.
+   */
+  private async prepare(commitId: string): Promise<Prepared | null> {
+    const commit = await this.commits.findById(commitId);
     if (!commit) {
       this.logger.warn(
-        `[analyze-commit] commit ${input.commitId} not found; exiting`,
+        `[analyze-commit] commit ${commitId} not found; exiting`,
       );
-      return;
+      return null;
     }
 
     const existing = await this.analyses.findByCommitId(commit.id);
@@ -213,7 +244,7 @@ export class CommitAnalysisActivities {
       this.logger.log(
         `[analyze-commit] commit ${commit.id} already has ${existing.status}; exiting`,
       );
-      return;
+      return null;
     }
 
     const repo = await this.repos.findById(commit.repositoryId);
@@ -221,14 +252,14 @@ export class CommitAnalysisActivities {
       this.logger.warn(
         `[analyze-commit] repo ${commit.repositoryId} not found; exiting`,
       );
-      return;
+      return null;
     }
     const installation = await this.installs.findById(repo.installationId);
     if (!installation) {
       this.logger.warn(
         `[analyze-commit] installation ${repo.installationId} not found; exiting`,
       );
-      return;
+      return null;
     }
 
     let detail: GithubCommitDetail;
@@ -243,46 +274,143 @@ export class CommitAnalysisActivities {
       throw err;
     }
 
-    const additions = detail.files.reduce((sum, f) => sum + f.additions, 0);
-    const deletions = detail.files.reduce((sum, f) => sum + f.deletions, 0);
-
-    try {
-      const result = await this.analyzer.analyzeCommit({
+    return {
+      commitId: commit.id,
+      additions: detail.files.reduce((sum, f) => sum + f.additions, 0),
+      deletions: detail.files.reduce((sum, f) => sum + f.deletions, 0),
+      input: {
+        sha: commit.sha,
         repoFullName: repo.fullName,
         authorName: commit.authorName,
         authorEmail: commit.authorEmail,
         message: commit.message,
         files: detail.files,
-      });
+      },
+    };
+  }
 
-      if (result.status === 'skipped_empty') {
-        await this.analyses.insert({
-          commitId: commit.id,
-          status: 'skipped_empty',
-          diffWasTruncated: false,
-          additions,
-          deletions,
-        });
+  private async persist(
+    ready: Prepared,
+    result: AnalyzeCommitResult,
+  ): Promise<void> {
+    if (result.status === 'skipped_empty') {
+      await this.analyses.insert({
+        commitId: ready.commitId,
+        status: 'skipped_empty',
+        diffWasTruncated: false,
+        additions: ready.additions,
+        deletions: ready.deletions,
+      });
+      return;
+    }
+
+    await this.analyses.insert({
+      commitId: ready.commitId,
+      status: 'analyzed',
+      commitType: result.commitType,
+      summary: result.summary,
+      changes: result.changes,
+      model: result.model,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+      diffCharsSent: result.diffCharsSent,
+      diffWasTruncated: result.diffWasTruncated,
+      additions: ready.additions,
+      deletions: ready.deletions,
+    });
+  }
+
+  async analyzeCommit(input: { commitId: string }): Promise<void> {
+    const ready = await this.prepare(input.commitId);
+    if (!ready) return;
+
+    try {
+      await this.persist(ready, await this.analyzer.analyzeCommit(ready.input));
+    } catch (err) {
+      await this.recordFailed(ready.commitId, err);
+      throw err;
+    }
+  }
+
+  /**
+   * One LLM call for several commits, which on an agent CLI is one process
+   * instead of four (`COMMITS_PER_CALL`).
+   *
+   * Every path back to a single call is deliberate. A commit the batch left
+   * out, or answered under a sha nobody asked for, is analysed alone — the
+   * alternative is writing one commit's summary onto another's row. A
+   * malformed *batch* answer is about the batch, so its commits are retried
+   * singly straight away. A **transport** failure is about the provider, and
+   * four more calls into a throttled CLI would time out the same way for
+   * 120 s each, so those are recorded and left to the job's retry profile.
+   */
+  async analyzeCommitBatch(input: { commitIds: string[] }): Promise<void> {
+    if (input.commitIds.length === 1) {
+      return this.analyzeCommit({ commitId: input.commitIds[0] });
+    }
+
+    const ready: Prepared[] = [];
+    for (const commitId of input.commitIds) {
+      try {
+        const prepared = await this.prepare(commitId);
+        if (prepared) ready.push(prepared);
+      } catch (err) {
+        // Recorded against that commit already; its siblings are unaffected
+        // and the job row carries the retry.
+        this.logger.warn(
+          `[analyze-batch] commit ${commitId} could not be prepared: ${
+            err instanceof Error ? err.message : 'unknown error'
+          }`,
+        );
+      }
+    }
+    if (ready.length === 0) return;
+
+    let answered: Map<string, AnalyzeCommitResult>;
+    try {
+      answered = await this.analyzer.analyzeCommits(ready.map((r) => r.input));
+    } catch (err) {
+      if (
+        err instanceof ApiException &&
+        err.code === 'OPENAI_RESPONSE_INVALID'
+      ) {
+        await this.analyzeEachAlone(ready);
         return;
       }
-
-      await this.analyses.insert({
-        commitId: commit.id,
-        status: 'analyzed',
-        commitType: result.commitType,
-        summary: result.summary,
-        changes: result.changes,
-        model: result.model,
-        promptTokens: result.promptTokens,
-        completionTokens: result.completionTokens,
-        diffCharsSent: result.diffCharsSent,
-        diffWasTruncated: result.diffWasTruncated,
-        additions,
-        deletions,
-      });
-    } catch (err) {
-      await this.recordFailed(commit.id, err);
+      for (const r of ready) await this.recordFailed(r.commitId, err);
       throw err;
+    }
+
+    const unanswered: Prepared[] = [];
+    for (const r of ready) {
+      const result = answered.get(r.input.sha);
+      if (!result) {
+        unanswered.push(r);
+        continue;
+      }
+      await this.persist(r, result);
+    }
+
+    if (unanswered.length > 0) {
+      this.logger.warn(
+        `[analyze-batch] ${unanswered.length}/${ready.length} commits unanswered; retrying alone`,
+      );
+      await this.analyzeEachAlone(unanswered);
+    }
+  }
+
+  /**
+   * The fallback. `analyzeCommit` re-runs `prepare`, so each of these costs a
+   * second GitHub read — cheap next to a second LLM call, and it keeps one
+   * definition of what a single analysis is.
+   */
+  private async analyzeEachAlone(ready: Prepared[]): Promise<void> {
+    for (const r of ready) {
+      try {
+        await this.analyzeCommit({ commitId: r.commitId });
+      } catch {
+        // Recorded by `analyzeCommit`; a sibling must still get its turn.
+      }
     }
   }
 

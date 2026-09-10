@@ -175,9 +175,9 @@ describe('BriefRenderService.emailSubject', () => {
 
   it('falls back to the cadence when the scope is gone', () => {
     const svc = new BriefRenderService();
-    expect(
-      svc.emailSubject({ ...base, scope: null, cadence: 'monthly' }),
-    ).toBe("This month's development report is ready");
+    expect(svc.emailSubject({ ...base, scope: null, cadence: 'monthly' })).toBe(
+      "This month's development report is ready",
+    );
     expect(svc.emailSubject({ ...base, scope: null, cadence: null })).toBe(
       "This week's development report is ready",
     );

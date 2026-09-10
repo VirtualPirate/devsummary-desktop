@@ -6,6 +6,7 @@ import type { CommitAnalysesRepository } from '../repositories/commit-analyses.r
 import type { CommitsRepository } from '../repositories/commits.repository';
 import type { CommitAnalyzerService } from '../services/commit-analyzer.service';
 import type { CommitBackfillService } from '../services/commit-backfill.service';
+import { AppError } from '../../../../common/errors';
 import { CommitAnalysisActivities } from './commit-analysis.activities';
 
 function makeMocks() {
@@ -36,6 +37,8 @@ function makeMocks() {
     },
     analyzer: {
       analyzeCommit: jest.fn(),
+      analyzeCommits: jest.fn(),
+      commitsPerCall: 4,
     },
     trackedBranches: {
       listTrackedPage: jest.fn(),
@@ -288,6 +291,147 @@ describe('CommitAnalysisActivities', () => {
 
       expect(mocks.analyzer.analyzeCommit).not.toHaveBeenCalled();
       expect(mocks.analyses.insert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('analyzeCommitBatch', () => {
+    /** Two commits ready for the model, `c1`/`sha1` and `c2`/`sha2`. */
+    const ready = (mocks: ReturnType<typeof makeMocks>) => {
+      mocks.commits.findById.mockImplementation((id: string) =>
+        Promise.resolve({
+          id,
+          sha: id === 'c1' ? 'sha1aaa' : 'sha2bbb',
+          repositoryId: 'r1',
+          authorName: 'A',
+          authorEmail: 'a@b.c',
+          message: `msg ${id}`,
+        }),
+      );
+      mocks.analyses.findByCommitId.mockResolvedValue(null);
+      mocks.repos.findById.mockResolvedValue({
+        id: 'r1',
+        fullName: 'acme/web',
+        installationId: 'i1',
+      });
+      mocks.installs.findById.mockResolvedValue({
+        id: 'i1',
+        githubInstallationId: 42,
+      });
+      mocks.client.getCommit.mockResolvedValue({
+        files: [
+          { path: 'src/a.ts', additions: 3, deletions: 1, patch: '@@ @@' },
+        ],
+      });
+    };
+
+    const analyzed = (summary: string) => ({
+      status: 'analyzed' as const,
+      commitType: 'feature' as const,
+      summary,
+      changes: ['did a thing'],
+      model: 'haiku',
+      promptTokens: 100,
+      completionTokens: 50,
+      diffCharsSent: 5,
+      diffWasTruncated: false,
+      rawOutput: {
+        commit_type: 'feature' as const,
+        summary,
+        changes: ['did a thing'],
+      },
+    });
+
+    it('writes one row per commit from a single call', async () => {
+      const mocks = makeMocks();
+      ready(mocks);
+      mocks.analyzer.analyzeCommits.mockResolvedValueOnce(
+        new Map([
+          ['sha1aaa', analyzed('first')],
+          ['sha2bbb', analyzed('second')],
+        ]),
+      );
+      const activities = makeActivities(mocks);
+
+      await activities.analyzeCommitBatch({ commitIds: ['c1', 'c2'] });
+
+      expect(mocks.analyzer.analyzeCommits).toHaveBeenCalledTimes(1);
+      expect(mocks.analyzer.analyzeCommit).not.toHaveBeenCalled();
+      expect(mocks.analyses.insert).toHaveBeenCalledTimes(2);
+      expect(mocks.analyses.insert.mock.calls.map(([r]) => r.summary)).toEqual([
+        'first',
+        'second',
+      ]);
+    });
+
+    // The map's contract: absent means unanswered, and an unanswered commit is
+    // analysed alone rather than left without a row.
+    it('re-analyses a commit the batch left out, alone', async () => {
+      const mocks = makeMocks();
+      ready(mocks);
+      mocks.analyzer.analyzeCommits.mockResolvedValueOnce(
+        new Map([['sha1aaa', analyzed('first')]]),
+      );
+      mocks.analyzer.analyzeCommit.mockResolvedValueOnce(analyzed('alone'));
+      const activities = makeActivities(mocks);
+
+      await activities.analyzeCommitBatch({ commitIds: ['c1', 'c2'] });
+
+      expect(mocks.analyzer.analyzeCommit).toHaveBeenCalledTimes(1);
+      expect(mocks.analyses.insert.mock.calls.map(([r]) => r.summary)).toEqual([
+        'first',
+        'alone',
+      ]);
+    });
+
+    // A malformed *batch* answer is about the batch: the same commits usually
+    // parse one at a time, so they are retried singly straight away.
+    it('falls back to single calls when the batch answer was malformed', async () => {
+      const mocks = makeMocks();
+      ready(mocks);
+      mocks.analyzer.analyzeCommits.mockRejectedValueOnce(
+        AppError.OPENAI_RESPONSE_INVALID({ reason: 'no analyses key' }),
+      );
+      mocks.analyzer.analyzeCommit.mockResolvedValue(analyzed('alone'));
+      const activities = makeActivities(mocks);
+
+      await activities.analyzeCommitBatch({ commitIds: ['c1', 'c2'] });
+
+      expect(mocks.analyzer.analyzeCommit).toHaveBeenCalledTimes(2);
+      expect(mocks.analyses.insert).toHaveBeenCalledTimes(2);
+    });
+
+    // A transport failure is about the provider. Four more calls into a
+    // throttled CLI would time out the same way at 120 s each, so the commits
+    // are recorded failed and the job's retry profile decides.
+    it('records every commit failed and rethrows on a transport failure', async () => {
+      const mocks = makeMocks();
+      ready(mocks);
+      mocks.analyzer.analyzeCommits.mockRejectedValueOnce(
+        AppError.OPENAI_API_FAILED({ reason: 'timed out after 120s' }),
+      );
+      const activities = makeActivities(mocks);
+
+      await expect(
+        activities.analyzeCommitBatch({ commitIds: ['c1', 'c2'] }),
+      ).rejects.toMatchObject({ code: 'OPENAI_API_FAILED' });
+
+      expect(mocks.analyzer.analyzeCommit).not.toHaveBeenCalled();
+      expect(mocks.analyses.insert.mock.calls.map(([r]) => r.status)).toEqual([
+        'failed',
+        'failed',
+      ]);
+    });
+
+    it('takes the single path for a chunk of one', async () => {
+      const mocks = makeMocks();
+      ready(mocks);
+      mocks.analyzer.analyzeCommit.mockResolvedValueOnce(analyzed('only'));
+      const activities = makeActivities(mocks);
+
+      await activities.analyzeCommitBatch({ commitIds: ['c1'] });
+
+      expect(mocks.analyzer.analyzeCommits).not.toHaveBeenCalled();
+      expect(mocks.analyzer.analyzeCommit).toHaveBeenCalledTimes(1);
     });
   });
 });
