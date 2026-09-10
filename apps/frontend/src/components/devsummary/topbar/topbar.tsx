@@ -1,6 +1,7 @@
 import { OrgSwitcher } from "@/components/organization/org-switcher";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { BrandMark } from "../brand-mark";
+import { ReloadButton } from "./reload-button";
 
 export function Topbar() {
   return (
@@ -15,6 +16,7 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-1.5">
+        <ReloadButton />
         <ThemeToggle />
       </div>
     </header>
