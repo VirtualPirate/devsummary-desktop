@@ -1,13 +1,15 @@
 # electron-builder config — docs/MIGRATION-PLAN.md Phase 10.
 #
-# STATUS: sketched only, per docs/DELTAS.md D-D ("P10 packaging SKIPPED... write the
-# electron-builder config + `dist` script... but do not build or verify installers").
-# This file has never been run through `electron-builder`. Nothing here has produced
-# an installer, let alone one that launched on a clean machine. Risks R6 (PGlite wasm
-# sealed inside asar) and R7 (migration-on-upgrade data loss) are OPEN — see
-# docs/receipts/PHASE-10.md.
+# STATUS: verified on 2026-09-10. `pnpm dist` produces arm64 + x64 dmgs on this Mac,
+# and the packaged arm64 app boots: PGlite initializes a fresh cluster in userData,
+# all 16 migrations apply, the backend listens on a random loopback port, and the
+# renderer completes its startup API calls through the x-desktop-token guard.
+# R6 (PGlite sealed in asar) is closed by construction — the backend ships outside
+# asar entirely. Still OPEN: R7 (migration-on-upgrade data loss; backend-side, not a
+# packaging concern), every non-mac target, and any machine other than the one that
+# built it, because nothing is signed (see mac.identity below).
 
-appId: app.finlens.devsummary
+appId: app.devsummary.com
 productName: DevSummary
 copyright: Copyright DevSummary
 
@@ -28,24 +30,35 @@ publish: null
 #
 # main.ts resolves its two children by relative path from its own compiled location
 # (apps/desktop/dist/main.js):
-#   backend:  __dirname/../../backend/dist/main.js     -> <app root>/backend/dist/main.js
-#   frontend: __dirname/../../frontend/dist/index.html -> <app root>/frontend/dist/index.html
-# so the packaged app root must reproduce that layout exactly: this package's own
-# dist/ at the root, plus backend/ and frontend/ copied in as siblings.
+#   backend:  __dirname/../../backend/dist/main.js
+#   frontend: __dirname/../../frontend/dist/index.html
+# Packaged, __dirname is `<app>.app/Contents/Resources/app.asar/dist`, so `../../`
+# lands in `Contents/Resources` — OUTSIDE the archive. Both children therefore ship
+# as extraResources, not as `files` entries: `files` would put them at
+# `app.asar/backend/...`, one level too deep, which is exactly how the first real
+# `pnpm dist` run failed (ERR_MODULE_NOT_FOUND on backend/dist/main.js, plus
+# ERR_FILE_NOT_FOUND on the frontend index.html).
+#
+# Keeping the backend outside asar is also what makes it *work*, not just resolve:
+# it is ESM, and Node's ESM loader does not go through Electron's asar shim the way
+# require() does. Same reason PGlite is happy — its .wasm/.data sit on the real
+# filesystem here, so no asarUnpack rule is needed any more.
 #
 # Backend's node_modules is pnpm-managed (symlink forest into a shared content
 # store), which electron-builder's own dependency walker does not prune correctly.
-# `build/beforePack.js` runs `pnpm --filter backend deploy --prod` first, which
-# materializes a real, non-symlinked, production-only node_modules for the backend
-# (workspace deps like @launchstack/core get inlined, not left as symlinks) into
-# .backend-deploy/. That output — dist + node_modules + package.json, per backend's
-# own `"files": ["dist"]"` allowlist — is what actually gets copied below.
+# `build/beforePack.js` runs `pnpm --filter backend deploy --legacy --prod` first,
+# which materializes a real, non-symlinked, production-only node_modules for the
+# backend (workspace deps like @launchstack/core get inlined, not left as symlinks)
+# into .backend-deploy/. `--legacy` is required on pnpm v10+, which otherwise
+# refuses with ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE.
 beforePack: build/beforePack.js
 
 files:
   - dist/**/*
   - package.json
   - "!**/*.map"
+
+extraResources:
   - from: .backend-deploy/dist
     to: backend/dist
   - from: .backend-deploy/node_modules
@@ -54,16 +67,6 @@ files:
     to: backend/package.json
   - from: ../frontend/dist
     to: frontend/dist
-
-# The single most likely packaging failure (plan Phase 10 / risk R6): Postgres
-# (PGlite) mmaps its wasm and opens its data file directly off the native
-# filesystem. Both fail silently or loudly inside asar's read-only virtual FS.
-# `**/` covers both the pnpm-deploy layout above (backend/node_modules/...) and a
-# plain-npm-style layout, in case the packaging strategy changes before this is
-# ever actually run.
-asarUnpack:
-  - "**/node_modules/@electric-sql/pglite/dist/*.wasm"
-  - "**/node_modules/@electric-sql/pglite/dist/*.data"
 
 # Data lives in the OS-managed per-user app-data directory, never inside the
 # (read-only, wiped-on-update) app bundle. main.ts already passes
@@ -89,9 +92,20 @@ mac:
     - target: dmg
       arch: [arm64, x64]
   category: public.app-category.developer-tools
-  # No code-signing identity configured (no Apple Developer ID in this environment).
-  # An unsigned dmg will trigger Gatekeeper on any machine but the one that built it.
-  identity: null
+  # Ad-hoc signature. There is no Apple Developer ID in this environment, and
+  # `identity: null` (what this config used to say) does not mean "unsigned" in a
+  # useful way — it means electron-builder never seals the bundle at all, leaving
+  # only the linker-generated ad-hoc signature on Electron's own Mach-O. The result
+  # has no Contents/_CodeSignature, so `codesign` reports "code has no resources but
+  # signature indicates they must be present" and `spctl -a` exits 1 even before
+  # quarantine is involved.
+  #
+  # "-" makes electron-builder ad-hoc sign the whole bundle, which is well-formed and
+  # launches locally. It is NOT a substitute for release signing: an ad-hoc app that
+  # arrives with a quarantine bit (i.e. any real download) is still refused, because
+  # Gatekeeper wants a Developer ID plus notarization. Swap in the real identity and
+  # add notarization before shipping — see docs/RELEASE-CHECKLIST.md §1.
+  identity: "-"
 
 win:
   target:

@@ -2,6 +2,7 @@ import {
   Navigate,
   Outlet,
   createRootRoute,
+  createHashHistory,
   createRoute,
   createRouter,
   redirect,
@@ -283,8 +284,12 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
+// Hash history, not the default pathname history: packaged, the app is loaded
+// from a file:// URL whose pathname is the .app bundle path and whose origin is
+// opaque, so pathname routes never match and pushState is rejected outright.
 export const router = createRouter({
   routeTree,
+  history: createHashHistory(),
 });
 
 declare module "@tanstack/react-router" {

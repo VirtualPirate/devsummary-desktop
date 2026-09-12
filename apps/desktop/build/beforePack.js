@@ -33,8 +33,50 @@ module.exports = async function beforePack() {
   // Requires apps/backend/dist and packages/*/dist to already exist — i.e. this
   // must run after `pnpm build`, same as the root "dist" script already does
   // (`pnpm build && pnpm --filter desktop dist`).
-  execFileSync('pnpm', ['--filter', 'backend', 'deploy', '--prod', target], {
+  // `--legacy`: pnpm v10 refuses to deploy from a workspace that is not set up
+  // for injected dependencies (ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE). The flag
+  // is pnpm's own escape hatch and keeps the pre-v10 behaviour we want here —
+  // copy the workspace deps in rather than hard-link them from the store.
+  execFileSync('pnpm', ['--filter', 'backend', 'deploy', '--legacy', '--prod', target], {
     cwd: repoRoot,
     stdio: 'inherit',
   });
+
+  pruneEscapingSymlinks(target);
 };
+
+/**
+ * `pnpm deploy` leaves one symlink pointing back out at the source workspace:
+ * `node_modules/.pnpm/node_modules/backend -> ../../../../../backend`, i.e. the
+ * deployed package linking to its own repo checkout. Harmless where it is
+ * created — the target exists — but once electron-builder copies the tree into
+ * `Contents/Resources/backend/`, those five `..` hops land on `Contents/backend`
+ * and the link dangles.
+ *
+ * That is not cosmetic. Code signing walks the whole bundle, and a dangling link
+ * aborts the build outright:
+ *
+ *   ENOENT: no such file or directory, stat '.../Resources/backend/node_modules/
+ *   .pnpm/node_modules/backend'
+ *
+ * And had it resolved, it would have pointed the shipped app at a directory on
+ * the build machine. Drop any symlink whose target escapes the deploy root.
+ */
+function pruneEscapingSymlinks(root) {
+  const realRoot = fs.realpathSync(root);
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        const target = path.resolve(dir, fs.readlinkSync(full));
+        if (target !== realRoot && !target.startsWith(realRoot + path.sep)) {
+          fs.rmSync(full, { force: true });
+          console.log(`[beforePack] pruned escaping symlink ${path.relative(root, full)}`);
+        }
+      } else if (entry.isDirectory()) {
+        walk(full);
+      }
+    }
+  };
+  walk(realRoot);
+}
