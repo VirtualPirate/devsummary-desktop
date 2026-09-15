@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Key, Sparkles, TriangleAlert } from "lucide-react";
+import { Check, CloudUpload, Key, Sparkles, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import type {
   AgentCliProviderName,
@@ -173,6 +173,43 @@ const PAGE_DESCRIPTION =
 
 const SECTION_TITLE = "text-[0.9375rem] font-semibold tracking-[-0.01em]";
 const SECTION_BODY = "mt-0.5 text-[0.8125rem] text-muted-foreground";
+
+/**
+ * Where a commit actually goes, named for the provider that is selected.
+ *
+ * The consent gate says an AI provider receives commit messages and diffs; it
+ * cannot say *which*, because nothing is chosen when it runs. This is the
+ * sentence that names one, and it lives here because this is where the choice is
+ * made — it re-renders on every switch, so it cannot describe a provider the
+ * user has moved off.
+ */
+function EgressNote({ provider }: { provider: LlmProviderName }) {
+  const meta = PROVIDERS[provider];
+  return (
+    <p className="flex gap-2.5 rounded-md border border-dashed px-3.5 py-3 text-[0.8125rem] leading-[1.45] text-muted-foreground">
+      <CloudUpload className="mt-px size-4 flex-none" />
+      <span>
+        {meta.kind === "key" ? (
+          <>
+            Commit messages and diffs from your tracked branches are sent to{" "}
+            <b className="font-medium text-foreground">{meta.name}</b> at{" "}
+            <code className="font-mono">{meta.host}</code>, billed to your own
+            key.
+          </>
+        ) : (
+          <>
+            Commit messages and diffs are handed to the{" "}
+            <b className="font-medium text-foreground">{meta.name}</b> binary on
+            this machine, which sends them on to whichever account it is logged
+            into.
+          </>
+        )}{" "}
+        Briefs are written from the result the same way. Nothing else about your
+        repositories leaves this machine.
+      </span>
+    </p>
+  );
+}
 
 function ProviderTile({ provider }: { provider: LlmProviderName }) {
   const { Mark } = PROVIDERS[provider];
@@ -584,6 +621,7 @@ function FirstRun({
         </p>
       </div>
       <div className="w-full max-w-[46rem] space-y-4">
+        <EgressNote provider={selected} />
         <div className="grid grid-cols-1 gap-4 min-[640px]:grid-cols-2">
           {ALL_PROVIDERS.map((option) => {
             const meta = PROVIDERS[option];
@@ -795,6 +833,7 @@ export function IntegrationsAiPage() {
         description={PAGE_DESCRIPTION}
       />
       <div className="space-y-6">
+        <EgressNote provider={provider} />
         {blocked ? (
           <div className="flex gap-2.5 rounded-md border border-gb-status-at-risk/45 bg-gb-status-at-risk/10 px-3.5 py-3 text-[0.8125rem] leading-[1.45] text-gb-status-at-risk">
             <TriangleAlert className="mt-px size-4 flex-none" />

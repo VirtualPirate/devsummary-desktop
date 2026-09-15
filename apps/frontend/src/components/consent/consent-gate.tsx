@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, Power, Shield, X } from "lucide-react"
+import { Check, CloudUpload, Power, Shield, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,9 @@ import { getConsent } from "@/env/config-env"
  * `TERMS_CHANGES` describes what changed in *this* version and is shown only on
  * the re-gate screen; it is empty for 1.0 because there is nothing to compare to.
  */
+// Still 1.0 after the wording above changed: nothing has been released, so
+// there is no install consented to the earlier text that a bump would re-gate.
+// The rule applies from the first shipped build onward.
 const TERMS_VERSION = "1.0"
 const TERMS_CHANGES: string[] = []
 
@@ -35,6 +38,17 @@ const NEVER_SENT = [
   "your GitHub token, AI provider key or SMTP password",
   "brief contents, teammate names or email addresses",
 ]
+
+/**
+ * The list above is about *this* transmission — the install ping — and read on
+ * its own it says the app is airtight, which it is not: analysing a commit means
+ * sending its message and diff to whichever AI provider the user picks. That
+ * destination is theirs to choose and is named on the AI settings page at the
+ * moment they choose it, so the honest thing here is to say it exists rather
+ * than to name a provider that has not been selected yet.
+ */
+const AI_EGRESS =
+  "Analysing a commit sends its message and diff to the AI provider you choose — an API key you paste, or a coding-agent CLI already on this machine. Nothing is sent until you connect one, and the AI page names where it goes."
 
 function ExternalLink({ href, children }: { href: string; children: string }) {
   return (
@@ -150,14 +164,17 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
                 <li className="flex gap-2">
                   <Check className="mt-0.5 size-3.5 shrink-0 text-gb-status-shipped" />
                   <span>
-                    <strong className="font-medium">Sent:</strong> {SENT}
+                    <strong className="font-medium">Sent to us:</strong>{" "}
+                    {SENT}
                   </span>
                 </li>
                 {NEVER_SENT.map((item) => (
                   <li key={item} className="flex gap-2">
                     <X className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                     <span>
-                      <strong className="font-medium">Never sent:</strong>{" "}
+                      <strong className="font-medium">
+                        Never sent to us:
+                      </strong>{" "}
                       {item}
                     </span>
                   </li>
@@ -165,6 +182,11 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
               </>
             )}
           </ul>
+
+          <p className="flex gap-2 rounded-lg border border-dashed p-3 text-muted-foreground">
+            <CloudUpload className="mt-0.5 size-3.5 shrink-0" />
+            <span>{AI_EGRESS}</span>
+          </p>
 
           <label
             className="flex cursor-pointer gap-2.5 rounded-lg border p-3 has-data-checked:border-brand has-data-checked:bg-brand/6"

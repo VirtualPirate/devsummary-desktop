@@ -1,4 +1,8 @@
 import { claudeCodeAdapter, runCli } from '..';
+import {
+  SECRET_KEYS,
+  type SecretKey,
+} from '../../../../local/settings/secrets.service';
 
 /**
  * The only spec in this folder that spawns for real: both findings below are
@@ -53,5 +57,69 @@ describe('runCli', () => {
     );
 
     expect(result.stdout).toBe('from-the-adapter|true');
+  });
+
+  // The trust boundary for every adapter at once: `SecretsService` puts the
+  // decrypted bundle in `process.env`, and the child is a model running on an
+  // untrusted commit diff.
+  describe('the credential bundle', () => {
+    const CANARIES: SecretKey[] = [
+      'GITHUB_TOKEN',
+      'OPENAI_API_KEY',
+      'DB_ENCRYPTION_KEY',
+      'SMTP_PASS',
+      'SLACK_BOT_TOKEN',
+    ];
+    const saved = new Map<string, string | undefined>();
+
+    beforeEach(() => {
+      for (const key of SECRET_KEYS) {
+        saved.set(key, process.env[key]);
+        delete process.env[key];
+      }
+      for (const key of CANARIES) process.env[key] = `canary-${key}`;
+    });
+
+    afterEach(() => {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      saved.clear();
+    });
+
+    const echo = (keys: readonly string[]) =>
+      runCli(
+        process.execPath,
+        [
+          '-e',
+          `process.stdout.write(${JSON.stringify(keys)}.map((k) => String(process.env[k])).join('|'))`,
+        ],
+        { timeoutMs: 5_000 },
+      );
+
+    it('never reaches the child', async () => {
+      const result = await echo(SECRET_KEYS);
+
+      // Not "no canary": every key on the list, whether or not this test set
+      // one, so a key added to the bundle later cannot quietly skip the strip.
+      expect(result.stdout.split('|')).toEqual(SECRET_KEYS.map(() => 'undefined'));
+    });
+
+    it('still leaves the child the environment it needs to run', async () => {
+      const result = await echo(['PATH', 'HOME']);
+
+      expect(result.stdout).not.toContain('undefined');
+    });
+
+    it('lets an adapter pass one explicitly rather than inheriting it', async () => {
+      const result = await runCli(
+        process.execPath,
+        ['-e', 'process.stdout.write(String(process.env.OPENAI_API_KEY))'],
+        { timeoutMs: 5_000, env: { OPENAI_API_KEY: 'chosen-by-the-adapter' } },
+      );
+
+      expect(result.stdout).toBe('chosen-by-the-adapter');
+    });
   });
 });

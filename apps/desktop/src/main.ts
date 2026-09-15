@@ -52,9 +52,11 @@ const secretsFile = () => path.join(app.getPath('userData'), 'secrets.bin');
 function saveSecrets(bundle: SecretBundle): void {
   secrets = bundle;
   if (!safeStorage.isEncryptionAvailable()) {
-    // ponytail: no OS keychain (headless Linux, no gnome-keyring) means the
-    // bundle lives in memory for this boot only. Upgrade path: surface it in the
-    // settings screen instead of a log line, once anyone runs this on such a box.
+    // No OS keychain (headless Linux, no gnome-keyring): the bundle lives in
+    // memory for this boot only. Writing it anyway is the one thing that must
+    // not happen — `encryptString` is a no-op obfuscation without a keychain to
+    // hold the key, so `secrets.bin` would be a plaintext PAT on disk. The user
+    // is told once at startup by `warnIfNoSafeStorage`.
     console.warn('[desktop] safeStorage unavailable — secrets not persisted');
     return;
   }
@@ -85,6 +87,30 @@ function loadSecrets(): SecretBundle {
     saveSecrets(bundle);
   }
   return bundle;
+}
+
+/**
+ * `safeStorage` is only encryption where the OS has a keychain to hold the key.
+ * On Linux without gnome-keyring/kwallet, and in headless setups,
+ * `isEncryptionAvailable()` is false — `saveSecrets` then refuses to write, so
+ * the GitHub token, provider key and SMTP password are kept for this session
+ * and asked for again next launch.
+ *
+ * That silence is the problem: an app that forgets a pasted PAT every morning
+ * reads as broken, and the alternative it is protecting the user from — a
+ * plaintext credential file — is invisible. One dialog, once per launch, on the
+ * only machines that ever see it.
+ */
+function warnIfNoSafeStorage(): void {
+  if (safeStorage.isEncryptionAvailable()) return;
+  void dialog.showMessageBox({
+    type: 'warning',
+    title: 'DevSummary',
+    message: 'This system has no secure credential store.',
+    detail:
+      'DevSummary encrypts your GitHub token, AI provider key and SMTP password with the OS keychain — macOS Keychain, or a Linux keyring such as gnome-keyring or kwallet. None is available here.\n\nRather than write them to disk unprotected, DevSummary keeps them in memory for this session only. You will be asked for them again the next time you open the app.',
+    buttons: ['Continue'],
+  });
 }
 
 // ---------------------------------------------------------------- consent ---
@@ -353,6 +379,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     secrets = loadSecrets();
+    warnIfNoSafeStorage();
     consent = loadConsent();
     if (consent) pingTelemetry(consent);
     startBackend();

@@ -1,4 +1,5 @@
 import { execFile, type ExecFileException } from 'node:child_process';
+import { SECRET_KEYS } from '../../../local/settings/secrets.service';
 
 /** 16 MiB: a JSON envelope wrapping a brief, with room to spare. */
 const DEFAULT_MAX_BUFFER = 16 * 1024 * 1024;
@@ -24,8 +25,10 @@ export interface CliOptions {
    * never go on argv — there are no length limits or quoting rules here.
    */
   stdin?: string;
-  /** Merged over `process.env`, never replacing it — the child still has to
-   *  find its own config and home. */
+  /** Merged over the sanitized parent environment, never replacing it — the
+   *  child still has to find its own config and home. An adapter that genuinely
+   *  needs one of `SECRET_KEYS` has to name it here; inheriting it is what
+   *  `childEnv` refuses. */
   env?: Record<string, string>;
   /**
    * Where to run the child. Every agent CLI reads its working directory's
@@ -33,6 +36,35 @@ export interface CliOptions {
    * directory passes it here. Must exist: a missing cwd is a spawn failure.
    */
   cwd?: string;
+}
+
+/**
+ * The child's environment: the parent's, minus the credential bundle.
+ *
+ * `SecretsService` writes the decrypted bundle — the GitHub PAT, the provider
+ * key, `DB_ENCRYPTION_KEY`, the SMTP password — straight into this process's
+ * `process.env`, because that is the seam every consumer reads through. Every
+ * child forked here inherits that by default, and these children are agent CLIs
+ * running a model whose prompt is an untrusted commit diff. Codex already
+ * refused the inheritance through its own config (`shell_environment_policy`
+ * plus `allow_login_shell=false`); the other three adapters had no equivalent,
+ * and neither did the detector's `$SHELL -lic` probe. Stripping it at the one
+ * spawn they all go through is what covers them together — and keeps covering a
+ * fifth adapter nobody has written yet.
+ *
+ * A deny-list, not an allow-list: a CLI still has to find its own login, config,
+ * cache and home, and those live in variables no list here could enumerate.
+ * Codex's flags stay regardless — they also deny the user's *own* profile
+ * secrets, which are re-sourced inside the child and are not ours to strip.
+ *
+ * `opts.env` is merged after the strip, not before, so an adapter that has a
+ * real need for one of these keys states it explicitly instead of inheriting it
+ * silently. None does today.
+ */
+function childEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of SECRET_KEYS) delete env[key];
+  return extra ? { ...env, ...extra } : env;
 }
 
 export type RunCli = (
@@ -61,7 +93,7 @@ export const runCli: RunCli = (file, args, opts) =>
         timeout: opts.timeoutMs,
         maxBuffer,
         cwd: opts.cwd,
-        env: opts.env ? { ...process.env, ...opts.env } : process.env,
+        env: childEnv(opts.env),
         encoding: 'utf8',
       },
       (err: ExecFileException | null, stdout, stderr) => {

@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json && wait-on -t 120000 http://localhost:5173 && electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "test:csp": "electron test/csp.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
