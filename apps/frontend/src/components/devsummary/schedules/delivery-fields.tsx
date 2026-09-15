@@ -191,25 +191,8 @@ export function DeliveryFields({
   onChange: (next: DeliveryInput) => void;
   slackAvailable: boolean;
 }) {
-  const emails = delivery.emails ?? [];
-  const [emailDraft, setEmailDraft] = useState("");
   const [slackDraft, setSlackDraft] = useState("");
   const channelsQuery = useSlackChannels({ enabled: slackAvailable });
-
-  const commitEmails = (raw: string) => {
-    const parts = raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parts.length === 0) return;
-    const next = [...emails];
-    for (const p of parts) if (!next.includes(p)) next.push(p);
-    onChange({ ...delivery, emails: next });
-    setEmailDraft("");
-  };
-
-  const removeEmail = (email: string) =>
-    onChange({ ...delivery, emails: emails.filter((e) => e !== email) });
 
   const commitSlack = (raw: string) => {
     const value = raw.trim();
@@ -222,41 +205,6 @@ export function DeliveryFields({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Label htmlFor="delivery-emails" className="text-xs">
-          Email recipients
-        </Label>
-        {emails.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {emails.map((email) => (
-              <Chip
-                key={email}
-                label={email}
-                onRemove={() => removeEmail(email)}
-                removeLabel={`Remove ${email}`}
-              />
-            ))}
-          </div>
-        ) : null}
-        <Input
-          id="delivery-emails"
-          className="mt-2"
-          placeholder="Type an email and press Enter"
-          value={emailDraft}
-          onChange={(e) => setEmailDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              commitEmails(emailDraft);
-            }
-          }}
-          onBlur={() => commitEmails(emailDraft)}
-        />
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          Add as many as you like, or leave empty for dashboard-only delivery.
-        </p>
-      </div>
-
       <div>
         <Label htmlFor="delivery-slack" className="text-xs">
           Slack channel

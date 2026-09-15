@@ -10,7 +10,7 @@ import { waitForJobs } from '../harness/wait-for-jobs';
  * The whole product, in one process, against the mocks D-E approves:
  * paste a PAT → repositories reconciled → pick a branch → the live job runner
  * scans, backfills and analyses → a project scope → a brief generated and
- * delivered over SMTP.
+ * delivered to Slack.
  *
  * This is the spec PHASE-11 concern 3 says did not exist. Every earlier e2e
  * file exercises one controller; this one exercises the seams *between* them —
@@ -18,7 +18,7 @@ import { waitForJobs } from '../harness/wait-for-jobs';
  * OpenAI callers sharing one mocked SDK.
  *
  * Nothing is stubbed at the DI layer. `vitest.e2e.config.ts` aliases
- * `@octokit/*`, `openai` and `nodemailer` to the unit suites' own manual mocks,
+ * `@octokit/*`, `openai` and `@slack/web-api` to the unit suites' own mocks,
  * so the app's client wiring, its token resolution and its retry profiles are
  * all under test; only the sockets are not real.
  */
@@ -77,11 +77,6 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     // Set before the app is built: `SecretsService` reads env in its
     // constructor, and the OpenAI configs read it live through ConfigService.
     process.env.OPENAI_API_KEY = 'sk-e2e';
-    process.env.SMTP_HOST = 'smtp.e2e.invalid';
-    process.env.SMTP_PORT = '587';
-    process.env.SMTP_USER = 'e2e@example.com';
-    process.env.SMTP_PASS = 'app-password';
-    process.env.EMAIL_FROM = 'DevSummary <e2e@example.com>';
 
     const { Octokit } = (await import('@octokit/core')) as unknown as {
       Octokit: {
@@ -212,7 +207,6 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     // No key for the other provider, and OpenAI is the default selection.
     expect(res.body.data.gemini).toBe(false);
     expect(res.body.data.llmProvider).toBe('openai');
-    expect(res.body.data.smtp).toBe(true);
     expect(res.body.data.dataDir).toMatch(/^\//);
     expect(res.body.data.commitAnalysisModel).toBe('gpt-4o-mini');
   });
@@ -299,12 +293,19 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     expect(res.body.data.repositoryIds).toEqual([repositoryId]);
   });
 
-  it('generates a brief on demand and delivers it over SMTP', async () => {
+  it('connects Slack with a pasted bot token', async () => {
+    await api(testApp.server)
+      .post('/api/integrations/slack/installations/token')
+      .send({ token: 'xoxb-e2e' })
+      .expect(201);
+  });
+
+  it('generates a brief on demand and delivers it to Slack', async () => {
     const res = await api(testApp.server)
       .post('/api/organizations/current/briefs/generate')
       .send({
         scope: { type: 'project', projectId },
-        delivery: { emails: ['stakeholder@example.com'] },
+        delivery: { slackChannelId: 'C-E2E' },
       })
       .expect(202);
 
@@ -326,7 +327,7 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     expect(brief.promptTokens).toBe(30);
     expect(brief.completionTokens).toBe(40);
     expect(brief.deliveredAt).not.toBeNull();
-    expect(brief.deliveredChannels).toEqual(['email']);
+    expect(brief.deliveredChannels).toEqual(['slack']);
 
     const linked = await db
       .selectFrom('briefs.briefCommits')
@@ -336,19 +337,21 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
       .execute();
     expect(linked.map((c) => c.sha)).toEqual(['sha-newer', 'sha-older']);
 
-    const nodemailer = (await import('nodemailer')) as unknown as {
-      __latestTransport: () => {
-        options: Record<string, unknown>;
-        sendMail: { mock: { calls: Array<[Record<string, unknown>]> } };
+    const { WebClient } = (await import('@slack/web-api')) as unknown as {
+      WebClient: {
+        __mockInstances: Array<{
+          chat: {
+            postMessage: {
+              mock: { calls: Array<[Record<string, unknown>]> };
+            };
+          };
+        }>;
       };
     };
-    const transport = nodemailer.__latestTransport();
-    expect(transport.options).toMatchObject({
-      host: 'smtp.e2e.invalid',
-      port: 587,
-    });
-    const sent = transport.sendMail.mock.calls.at(-1)?.[0];
-    expect(sent?.to).toEqual(['stakeholder@example.com']);
+    const posted = WebClient.__mockInstances
+      .flatMap((c) => c.chat.postMessage.mock.calls)
+      .map(([arg]) => arg);
+    expect(posted.at(-1)?.channel).toBe('C-E2E');
   }, 30_000);
 
   it('drains the jobs table', async () => {

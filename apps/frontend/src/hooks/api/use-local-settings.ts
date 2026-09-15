@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgentCliProviderName,
-  TestEmailRequest,
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
 import { LocalSettingsAPI } from "@/api/local-settings.api";
@@ -31,13 +30,6 @@ export function useUpdateLocalCredentials() {
       // The response is the new status, so there is nothing to refetch.
       queryClient.setQueryData(localSettingsKeys.status, res);
     },
-  });
-}
-
-export function useSendTestEmail() {
-  return useMutation({
-    mutationFn: (payload: TestEmailRequest) =>
-      LocalSettingsAPI.testEmail(payload),
   });
 }
 

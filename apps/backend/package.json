@@ -39,19 +39,15 @@
     "@electric-sql/pglite": "^0.5.5",
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-paginate-rest": "^14.0.0",
-    "@react-email/components": "^1.0.12",
-    "@react-email/render": "^2.0.6",
     "@slack/web-api": "^7.16.0",
     "express": "^5.2.1",
     "kysely": "^0.28.17",
     "nestjs-pino": "^4.4.0",
-    "nodemailer": "^9.0.5",
     "openai": "^6.37.0",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "pino-pretty": "^11.3.0",
     "pino-roll": "^3.1.0",
-    "react": "^19.2.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^4.3.6"
@@ -66,8 +62,6 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.19.17",
-    "@types/nodemailer": "^8.0.1",
-    "@types/react": "^19.2.5",
     "@types/supertest": "^6.0.2",
     "dotenv": "^17.4.2",
     "dotenv-cli": "^11.0.0",
@@ -107,11 +101,8 @@
       "^@octokit/core$": "<rootDir>/__mocks__/@octokit/core.ts",
       "^@octokit/plugin-paginate-rest$": "<rootDir>/__mocks__/@octokit/plugin-paginate-rest.ts",
       "^@slack/web-api$": "<rootDir>/__mocks__/@slack/web-api.ts",
-      "^nodemailer$": "<rootDir>/__mocks__/nodemailer.ts",
       "^openai$": "<rootDir>/__mocks__/openai.ts",
-      "^openai/helpers/zod$": "<rootDir>/__mocks__/openai/helpers/zod.ts",
-      "^@react-email/render$": "<rootDir>/__mocks__/@react-email/render.ts",
-      "^@react-email/components$": "<rootDir>/__mocks__/@react-email/components.ts"
+      "^openai/helpers/zod$": "<rootDir>/__mocks__/openai/helpers/zod.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

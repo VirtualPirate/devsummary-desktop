@@ -230,7 +230,7 @@ export function ScheduleWizard() {
     dayOfWeek: 1,
   });
   const [timezone, setTimezone] = useState<string>(defaultTz());
-  const [delivery, setDelivery] = useState<DeliveryInput>({ emails: [] });
+  const [delivery, setDelivery] = useState<DeliveryInput>({});
   const [backfillMonths, setBackfillMonths] = useState(3);
   const [name, setName] = useState("");
   const [nameDirty, setNameDirty] = useState(false);
@@ -299,7 +299,6 @@ export function ScheduleWizard() {
     cadence.type,
   );
 
-  const emails = (delivery.emails ?? []).filter(Boolean);
   const backfillEstimate = BRIEFS_PER_MONTH[cadence.type] * backfillMonths;
 
   const goTo = (to: Stage) => {
@@ -330,10 +329,7 @@ export function ScheduleWizard() {
         cadence,
         timezone,
         scope,
-        delivery: {
-          emails,
-          slackChannelId: delivery.slackChannelId,
-        },
+        delivery: { slackChannelId: delivery.slackChannelId },
         backfillMonths,
       });
       setCreated(response.data);
@@ -517,23 +513,14 @@ export function ScheduleWizard() {
                   </span>
                 </ReviewRow>
                 <ReviewRow label="Goes to">
-                  {emails.length === 0 && !delivery.slackChannelId ? (
-                    <span className="text-muted-foreground">Dashboard only</span>
+                  {delivery.slackChannelId ? (
+                    `#${
+                      slackChannels.find(
+                        (channel) => channel.id === delivery.slackChannelId,
+                      )?.name ?? delivery.slackChannelId
+                    }`
                   ) : (
-                    [
-                      emails.length
-                        ? `${emails.length} email${emails.length > 1 ? "s" : ""}`
-                        : null,
-                      delivery.slackChannelId
-                        ? `#${
-                            slackChannels.find(
-                              (channel) => channel.id === delivery.slackChannelId,
-                            )?.name ?? delivery.slackChannelId
-                          }`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
+                    <span className="text-muted-foreground">Dashboard only</span>
                   )}
                 </ReviewRow>
                 <ReviewRow label="Past briefs">

@@ -14,11 +14,9 @@ import { ZodValidationPipe } from '../../organizations/dto/zod-validation.pipe';
 import {
   AgentCliParamSchema,
   AgentCliQuerySchema,
-  TestEmailSchema,
   UpdateLocalCredentialsSchema,
   type AgentCliParam,
   type AgentCliQuery,
-  type TestEmailBody,
   type UpdateLocalCredentialsBody,
 } from './dto/local-settings.dto';
 import { LocalSettingsService } from './local-settings.service';
@@ -26,7 +24,7 @@ import { LocalSettingsService } from './local-settings.service';
 /**
  * The settings screen's only backend surface. Credentials go **in** and never
  * come back out: `GET` answers with booleans, so a compromised renderer cannot
- * read the user's Slack token or mail password back off the wire.
+ * read the user's Slack token or provider key back off the wire.
  */
 @Controller('api/local-settings')
 export class LocalSettingsController {
@@ -49,15 +47,6 @@ export class LocalSettingsController {
       membership.organizationId,
       body,
     );
-    return { data, message: 'OK', success: true };
-  }
-
-  @Post('test-email')
-  @RequireOrgRole('admin')
-  async testEmail(
-    @Body(new ZodValidationPipe(TestEmailSchema)) body: TestEmailBody,
-  ): Promise<ApiResponse<LocalSettingsTestResult>> {
-    const data = await this.svc.testEmail(body.to);
     return { data, message: 'OK', success: true };
   }
 

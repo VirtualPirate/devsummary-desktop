@@ -171,7 +171,7 @@ export function useDeliverBrief() {
       channel,
     }: {
       briefId: string;
-      channel: "email" | "slack";
+      channel: "slack";
     }) => BriefsAPI.deliver(briefId, channel),
     onSuccess: async (res, { briefId }) => {
       // The response is the updated brief, so seed it rather than refetch —

@@ -40,7 +40,6 @@ import { BriefActivities } from './generation/activities/brief.activities';
 import { BriefJobs } from './generation/activities/brief.jobs';
 
 import { BriefRenderService } from './delivery/services/brief-render.service';
-import { BriefEmailService } from './delivery/services/brief-email.service';
 import { BriefSlackService } from './delivery/services/brief-slack.service';
 import { BriefDesktopService } from './delivery/services/brief-desktop.service';
 import { BriefDelivererService } from './delivery/services/brief-deliverer.service';
@@ -97,7 +96,6 @@ import { BriefDelivererService } from './delivery/services/brief-deliverer.servi
     BriefJobs,
 
     BriefRenderService,
-    BriefEmailService,
     BriefSlackService,
     BriefDesktopService,
     BriefDelivererService,

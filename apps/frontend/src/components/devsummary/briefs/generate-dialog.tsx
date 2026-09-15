@@ -145,7 +145,7 @@ export function GenerateDialog({
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [timezone, setTimezone] = useState<string>(browserTimezone);
-  const [delivery, setDelivery] = useState<DeliveryInput>({ emails: [] });
+  const [delivery, setDelivery] = useState<DeliveryInput>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // A scope points at org-owned entities, so it can't outlive an org switch —
@@ -163,7 +163,7 @@ export function GenerateDialog({
     setPreset("7d");
     setSubmitError(null);
     setTimezone(browserTimezone());
-    setDelivery({ emails: [] });
+    setDelivery({});
     setCustomStart(toLocalIso(new Date(now - 7 * DAY_MS)));
     setCustomEnd(toLocalIso(new Date(now)));
     if (!scope) {

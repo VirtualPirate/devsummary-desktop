@@ -16,14 +16,11 @@ function makeService(bundle: Record<string, string | undefined> = {}) {
   const secrets = {
     get: jest.fn((key: string) => bundle[key]),
     update: jest.fn(),
-    smtp: jest.fn().mockReturnValue(null),
     status: jest.fn().mockReturnValue({
       github: false,
       openai: false,
       gemini: false,
-      smtp: false,
       slack: false,
-      emailFrom: false,
     }),
   };
   const settings = {

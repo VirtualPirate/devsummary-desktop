@@ -16,11 +16,6 @@ export const UpdateLocalCredentialsSchema = z
     llmProvider: z.enum(LLM_PROVIDERS),
     openaiApiKey: z.string().trim(),
     geminiApiKey: z.string().trim(),
-    smtpHost: z.string().trim(),
-    smtpPort: z.coerce.number().int().min(1).max(65535),
-    smtpUser: z.string().trim(),
-    smtpPass: z.string(),
-    emailFrom: z.string().trim(),
     slackBotToken: z.string().trim(),
     desktopNotifications: z.boolean(),
     commitAnalysisModel: z.string().trim().max(100),
@@ -31,12 +26,6 @@ export const UpdateLocalCredentialsSchema = z
 export type UpdateLocalCredentialsBody = z.infer<
   typeof UpdateLocalCredentialsSchema
 >;
-
-export const TestEmailSchema = z.object({
-  to: z.string().email(),
-});
-
-export type TestEmailBody = z.infer<typeof TestEmailSchema>;
 
 /** `?refresh=1` bypasses the detector's 60 s cache — the card's Refresh button.
  *  Anything else is simply not a refresh, rather than a 400: a query param the

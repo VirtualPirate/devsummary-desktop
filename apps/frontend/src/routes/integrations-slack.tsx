@@ -35,8 +35,8 @@ export function IntegrationsSlackPage() {
               Slack isn&rsquo;t connected
             </h1>
             <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-              Paste a bot token to post briefs into a channel. Email delivery
-              keeps working either way — Slack is an addition, not a replacement.
+              Paste a bot token to post briefs into a channel. Without it,
+              briefs stay on the dashboard and in desktop notifications.
             </p>
           </div>
           <SlackTokenForm />

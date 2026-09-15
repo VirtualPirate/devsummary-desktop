@@ -7,39 +7,21 @@ import { api } from '../harness/api';
 import { createTestApp, type TestApp } from '../harness/create-test-app';
 import { createTestDatabase } from '../harness/database';
 
-describe('vitest ESM support', () => {
-  // Why this suite is Vitest and not Jest: the app's real dependency graph is
-  // ESM-only in places Jest (CJS) cannot load, which is exactly what the unit
-  // suites mock. @react-email/* is the surviving example — the brief HTML the
-  // delivery path renders is produced for real here, and is not aliased in
-  // vitest.e2e.config.ts.
-  it('imports the real @react-email/render, not the unit-test mock', async () => {
-    const { createElement } = await import('react');
-    const { render } = await import('@react-email/render');
-    const html = await render(createElement('p', null, 'hello'));
-    // The Jest mock ignores its component and answers a constant, so anything
-    // derived from the element proves the real renderer ran.
-    expect(html).toContain('hello');
-  });
-
+describe('outbound network isolation', () => {
   it('stubs every outbound network module at the unit-test seam', async () => {
     // `__reset` exists only on src/__mocks__/*, so this fails the moment an
     // alias in vitest.e2e.config.ts stops matching and a real client — able to
-    // reach github.com, api.openai.com, slack.com or an SMTP relay — is loaded
-    // into the app instead.
-    const [octokit, slack, nodemailer, openai] = await Promise.all([
+    // reach github.com, api.openai.com or slack.com — is loaded into the app
+    // instead.
+    const [octokit, slack, openai] = await Promise.all([
       import('@octokit/core'),
       import('@slack/web-api'),
-      import('nodemailer'),
       import('openai'),
     ]);
     expect(typeof (octokit.Octokit as { __reset?: unknown }).__reset).toBe(
       'function',
     );
     expect(typeof (slack.WebClient as { __reset?: unknown }).__reset).toBe(
-      'function',
-    );
-    expect(typeof (nodemailer as { __reset?: unknown }).__reset).toBe(
       'function',
     );
     expect(typeof (openai as { __reset?: unknown }).__reset).toBe('function');

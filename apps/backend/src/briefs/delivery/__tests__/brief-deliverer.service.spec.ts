@@ -3,21 +3,20 @@ import { BriefDelivererService } from '../services/brief-deliverer.service';
 function makeService() {
   const briefs = { findById: jest.fn(), update: jest.fn() };
   const schedules = { findById: jest.fn(), update: jest.fn() };
-  const email = { send: jest.fn() };
   const slack = { post: jest.fn() };
   const report = { build: jest.fn().mockResolvedValue(null) };
-  const scopes = {
-    resolve: jest.fn().mockResolvedValue({ scopeName: 'Mobile' }),
+  const desktop = {
+    enabled: jest.fn().mockResolvedValue(false),
+    send: jest.fn(),
   };
   const svc = new BriefDelivererService(
     briefs as any,
     schedules as any,
-    email as any,
     slack as any,
     report as any,
-    scopes as any,
+    desktop as any,
   );
-  return { svc, briefs, schedules, email, slack, report, scopes };
+  return { svc, briefs, schedules, slack, report, desktop };
 }
 
 const baseBrief = {
@@ -33,10 +32,9 @@ const baseBrief = {
   title: 'T',
   briefInfoTitle: 'i',
   summary: 's',
-  deliveryEmails: [] as string[],
   deliverySlackChannelId: null as string | null,
   status: 'generated',
-  deliveredChannels: [] as Array<'email' | 'slack'>,
+  deliveredChannels: [] as Array<'slack' | 'desktop'>,
 };
 
 describe('BriefDelivererService.deliver', () => {
@@ -47,15 +45,15 @@ describe('BriefDelivererService.deliver', () => {
     expect(briefs.update).not.toHaveBeenCalled();
   });
 
-  it('marks delivered when email succeeds, slack not configured', async () => {
-    const { svc, briefs, email } = makeService();
+  it('marks delivered when slack succeeds', async () => {
+    const { svc, briefs, slack } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
-      deliveryEmails: ['a@x.io'],
+      deliverySlackChannelId: 'C123',
     });
-    email.send.mockResolvedValue(undefined);
+    slack.post.mockResolvedValue(undefined);
     await svc.deliver('b1');
-    expect(email.send).toHaveBeenCalled();
+    expect(slack.post).toHaveBeenCalled();
     expect(briefs.update).toHaveBeenCalledWith(
       'b1',
       expect.objectContaining({ status: 'delivered' }),
@@ -63,38 +61,39 @@ describe('BriefDelivererService.deliver', () => {
   });
 
   it('marks delivered when one channel fails but the other succeeds (records failure_reason)', async () => {
-    const { svc, briefs, email, slack } = makeService();
+    const { svc, briefs, slack, desktop } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
-      deliveryEmails: ['a@x.io'],
       deliverySlackChannelId: 'C123',
     });
-    email.send.mockRejectedValue(new Error('SES down'));
-    slack.post.mockResolvedValue(undefined);
+    slack.post.mockRejectedValue(new Error('channel_not_found'));
+    desktop.enabled.mockResolvedValue(true);
+    desktop.send.mockResolvedValue(undefined);
     await svc.deliver('b1');
     expect(briefs.update).toHaveBeenCalledWith(
       'b1',
       expect.objectContaining({
         status: 'delivered',
-        failureReason: expect.stringContaining('SES down'),
+        failureReason: expect.stringContaining('channel_not_found'),
       }),
     );
   });
 
   it('records the reason but never marks the brief failed when every channel fails', async () => {
-    const { svc, briefs, email, slack } = makeService();
+    const { svc, briefs, slack, desktop } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
-      deliveryEmails: ['a@x.io'],
       deliverySlackChannelId: 'C123',
     });
-    email.send.mockRejectedValue(new Error('SES down'));
     slack.post.mockRejectedValue(new Error('channel_not_found'));
+    desktop.enabled.mockResolvedValue(true);
+    desktop.send.mockRejectedValue(new Error('desktop channel unavailable'));
     await svc.deliver('b1');
     // The brief generated fine; `failed` would read as a generation failure and
     // hide a summary that exists.
     expect(briefs.update).toHaveBeenCalledWith('b1', {
-      failureReason: '[email] SES down; [slack] channel_not_found',
+      failureReason:
+        '[slack] channel_not_found; [desktop] desktop channel unavailable',
     });
     expect(briefs.update).not.toHaveBeenCalledWith(
       'b1',
@@ -103,18 +102,17 @@ describe('BriefDelivererService.deliver', () => {
   });
 
   it('updates schedule.lastSentAt when delivered via schedule', async () => {
-    const { svc, briefs, schedules, email } = makeService();
+    const { svc, briefs, schedules, slack } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
       briefScheduleId: 'sch1',
     });
     schedules.findById.mockResolvedValue({
       id: 'sch1',
-      emailRecipients: ['a@x.io'],
-      slackInstallationId: null,
-      slackChannelId: null,
+      slackInstallationId: 'i1',
+      slackChannelId: 'C123',
     });
-    email.send.mockResolvedValue(undefined);
+    slack.post.mockResolvedValue(undefined);
     await svc.deliver('b1');
     expect(schedules.update).toHaveBeenCalledWith(
       'sch1',
@@ -132,7 +130,6 @@ describe('BriefDelivererService.deliver', () => {
     });
     schedules.findById.mockResolvedValue({
       id: 'sch1',
-      emailRecipients: [],
       slackInstallationId: null,
       slackChannelId: null,
     });
@@ -142,7 +139,7 @@ describe('BriefDelivererService.deliver', () => {
   });
 
   it('records the reason when its schedule was deleted mid-flight (never claims delivered)', async () => {
-    const { svc, briefs, schedules, email, slack } = makeService();
+    const { svc, briefs, schedules, slack } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
       briefScheduleId: 'sch1',
@@ -151,7 +148,6 @@ describe('BriefDelivererService.deliver', () => {
 
     await svc.deliver('b1');
 
-    expect(email.send).not.toHaveBeenCalled();
     expect(slack.post).not.toHaveBeenCalled();
     expect(briefs.update).toHaveBeenCalledWith('b1', {
       failureReason: expect.stringContaining('was deleted before delivery'),
@@ -208,8 +204,8 @@ describe('BriefDelivererService.deliverOne', () => {
       ...generated,
       status: 'delivered',
       deliverySlackChannelId: 'C1',
-      deliveryEmails: ['a@x.io'],
-      failureReason: '[email] SES down; [slack] not_in_channel',
+      failureReason:
+        '[desktop] desktop channel unavailable; [slack] not_in_channel',
     });
     slack.post.mockResolvedValue(undefined);
     await svc.deliverOne('b1', 'slack');
@@ -217,7 +213,7 @@ describe('BriefDelivererService.deliverOne', () => {
       'b1',
       expect.objectContaining({
         status: 'delivered',
-        failureReason: '[email] SES down',
+        failureReason: '[desktop] desktop channel unavailable',
       }),
     );
   });
@@ -231,7 +227,6 @@ describe('BriefDelivererService.deliverOne', () => {
     });
     schedules.findById.mockResolvedValue({
       id: 's1',
-      emailRecipients: [],
       slackChannelId: 'C-live',
     });
     slack.post.mockResolvedValue(undefined);
@@ -250,24 +245,17 @@ describe('BriefDelivererService.deliverOne', () => {
 });
 
 describe('BriefDelivererService report loading', () => {
-  it('builds the report once and hands the same figures to both channels', async () => {
-    const { svc, briefs, email, slack, report } = makeService();
+  it('builds the report once', async () => {
+    const { svc, briefs, slack, report } = makeService();
     const figures = { briefId: 'b1' };
     report.build.mockResolvedValue(figures);
     briefs.findById.mockResolvedValue({
       ...baseBrief,
-      deliveryEmails: ['a@x.io'],
       deliverySlackChannelId: 'C123',
     });
-    email.send.mockResolvedValue(undefined);
     slack.post.mockResolvedValue(undefined);
     await svc.deliver('b1');
     expect(report.build).toHaveBeenCalledTimes(1);
-    expect(email.send).toHaveBeenCalledWith(
-      expect.anything(),
-      ['a@x.io'],
-      figures,
-    );
     expect(slack.post).toHaveBeenCalledWith(
       'o1',
       expect.anything(),
@@ -277,17 +265,18 @@ describe('BriefDelivererService report loading', () => {
   });
 
   it('still delivers when the report cannot be built', async () => {
-    const { svc, briefs, email, report } = makeService();
+    const { svc, briefs, slack, report } = makeService();
     report.build.mockRejectedValue(new Error('scope query blew up'));
     briefs.findById.mockResolvedValue({
       ...baseBrief,
-      deliveryEmails: ['a@x.io'],
+      deliverySlackChannelId: 'C123',
     });
-    email.send.mockResolvedValue(undefined);
+    slack.post.mockResolvedValue(undefined);
     await svc.deliver('b1');
-    expect(email.send).toHaveBeenCalledWith(
+    expect(slack.post).toHaveBeenCalledWith(
+      'o1',
       expect.anything(),
-      ['a@x.io'],
+      'C123',
       null,
     );
     expect(briefs.update).toHaveBeenCalledWith(
@@ -306,14 +295,14 @@ describe('BriefDelivererService report loading', () => {
 
 describe('BriefDelivererService delivered channels', () => {
   it('records only the channels that actually went out', async () => {
-    const { svc, briefs, email, slack } = makeService();
+    const { svc, briefs, slack, desktop } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
-      deliveryEmails: ['a@x.io'],
       deliverySlackChannelId: 'C123',
     });
-    email.send.mockRejectedValue(new Error('SES down'));
     slack.post.mockResolvedValue(undefined);
+    desktop.enabled.mockResolvedValue(true);
+    desktop.send.mockRejectedValue(new Error('desktop channel unavailable'));
     await svc.deliver('b1');
     expect(briefs.update).toHaveBeenCalledWith(
       'b1',
@@ -321,48 +310,24 @@ describe('BriefDelivererService delivered channels', () => {
     );
   });
 
-  it('leaves the other channel owed after a manual single-channel send', async () => {
+  it('adds to the channels already sent rather than replacing them', async () => {
     const { svc, briefs, schedules, slack } = makeService();
     briefs.findById.mockResolvedValue({
       ...baseBrief,
       briefScheduleId: 's1',
       generatedAt: new Date(),
+      status: 'delivered',
+      deliveredChannels: ['desktop'],
     });
     schedules.findById.mockResolvedValue({
       id: 's1',
-      emailRecipients: ['a@x.io'],
       slackChannelId: 'C123',
     });
     slack.post.mockResolvedValue(undefined);
     await svc.deliverOne('b1', 'slack');
     expect(briefs.update).toHaveBeenCalledWith(
       'b1',
-      expect.objectContaining({
-        status: 'delivered',
-        deliveredChannels: ['slack'],
-      }),
-    );
-  });
-
-  it('adds to the channels already sent rather than replacing them', async () => {
-    const { svc, briefs, schedules, email } = makeService();
-    briefs.findById.mockResolvedValue({
-      ...baseBrief,
-      briefScheduleId: 's1',
-      generatedAt: new Date(),
-      status: 'delivered',
-      deliveredChannels: ['slack'],
-    });
-    schedules.findById.mockResolvedValue({
-      id: 's1',
-      emailRecipients: ['a@x.io'],
-      slackChannelId: 'C123',
-    });
-    email.send.mockResolvedValue(undefined);
-    await svc.deliverOne('b1', 'email');
-    expect(briefs.update).toHaveBeenCalledWith(
-      'b1',
-      expect.objectContaining({ deliveredChannels: ['slack', 'email'] }),
+      expect.objectContaining({ deliveredChannels: ['desktop', 'slack'] }),
     );
   });
 });

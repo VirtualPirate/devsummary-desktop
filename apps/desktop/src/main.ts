@@ -23,9 +23,8 @@ const API_TOKEN = randomBytes(32).toString('hex');
 const DEV_URL = 'http://localhost:5173';
 
 /**
- * `FRONTEND_URL` is `getOrThrow` inside both leaf senders (email + Slack) at send
- * time, so it must always be set or every delivery fails with an opaque config
- * error. In dev it is the real dev server; packaged there is no HTTP origin at
+ * `FRONTEND_URL` is `getOrThrow` inside the Slack sender at send time, so it
+ * must always be set or every delivery fails with an opaque config error. In dev it is the real dev server; packaged there is no HTTP origin at
  * all (the renderer is loaded from disk), so a placeholder stands in — the links
  * in a delivered brief point at a machine the recipient does not have anyway.
  */
@@ -93,7 +92,7 @@ function loadSecrets(): SecretBundle {
  * `safeStorage` is only encryption where the OS has a keychain to hold the key.
  * On Linux without gnome-keyring/kwallet, and in headless setups,
  * `isEncryptionAvailable()` is false — `saveSecrets` then refuses to write, so
- * the GitHub token, provider key and SMTP password are kept for this session
+ * the GitHub token, provider key and Slack bot token are kept for this session
  * and asked for again next launch.
  *
  * That silence is the problem: an app that forgets a pasted PAT every morning
@@ -108,7 +107,7 @@ function warnIfNoSafeStorage(): void {
     title: 'DevSummary',
     message: 'This system has no secure credential store.',
     detail:
-      'DevSummary encrypts your GitHub token, AI provider key and SMTP password with the OS keychain — macOS Keychain, or a Linux keyring such as gnome-keyring or kwallet. None is available here.\n\nRather than write them to disk unprotected, DevSummary keeps them in memory for this session only. You will be asked for them again the next time you open the app.',
+      'DevSummary encrypts your GitHub token, AI provider key and Slack bot token with the OS keychain — macOS Keychain, or a Linux keyring such as gnome-keyring or kwallet. None is available here.\n\nRather than write them to disk unprotected, DevSummary keeps them in memory for this session only. You will be asked for them again the next time you open the app.',
     buttons: ['Continue'],
   });
 }

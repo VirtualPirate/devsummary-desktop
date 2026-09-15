@@ -53,7 +53,6 @@ export interface BriefScheduleResponse {
   nextRunAt: string;
   lastSentAt: string | null;
   delivery: {
-    emails: string[];
     slackChannelId: string | null;
   };
   createdAt: string;
@@ -119,6 +118,10 @@ export const WORK_CATEGORY_LABEL: Record<WorkCategory, [string, string]> = {
   upkeep: ['upkeep item', 'upkeep (docs, tests, chores)'],
 };
 
+/**
+ * `'email'` is read-only history: the desktop build has no email channel (see
+ * docs/DELTAS.md D-H), but a row written before it was removed still carries it.
+ */
 export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 
 /** Ordered most important first — the list's order is the ranking. */
@@ -173,7 +176,7 @@ export interface BriefResponse {
   /**
    * The channels this brief actually went out on. `status` is a whole-brief
    * verdict — one channel succeeding sets `delivered` — so anything asking
-   * "was the email sent?" reads this, never the status.
+   * "did this reach Slack?" reads this, never the status.
    */
   deliveredChannels: BriefDeliveryChannel[];
   createdAt: string;

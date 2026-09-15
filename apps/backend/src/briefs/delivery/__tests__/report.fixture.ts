@@ -1,6 +1,6 @@
 import type { BriefReportResponse } from '@launchstack/api-interfaces';
 
-/** Shared by the Slack-block and email-HTML specs — same brief, same figures. */
+/** Shared by the Slack-block specs — same brief, same figures. */
 export const brief = {
   id: 'b1',
   title: 'Mobile shipped notifications',

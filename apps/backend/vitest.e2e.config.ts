@@ -12,19 +12,7 @@ export default defineConfig({
     // transformer) does not implement. unplugin-swc reads this package's
     // tsconfig.json by default, picking up experimentalDecorators,
     // emitDecoratorMetadata, and target.
-    //
-    // It does NOT translate tsconfig's `jsx: react-jsx` into swc's automatic
-    // JSX runtime, so src/emails/*.tsx (which import no React binding) compile
-    // to bare `React.createElement` and every email render throws
-    // "React is not defined". Set the runtime explicitly.
-    swc.vite({
-      module: { type: 'es6' },
-      jsc: {
-        transform: {
-          react: { runtime: 'automatic', importSource: 'react' },
-        },
-      },
-    }),
+    swc.vite({ module: { type: 'es6' } }),
   ],
   resolve: {
     // Every network seam, stubbed at the same module boundary the unit suites
@@ -34,8 +22,7 @@ export default defineConfig({
     //
     // Anchored regexes, not bare strings: a string alias for `openai` is a
     // prefix match and would rewrite `openai/helpers/zod` to a path inside the
-    // mock file. @react-email/* is deliberately absent — the e2e suite renders
-    // brief emails for real.
+    // mock file.
     alias: [
       { find: /^@octokit\/core$/, replacement: mock('@octokit/core.ts') },
       {
@@ -43,7 +30,6 @@ export default defineConfig({
         replacement: mock('@octokit/plugin-paginate-rest.ts'),
       },
       { find: /^@slack\/web-api$/, replacement: mock('@slack/web-api.ts') },
-      { find: /^nodemailer$/, replacement: mock('nodemailer.ts') },
       { find: /^openai$/, replacement: mock('openai.ts') },
       {
         find: /^openai\/helpers\/zod$/,

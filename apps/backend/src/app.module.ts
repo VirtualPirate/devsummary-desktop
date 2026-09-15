@@ -28,7 +28,7 @@ import { LoggerModule, RequestIdMiddleware } from './logger';
     // the migrations in its own.
     JobsModule,
     // @Global: SecretsService + LocalSettingsRepository resolve everywhere
-    // (BriefEmailService and SlackInstallationsRepository both need them).
+    // (SlackInstallationsRepository and BriefDesktopService both need them).
     LocalSettingsModule,
     OrganizationsModule,
     GithubIntegrationsModule,

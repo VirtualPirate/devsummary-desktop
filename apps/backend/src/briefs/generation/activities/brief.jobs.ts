@@ -70,7 +70,7 @@ export class BriefJobs implements OnModuleInit {
     });
     for (const b of briefs) {
       // deliver: false — a backfilled historical period is generated for the
-      // dashboard, never emailed.
+      // dashboard, never sent.
       await this.enqueueGenerate(b.briefId, b.organizationId, false);
     }
   }

@@ -18,11 +18,6 @@ export interface UpdateLocalCredentialsRequest {
   llmProvider?: LlmProviderName;
   openaiApiKey?: string;
   geminiApiKey?: string;
-  smtpHost?: string;
-  smtpPort?: number;
-  smtpUser?: string;
-  smtpPass?: string;
-  emailFrom?: string;
   slackBotToken?: string;
   desktopNotifications?: boolean;
   /**
@@ -32,8 +27,4 @@ export interface UpdateLocalCredentialsRequest {
    */
   commitAnalysisModel?: string;
   briefModel?: string;
-}
-
-export interface TestEmailRequest {
-  to: string;
 }

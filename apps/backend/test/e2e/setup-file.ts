@@ -16,8 +16,8 @@ loadEnv({ path: fileURLToPath(new URL('../../.env.test', import.meta.url)) });
 // constant the request helper sends, so the two cannot drift.
 process.env.API_TOKEN = E2E_API_TOKEN;
 
-// vitest.e2e.config.ts aliases @octokit/*, @slack/web-api, nodemailer and
-// openai to src/__mocks__/ — the same files Jest loads through
+// vitest.e2e.config.ts aliases @octokit/*, @slack/web-api and openai to
+// src/__mocks__/ — the same files Jest loads through
 // moduleNameMapper, so they are written against the `jest` global. `vi` is
 // API-compatible for everything they use (fn, mockReset, mockImplementation).
 // This must land before the first aliased module is evaluated, which it does:

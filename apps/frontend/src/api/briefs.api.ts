@@ -76,8 +76,8 @@ export const BriefsAPI = {
     return response.data as ApiResponse<BriefPreviewResponse>;
   },
 
-  /** Re-send one channel for a brief that already exists. Synchronous — the
-   *  error (`not_in_channel`, a rejected address) is the point. */
+  /** Re-send a brief that already exists. Synchronous — the error
+   *  (`not_in_channel`) is the point. */
   deliver: async (
     briefId: string,
     channel: DeliverBriefRequest["channel"],

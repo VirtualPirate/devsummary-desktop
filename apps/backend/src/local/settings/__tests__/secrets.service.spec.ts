@@ -21,16 +21,13 @@ afterEach(() => {
 });
 
 describe('SecretsService', () => {
-  it('boots with an empty bundle and no SMTP rather than throwing', () => {
+  it('boots with an empty bundle rather than throwing', () => {
     const svc = withEnv({});
-    expect(svc.smtp()).toBeNull();
     expect(svc.status()).toEqual({
       github: false,
       openai: false,
       gemini: false,
-      smtp: false,
       slack: false,
-      emailFrom: false,
     });
   });
 
@@ -39,43 +36,6 @@ describe('SecretsService', () => {
   it('reports each provider key on its own', () => {
     const svc = withEnv({ GEMINI_API_KEY: 'gem-1' });
     expect(svc.status()).toMatchObject({ openai: false, gemini: true });
-  });
-
-  it('treats a blank env var as absent', () => {
-    const svc = withEnv({
-      SMTP_HOST: '   ',
-      SMTP_USER: 'me@example.com',
-      SMTP_PASS: 'pw',
-    });
-    expect(svc.smtp()).toBeNull();
-  });
-
-  it('defaults the SMTP port and falls back to the user as the from address', () => {
-    const svc = withEnv({
-      SMTP_HOST: 'smtp.example.com',
-      SMTP_USER: 'me@example.com',
-      SMTP_PASS: 'pw',
-    });
-    expect(svc.smtp()).toEqual({
-      host: 'smtp.example.com',
-      port: 587,
-      user: 'me@example.com',
-      pass: 'pw',
-      from: 'me@example.com',
-    });
-  });
-
-  it('previews an overlay without committing it', () => {
-    const svc = withEnv({});
-    expect(
-      svc.smtp({
-        SMTP_HOST: 'smtp.example.com',
-        SMTP_USER: 'u',
-        SMTP_PASS: 'p',
-        SMTP_PORT: '465',
-      }),
-    ).toMatchObject({ port: 465 });
-    expect(svc.smtp()).toBeNull();
   });
 
   it('posts the whole bundle to the Electron main process on update', () => {
@@ -114,25 +74,15 @@ describe('SecretsService', () => {
       GITHUB_TOKEN: 'ghp-secret',
       OPENAI_API_KEY: 'sk-secret',
       SLACK_BOT_TOKEN: 'xoxb-secret',
-      SMTP_HOST: 'smtp.example.com',
-      SMTP_USER: 'me@example.com',
-      SMTP_PASS: 'super-secret',
-      EMAIL_FROM: 'me@example.com',
     });
     const serialized = JSON.stringify(svc.status());
-    for (const secret of [
-      'ghp-secret',
-      'sk-secret',
-      'xoxb-secret',
-      'super-secret',
-    ]) {
+    for (const secret of ['ghp-secret', 'sk-secret', 'xoxb-secret']) {
       expect(serialized).not.toContain(secret);
     }
     expect(svc.status()).toMatchObject({
       github: true,
       openai: true,
       slack: true,
-      smtp: true,
     });
   });
 

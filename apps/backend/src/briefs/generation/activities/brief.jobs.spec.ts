@@ -149,7 +149,7 @@ describe('BriefJobs — briefs.backfill (was BackfillBriefsWorkflow)', () => {
       backfillMonths: 3,
     });
     // A backfilled historical period is generated for the dashboard, never
-    // emailed — the whole reason the old workflow hardcoded deliver: false.
+    // sent — the whole reason the old workflow hardcoded deliver: false.
     for (const call of queue.enqueue.mock.calls) {
       expect(call[1]).toMatchObject({ deliver: false });
     }

@@ -6,9 +6,9 @@ import type { RenderableBrief } from './brief-render.service';
 const BODY_MAX = 240;
 
 /**
- * The third delivery channel: a native notification on the machine the app is
- * running on. It is what makes a brief whose email and Slack both failed still
- * visibly land somewhere, and it is the only channel that needs no credential.
+ * The second delivery channel: a native notification on the machine the app is
+ * running on. It is what makes a brief whose Slack post failed still visibly
+ * land somewhere, and it is the only channel that needs no credential.
  */
 @Injectable()
 export class BriefDesktopService {

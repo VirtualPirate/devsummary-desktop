@@ -261,7 +261,6 @@ export class BriefsService {
       // same clock ingestion resumes from.
       commitClock: 'committed',
       status: 'pending',
-      deliveryEmails: body.delivery?.emails ?? [],
       deliverySlackChannelId: body.delivery?.slackChannelId ?? null,
     });
 
@@ -283,15 +282,14 @@ export class BriefsService {
    * through `findById`, which filters `deleted_at`, so the workflow exits.
    */
   /**
-   * Manual re-delivery of one channel for a brief that already exists. The
-   * org check is the point of this wrapper — `deliverOne` takes a bare brief
-   * id, and the tenant boundary must not depend on the caller remembering to
-   * scope it.
+   * Manual re-delivery for a brief that already exists. The org check is the
+   * point of this wrapper — `deliverOne` takes a bare brief id, and the tenant
+   * boundary must not depend on the caller remembering to scope it.
    */
   async deliverNow(
     organizationId: string,
     briefId: string,
-    channel: 'email' | 'slack',
+    channel: 'slack',
   ): Promise<BriefResponse> {
     const row = await this.briefs.findByIdScopedToOrg(briefId, organizationId);
     if (!row) throw AppError.BRIEF_NOT_FOUND();

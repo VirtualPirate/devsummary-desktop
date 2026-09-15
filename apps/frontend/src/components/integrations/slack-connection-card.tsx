@@ -168,8 +168,8 @@ function DisconnectSlackDialog({
                   {scheduleCount} {scheduleCount === 1 ? "schedule posts" : "schedules post"}{" "}
                   to Slack.
                 </strong>{" "}
-                They keep running and keep emailing, but their Slack delivery
-                will fail until a workspace is connected again.{" "}
+                They keep running, but their Slack delivery will fail until a
+                workspace is connected again.{" "}
               </>
             ) : null}
             The bot token is revoked with Slack, so reconnecting means pasting a

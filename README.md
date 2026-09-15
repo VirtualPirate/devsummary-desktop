@@ -5,8 +5,9 @@ An AI-powered engineering activity reporter that runs entirely on your machine.
 It connects to GitHub with a personal access token, ingests commit activity from the branches you
 choose, classifies each commit with an LLM, and writes plain-English briefs for people who do not
 read diffs — founders, PMs, stakeholders. Briefs are scoped to a project, a team, a collaborator or
-a repository, generated on a schedule or on demand, and delivered by email, Slack, or a desktop
-notification.
+a repository, generated on a schedule or on demand, and delivered to Slack or as a desktop
+notification. **Email delivery is not available in the desktop version** — see
+[Not in the desktop version](#not-in-the-desktop-version).
 
 It is a single-user Electron port of a multi-tenant cloud app. Nothing is hosted: the database is a
 directory on your disk, background work runs in-process, and every credential is your own.
@@ -51,8 +52,8 @@ installed build do not share data**. The settings screen shows the exact path in
 | Credentials | `<userData>/secrets.bin` — encrypted with Electron `safeStorage`, i.e. the OS keychain |
 | Logs | `<repo-root>/logs/app.log` in dev; `LOG_FILE_PATH` otherwise |
 
-Nothing is sent anywhere except to GitHub, OpenAI, your SMTP server and Slack — each only when you
-have given it a credential. The backend listens on a random loopback port and every request needs a
+Nothing is sent anywhere except to GitHub, OpenAI and Slack — each only when you have given it a
+credential. The backend listens on a random loopback port and every request needs a
 per-boot token, so other processes on the machine cannot read your data over HTTP either.
 
 A headless `pnpm --filter backend start:dev` uses `./.data` instead, and has no keychain — see
@@ -60,7 +61,8 @@ A headless `pnpm --filter backend start:dev` uses `./.data` instead, and has no 
 
 ## Connecting things
 
-All four live on the **Settings** screen. Nothing is ever read back out of the app once saved.
+Credentials live on the **Settings** and **Integrations** screens. Nothing is ever read back out of
+the app once saved.
 
 **GitHub (required).** Create a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new)
 with **Contents: Read-only** and **Metadata: Read-only** on the repositories you want, and paste it.
@@ -75,16 +77,19 @@ supported. A repository with no branch stays completely inert.
 (`gpt-4o-mini` by default for both commit classification and brief writing) on the same screen, and
 it shows the running token totals so you can see what you are spending.
 
-**Email (optional).** SMTP with your own mailbox — a Gmail app password, Fastmail, a company relay.
-Host, username and password are verified by an actual connection before they are stored, and there
-is a "send test email" button. No verified sending domain to arrange.
-
 **Slack (optional).** Create a Slack app, give the bot `chat:write`, `channels:read`, `groups:read`
 and `users:read`, install it to your workspace and paste the `xoxb-` token. Pick the channel per
 schedule. Invite the bot to private channels from inside Slack.
 
 **Desktop notifications (optional).** A toggle. With it on, a brief that reaches your machine counts
-as delivered even when email and Slack are both unconfigured.
+as delivered even when Slack is unconfigured.
+
+## Not in the desktop version
+
+**Email delivery.** There is no SMTP configuration, no email recipients on a schedule or a
+one-off brief, and no "deliver by email" button — on any screen. A brief is delivered to Slack
+and/or a desktop notification, and it is always readable in the app itself. This is deliberate and
+permanent for the desktop build; the rationale and the exact removal list are `docs/DELTAS.md` D-H.
 
 ## Packaging
 

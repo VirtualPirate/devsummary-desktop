@@ -50,8 +50,8 @@ membership row inside a scratch workspace — there is nobody else to be.
 
 Every outbound network module, aliased in `vitest.e2e.config.ts` to the same
 `src/__mocks__/` files Jest loads through `moduleNameMapper`:
-`@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`,
-`nodemailer`, `openai`, `openai/helpers/zod`. An alias is Vitest's equivalent
+`@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`, `openai`,
+`openai/helpers/zod`. An alias is Vitest's equivalent
 of `moduleNameMapper` (which it does not read) and needs no DI override, so the
 app's own wiring stays under test. The aliases are anchored regexes, not bare
 strings: a string alias for `openai` is a prefix match and would rewrite
@@ -60,18 +60,9 @@ strings: a string alias for `openai` is a prefix match and would rewrite
 Those mocks are written against the `jest` global, so `setup-file.ts` sets
 `globalThis.jest = vi` before anything loads them.
 
-`@react-email/*` is deliberately **not** aliased — brief HTML is rendered for
-real. `smoke.e2e.spec.ts` asserts both halves of this: real react-email, and a
-`__reset` static on all four mocked clients (which fails the moment an alias
-stops matching and a real, network-capable client is loaded instead).
-
-## JSX in the email templates
-
-`vitest.e2e.config.ts` sets swc's `jsc.transform.react.runtime: 'automatic'`
-explicitly. unplugin-swc reads this package's `tsconfig.json` for decorators
-and target, but does **not** translate its `jsx: react-jsx` into swc's
-automatic runtime. Without the override, `src/emails/*.tsx` compile to bare
-`React.createElement` and every render fails with `React is not defined`.
+`smoke.e2e.spec.ts` asserts a `__reset` static on every mocked client, which
+fails the moment an alias stops matching and a real, network-capable client is
+loaded instead.
 
 ## Why this directory has its own tsconfig
 

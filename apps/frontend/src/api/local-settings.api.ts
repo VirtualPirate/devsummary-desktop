@@ -4,7 +4,6 @@ import type {
   ApiResponse,
   LocalSettingsStatus,
   LocalSettingsTestResult,
-  TestEmailRequest,
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
 import { axiosInstance } from "./axios-client";
@@ -30,17 +29,6 @@ export const LocalSettingsAPI = {
       data: payload,
     });
     return response.data as ApiResponse<LocalSettingsStatus>;
-  },
-
-  testEmail: async (
-    payload: TestEmailRequest,
-  ): Promise<ApiResponse<LocalSettingsTestResult>> => {
-    const response = await axiosInstance.request({
-      url: `${BASE}/test-email`,
-      method: "POST",
-      data: payload,
-    });
-    return response.data as ApiResponse<LocalSettingsTestResult>;
   },
 
   /** `refresh` forces a re-detect past the backend's 60 s cache. */

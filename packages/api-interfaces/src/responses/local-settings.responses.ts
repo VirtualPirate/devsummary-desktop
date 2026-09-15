@@ -48,9 +48,7 @@ export interface LocalSettingsStatus {
   gemini: boolean;
   /** Which provider answers AI calls. The keys are independent of it. */
   llmProvider: LlmProviderName;
-  smtp: boolean;
   slack: boolean;
-  emailFrom: boolean;
   desktopNotifications: boolean;
   /** Absolute path of the folder holding the database, logs and secrets. */
   dataDir: string;

@@ -42,7 +42,7 @@ and telemetry requests on their own schedule: DevSummary suppresses OpenCode's
 (`OPENCODE_DISABLE_AUTOUPDATE=1`) and can suppress no others.
 
 The child's environment is the backend's minus the credential bundle — the PAT, the
-provider key, `DB_ENCRYPTION_KEY` and the SMTP password are stripped before the spawn
+provider key, `DB_ENCRYPTION_KEY` and the Slack bot token are stripped before the spawn
 (`common/llm/agents/run-cli.ts`), so none of them can be read by a model whose prompt is
 an untrusted diff.
 
@@ -50,10 +50,11 @@ an untrusted diff.
 
 | Host | Port | What is sent | Evidence |
 |---|---|---|---|
-| The user's own SMTP server | Whatever they enter; 465 is implicit TLS, everything else STARTTLS | Brief title and summary, commit links, recipient addresses, SMTP username and password | `local/settings/smtp.ts:17` |
 | `slack.com` | 443 | Bot token, channel id, brief title and summary | `integrations/slack/slack.client.ts` (`@slack/web-api`, `chat.postMessage`) |
 
-Desktop notifications are the third delivery channel and are local only.
+Slack is the **only** delivery destination. Email delivery is not available in the desktop
+version (`docs/DELTAS.md` D-H), so no mail relay is ever contacted. Desktop notifications are
+the second delivery channel and are local only.
 
 ## Telemetry
 

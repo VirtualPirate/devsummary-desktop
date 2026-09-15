@@ -90,7 +90,6 @@ function scheduleRow(overrides: Record<string, unknown> = {}) {
     scopeRepositoryId: 'r1',
     nextRunAt: new Date('2026-05-27T16:00:00Z'),
     lastSentAt: null,
-    emailRecipients: [],
     slackInstallationId: null,
     slackChannelId: null,
     createdByMemberId: 'u1',
@@ -248,7 +247,7 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: { emails: ['a@b.com'] },
+        delivery: {},
       });
       expect(out.nextRunAt).toBe('2026-05-26T16:00:00.000Z');
       jest.useRealTimers();
@@ -506,7 +505,6 @@ describe('BriefSchedulesService', () => {
         scopeRepositoryId: null,
         nextRunAt: new Date('2026-05-20T16:00:00Z'),
         lastSentAt: null,
-        emailRecipients: [],
         slackInstallationId: null,
         slackChannelId: null,
         createdByMemberId: 'u1',
@@ -531,7 +529,6 @@ describe('BriefSchedulesService', () => {
         scopeRepositoryId: null,
         nextRunAt: patch.nextRunAt,
         lastSentAt: null,
-        emailRecipients: [],
         slackInstallationId: null,
         slackChannelId: null,
         createdByMemberId: 'u1',

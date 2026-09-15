@@ -23,7 +23,6 @@ import { COMMIT_ANALYSIS_MODEL_VARS } from '../../integrations/github/commit-ana
 import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
 import { LocalSettingsRepository } from './local-settings.repository';
 import { SecretsService, type SecretBundle } from './secrets.service';
-import { smtpTransport } from './smtp';
 
 /**
  * The smallest structured answer that still proves the whole path: argv, stdin,
@@ -77,10 +76,9 @@ export class LocalSettingsService {
   }
 
   /**
-   * Credentials are proved before they are stored: SMTP with
-   * `transporter.verify()` (connect + AUTH, no message sent) and Slack with
-   * `auth.test`. Without that, a typo'd app password surfaces days later as a
-   * failed brief instead of a red field.
+   * Credentials are proved before they are stored — Slack with `auth.test`, an
+   * agent CLI by detecting its binary. Without that, a typo'd token surfaces
+   * days later as a failed brief instead of a red field.
    */
   async updateCredentials(
     orgId: string,
@@ -92,11 +90,6 @@ export class LocalSettingsService {
       overlay.OPENAI_API_KEY = body.openaiApiKey;
     if (body.geminiApiKey !== undefined)
       overlay.GEMINI_API_KEY = body.geminiApiKey;
-    if (body.smtpHost !== undefined) overlay.SMTP_HOST = body.smtpHost;
-    if (body.smtpPort !== undefined) overlay.SMTP_PORT = String(body.smtpPort);
-    if (body.smtpUser !== undefined) overlay.SMTP_USER = body.smtpUser;
-    if (body.smtpPass !== undefined) overlay.SMTP_PASS = body.smtpPass;
-    if (body.emailFrom !== undefined) overlay.EMAIL_FROM = body.emailFrom;
     // A model belongs to a provider, so it is written under the provider this
     // request selects — a form that switches to Gemini and names a model in the
     // same submit must not leave that model on the OpenAI vars.
@@ -106,28 +99,7 @@ export class LocalSettingsService {
     if (body.briefModel !== undefined)
       overlay[BRIEF_MODEL_VARS[provider]] = body.briefModel;
 
-    const touchesSmtp = [
-      body.smtpHost,
-      body.smtpPort,
-      body.smtpUser,
-      body.smtpPass,
-    ].some((v) => v !== undefined);
-
-    if (touchesSmtp) {
-      const candidate = this.secrets.smtp(overlay);
-      if (candidate) {
-        try {
-          await smtpTransport(candidate).verify();
-        } catch (err) {
-          throw new BadRequestException(
-            `SMTP verification failed: ${describe(err)}`,
-          );
-        }
-      }
-    }
-
-    // A CLI provider is proved before it is stored, exactly like SMTP and
-    // Slack. Not-logged-in is deliberately allowed: the card warns, and the fix
+    // A CLI provider is proved before it is stored, exactly like Slack. Not-logged-in is deliberately allowed: the card warns, and the fix
     // (`claude` then `/login`) is outside this app.
     if (body.llmProvider !== undefined && isAgentProvider(body.llmProvider)) {
       const cli = await this.detector.detect(body.llmProvider, { force: true });
@@ -155,27 +127,6 @@ export class LocalSettingsService {
     }
 
     return this.status();
-  }
-
-  async testEmail(to: string): Promise<LocalSettingsTestResult> {
-    const smtp = this.secrets.smtp();
-    if (!smtp) {
-      throw new BadRequestException(
-        'Email is not configured: set the SMTP host, username and password first',
-      );
-    }
-    try {
-      await smtpTransport(smtp).sendMail({
-        from: smtp.from,
-        to,
-        subject: 'DevSummary test email',
-        text: 'This is a test email from DevSummary. Your SMTP settings work.',
-      });
-    } catch (err) {
-      throw new BadRequestException(`Test email failed: ${describe(err)}`);
-    }
-    this.logger.log(`Test email sent to=${to}`);
-    return { ok: true, detail: `Sent to ${to}` };
   }
 
   /**

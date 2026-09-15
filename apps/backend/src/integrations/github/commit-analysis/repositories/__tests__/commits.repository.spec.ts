@@ -114,7 +114,7 @@ describe('CommitsRepository.findForBriefScope commit clock', () => {
    * main and merged inside this period. The committer date is the merge, which
    * is why ingestion fetched, stored and analysed it — the author date is
    * three weeks stale, which is why the old query filed it under a period whose
-   * brief had already been generated and emailed, so it appeared in none.
+   * brief had already been generated and delivered, so it appeared in none.
    */
   const rebased = commit({
     authoredAt: new Date('2026-01-05T09:00:00Z'),

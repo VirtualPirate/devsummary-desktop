@@ -174,9 +174,6 @@ export class BriefSchedulesService {
         : {}),
       ...(body.timezone ? { timezone: newTimezone } : {}),
       ...(body.scope ? this.scopeColumns(body.scope) : {}),
-      ...(body.delivery?.emails !== undefined
-        ? { emailRecipients: body.delivery.emails }
-        : {}),
       ...(body.delivery?.slackChannelId !== undefined
         ? {
             slackInstallationId,
@@ -267,7 +264,6 @@ export class BriefSchedulesService {
       ...this.scopeColumns(body.scope),
       paused: false,
       nextRunAt,
-      emailRecipients: body.delivery?.emails ?? [],
       slackInstallationId,
       slackChannelId: body.delivery?.slackChannelId ?? null,
     };
@@ -447,7 +443,6 @@ export class BriefSchedulesService {
       nextRunAt: row.nextRunAt.toISOString(),
       lastSentAt: row.lastSentAt ? row.lastSentAt.toISOString() : null,
       delivery: {
-        emails: row.emailRecipients,
         slackChannelId: row.slackChannelId,
       },
       createdAt: row.createdAt.toISOString(),

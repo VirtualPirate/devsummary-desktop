@@ -14,16 +14,18 @@ The product spec below (user flows, AI usage, module table, database schema) des
 
 ## Product Spec: DevSummary
 
-DevSummary is an AI-powered engineering activity reporter. It connects to a GitHub organization, ingests commit activity, and generates plain-English briefs aimed at non-technical stakeholders (founders, PMs, executives). Briefs are scoped to a project, team, collaborator, or repository, generated on a recurring schedule or on demand, and delivered via email and/or Slack.
+DevSummary is an AI-powered engineering activity reporter. It connects to a GitHub organization, ingests commit activity, and generates plain-English briefs aimed at non-technical stakeholders (founders, PMs, executives). Briefs are scoped to a project, team, collaborator, or repository, generated on a recurring schedule or on demand, and delivered to Slack and/or as a desktop
+notification. **Email delivery is not available in the desktop version** (`docs/DELTAS.md` D-H) —
+there is no SMTP setting and no email recipient field on any screen.
 
 ### Core User Flows
 
 1. **Connect GitHub** — The user pastes a fine-grained personal access token (`POST /api/integrations/github/token`; Contents + Metadata, read-only). Electron has no public callback URL, so there is no App install and no OAuth. Repositories are reconciled on connect, but ingest nothing yet: a repository is read only on the branch it is *tracked* on (`github.repository_branches`), and a fresh one tracks none. The token is encrypted at rest (AES-256-GCM).
 2. **Choose a branch** — Connecting leads to `/integrations/github/setup`, which lists every repository with no branch, pre-selects its GitHub default, and takes a history window (30/90 days). **One repository reads one branch.** Pressing Start writes that choice and is what begins commit ingestion + AI analysis — nothing is fetched or spent on the LLM provider before that. After that first read, new commits arrive from a **sweep** that runs on launch and every 15 minutes, fetching only what is not already stored on that branch; there are no webhooks, because a desktop machine has no public URL to deliver them to. **The choice is write-once**: a repository that already has a branch is frozen (no swapping, no second branch) until changing it is designed, so it never reappears in setup and the API answers 409. Repositories left unconfigured stay inert and are surfaced by a banner on the integrations page.
 3. **Organize** — Users create **projects** (groupings of repositories) and **teams** (groupings of GitHub collaborators) to scope briefs.
-4. **Schedule** — Users create a **brief schedule**: scope (project/team/collaborator/repo, optionally narrowed to one branch for a repository scope) + cadence (daily/weekly/monthly at a time in a timezone) + delivery channels (email addresses, Slack channel). Schedules can be paused/resumed; creating one backfills up to 366 days of historical briefs.
+4. **Schedule** — Users create a **brief schedule**: scope (project/team/collaborator/repo, optionally narrowed to one branch for a repository scope) + cadence (daily/weekly/monthly at a time in a timezone) + a delivery channel (a Slack channel; email is not available, see D-H). Schedules can be paused/resumed; creating one backfills up to 366 days of historical briefs.
 5. **Generate** — On schedule (an in-process scheduler enqueues a dispatch job every ~60s, which claims due schedules) or on demand, the backend gathers commits in the period, uses per-commit AI analyses, builds a prompt, and calls the configured LLM provider to produce a non-technical title + summary.
-6. **Deliver** — Briefs are sent via email (React Email over the user's own SMTP mailbox), Slack (a pasted bot token), and/or a desktop notification. At least one channel succeeding marks the brief `delivered`; per-channel failures accumulate on `failureReason`.
+6. **Deliver** — Briefs are sent to Slack (a pasted bot token) and/or as a desktop notification. At least one channel succeeding marks the brief `delivered`; per-channel failures accumulate on `failureReason`. There is no email channel (D-H).
 7. **View** — A dashboard lists briefs with filters (scope type, date range, collaborator, exclude no-activity periods) and pagination. A brief detail view shows the summary, a commit-type distribution bar, and links to a granular per-brief commit list.
 
 ### AI / LLM Usage
@@ -38,7 +40,7 @@ DevSummary is an AI-powered engineering activity reporter. It connects to a GitH
 | Module | Path | Purpose |
 |--------|------|---------|
 | Brief generation | `src/briefs/generation/` | Generate briefs; list/get briefs and their commits (`/api/organizations/current/briefs*`) |
-| Brief delivery | `src/briefs/delivery/` | Email + Slack delivery (internal, invoked by job handlers) |
+| Brief delivery | `src/briefs/delivery/` | Slack + desktop-notification delivery (internal, invoked by job handlers) |
 | Schedules | `src/briefs/schedules/` | CRUD + pause/resume for recurring brief configs; `CadenceService` computes `nextRunAt` in the user's timezone |
 | Projects | `src/briefs/projects/` | Repo groupings (org-scoped, soft-deleted) |
 | Teams | `src/briefs/teams/` | Collaborator groupings (org-scoped, soft-deleted) |
@@ -64,7 +66,7 @@ Components live in `src/components/devsummary/`. Routes:
 - `/schedules`, `/schedules/new`, `/schedules/$scheduleId` — schedule management (scope picker, cadence, delivery channels)
 - `/projects`, `/projects/$projectId` and `/teams`, `/teams/$teamId` — grouping management
 - `/integrations/github` — PAT connect form, connected account + repositories with their branch; banners a count of repositories that have no branch and therefore read nothing
-- `/settings` — local settings: GitHub PAT, AI provider + its key + model overrides + token totals, SMTP, Slack bot token, desktop notifications, data directory
+- `/settings` — local settings: desktop notifications, theme, data directory, workspace and links to the integrations pages (GitHub PAT, AI provider + its key + model overrides + token totals, Slack bot token). No SMTP card — email delivery is not available (D-H)
 - `/integrations/github/setup` — post-connect branch selection (`integrations-github-setup.tsx` + `components/integrations/branch-setup-list.tsx`, `branch-picker.tsx`, `history-window-picker.tsx`); admin-only, re-enterable, and the only place ingestion is started
 
 Briefs covering periods with zero commits get a distinct "no activity" badge/treatment.

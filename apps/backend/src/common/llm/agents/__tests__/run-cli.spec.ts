@@ -67,7 +67,6 @@ describe('runCli', () => {
       'GITHUB_TOKEN',
       'OPENAI_API_KEY',
       'DB_ENCRYPTION_KEY',
-      'SMTP_PASS',
       'SLACK_BOT_TOKEN',
     ];
     const saved = new Map<string, string | undefined>();
@@ -103,7 +102,9 @@ describe('runCli', () => {
 
       // Not "no canary": every key on the list, whether or not this test set
       // one, so a key added to the bundle later cannot quietly skip the strip.
-      expect(result.stdout.split('|')).toEqual(SECRET_KEYS.map(() => 'undefined'));
+      expect(result.stdout.split('|')).toEqual(
+        SECRET_KEYS.map(() => 'undefined'),
+      );
     });
 
     it('still leaves the child the environment it needs to run', async () => {

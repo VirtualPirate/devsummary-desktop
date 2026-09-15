@@ -39,8 +39,8 @@ export const ScopeSchema = z.discriminatedUnion('type', [
 ]);
 export type ScopeInput = z.infer<typeof ScopeSchema>;
 
+/** Email delivery is not available in the desktop build — see docs/DELTAS.md D-H. */
 export const DeliveryInputSchema = z.object({
-  emails: z.array(z.string().email()).max(20).optional(),
   slackChannelId: z.string().min(1).optional(),
 });
 export type DeliveryInput = z.infer<typeof DeliveryInputSchema>;
@@ -142,7 +142,7 @@ export type GenerateBriefRequest = z.infer<typeof GenerateBriefSchema>;
 
 // Briefs (manual re-delivery of one already-generated brief)
 export const DeliverBriefSchema = z.object({
-  channel: z.enum(['email', 'slack']),
+  channel: z.enum(['slack']),
 });
 export type DeliverBriefRequest = z.infer<typeof DeliverBriefSchema>;
 

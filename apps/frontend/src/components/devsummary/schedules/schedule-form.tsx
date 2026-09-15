@@ -45,10 +45,7 @@ function cadenceFromExisting(existing: BriefScheduleResponse): CadenceInput {
 }
 
 function deliveryFromExisting(existing: BriefScheduleResponse): DeliveryInput {
-  return {
-    emails: existing.delivery.emails,
-    slackChannelId: existing.delivery.slackChannelId ?? undefined,
-  };
+  return { slackChannelId: existing.delivery.slackChannelId ?? undefined };
 }
 
 /**
@@ -124,10 +121,7 @@ export function ScheduleForm({
         cadence,
         timezone,
         scope,
-        delivery: {
-          emails: delivery.emails ?? [],
-          slackChannelId: delivery.slackChannelId,
-        },
+        delivery: { slackChannelId: delivery.slackChannelId },
       });
       toast.success("Schedule updated");
     } catch (err) {

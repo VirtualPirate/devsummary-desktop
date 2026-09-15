@@ -453,7 +453,7 @@ export class BriefActivities {
         briefId: briefRow.id,
         organizationId: schedule.organizationId,
         // Only the most recent complete period is delivered — replaying a week
-        // of missed periods must not email every one of them. The others get
+        // of missed periods must not fan out a post for every one. The others get
         // backfill semantics (generated, visible in the dashboard, not sent).
         deliver: caughtUp && index === windows.length - 1,
       });
@@ -520,7 +520,7 @@ export class BriefActivities {
     }
     // deliver: false — a pending brief's delivery intent lives only in the
     // workflow argument, and backfill/on-demand briefs share this pool, so
-    // delivering them all would be an email storm. Generating unsticks them.
+    // delivering them all would be a notification storm. Generating unsticks them.
     return rows.map((r) => ({
       briefId: r.id,
       organizationId: r.organizationId,

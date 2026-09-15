@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, Mail, Moon } from "lucide-react";
+import { AlertTriangle, Loader2, Moon } from "lucide-react";
 import { toast } from "sonner";
 import type { BriefResponse } from "@launchstack/api-interfaces";
 import { cn } from "@/lib/utils";
@@ -178,9 +178,9 @@ export function BriefViewer({
  * schedule — a Slack post that hit `not_in_channel`, or a channel added to the
  * schedule after the fact, has no other way out.
  *
- * Shown only for the channels the brief's own schedule carries: sending
- * somewhere the schedule never named would be a surprise, and the backend
- * refuses it anyway.
+ * Shown only when the brief's own schedule names a channel: sending somewhere
+ * the schedule never named would be a surprise, and the backend refuses it
+ * anyway.
  */
 function DeliverActions({ brief }: { brief: BriefResponse }) {
   const deliver = useDeliverBrief();
@@ -198,60 +198,29 @@ function DeliverActions({ brief }: { brief: BriefResponse }) {
   if (!isAdmin || !schedule || !brief.generatedAt) return null;
 
   // Per channel, never per brief: `status` is a whole-brief verdict, so a
-  // manual Slack post marked the brief delivered and took the email button
-  // with it even though no email had been sent.
-  const stillOwed = (channel: "email" | "slack") =>
-    !brief.deliveredChannels.includes(channel);
+  // successful desktop notification must not take the Slack button with it.
+  const owed = !brief.deliveredChannels.includes("slack");
+  if (!schedule.delivery.slackChannelId || !owed) return null;
 
-  const send = (channel: "email" | "slack") =>
+  const send = () =>
     deliver.mutate(
-      { briefId: brief.id, channel },
+      { briefId: brief.id, channel: "slack" },
       {
-        onSuccess: () =>
-          toast.success(
-            channel === "slack"
-              ? "Posted to Slack"
-              : `Sent to ${schedule.delivery.emails.length} recipient${
-                  schedule.delivery.emails.length === 1 ? "" : "s"
-                }`,
-          ),
+        onSuccess: () => toast.success("Posted to Slack"),
         onError: (err) => toast.error(extractErrorMessage(err)),
       },
     );
 
-  const pending = (channel: "email" | "slack") =>
-    deliver.isPending && deliver.variables?.channel === channel;
-
-  const showSlack = !!schedule.delivery.slackChannelId && stillOwed("slack");
-  const showEmail = schedule.delivery.emails.length > 0 && stillOwed("email");
-  if (!showSlack && !showEmail) return null;
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {showSlack ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => send("slack")}
-          disabled={deliver.isPending}
-        >
-          <SlackMark className="size-3.5" />
-          {pending("slack") ? "Sending…" : "Deliver to Slack"}
-        </Button>
-      ) : null}
-      {showEmail ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => send("email")}
-          disabled={deliver.isPending}
-        >
-          <Mail className="size-3.5" />
-          {pending("email") ? "Sending…" : "Deliver to Mail"}
-        </Button>
-      ) : null}
-    </div>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={send}
+      disabled={deliver.isPending}
+    >
+      <SlackMark className="size-3.5" />
+      {deliver.isPending ? "Sending…" : "Deliver to Slack"}
+    </Button>
   );
 }

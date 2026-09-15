@@ -14,7 +14,7 @@ import { SecretsService } from './secrets.service';
 
 /**
  * Global because the secret bundle is process-wide state, not a feature: the
- * Slack repository (token encryption) and the brief email sender both need it,
+ * Slack repository (token encryption) and the desktop notifier both need it,
  * and neither should have to import a settings module to send a message.
  */
 @Global()

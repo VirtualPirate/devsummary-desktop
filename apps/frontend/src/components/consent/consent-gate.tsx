@@ -35,7 +35,7 @@ const PRIVACY_URL = "https://finlens.app/devsummary/privacy"
 const SENT = "a random install ID, app version, OS version, launch date"
 const NEVER_SENT = [
   "repository names, commit messages or code",
-  "your GitHub token, AI provider key or SMTP password",
+  "your GitHub token, AI provider key or Slack bot token",
   "brief contents, teammate names or email addresses",
 ]
 

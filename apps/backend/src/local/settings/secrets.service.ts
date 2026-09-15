@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto';
 import type { LocalSettingsStatus } from '@launchstack/api-interfaces';
 import { deriveKey } from '../../auth/crypto';
 import { parentPort } from './parent-port';
-import type { SmtpSettings } from './smtp';
 
 /**
  * The bundle the Electron main process decrypts out of `safeStorage` and hands
@@ -15,11 +14,6 @@ export const SECRET_KEYS = [
   'OPENAI_API_KEY',
   'GEMINI_API_KEY',
   'DB_ENCRYPTION_KEY',
-  'SMTP_HOST',
-  'SMTP_PORT',
-  'SMTP_USER',
-  'SMTP_PASS',
-  'EMAIL_FROM',
   'SLACK_BOT_TOKEN',
   // Not secrets, but they ride the same bundle: it is the only thing the shell
   // persists, so a choice made in settings has nowhere else to survive a
@@ -49,10 +43,8 @@ export type SecretBundle = Partial<Record<SecretKey, string>>;
 /** The credential half of `LocalSettingsStatus`; the rest is the DB and env. */
 export type CredentialStatus = Pick<
   LocalSettingsStatus,
-  'github' | 'openai' | 'gemini' | 'smtp' | 'slack' | 'emailFrom'
+  'github' | 'openai' | 'gemini' | 'slack'
 >;
-
-const DEFAULT_SMTP_PORT = 587;
 
 function blankToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -129,36 +121,13 @@ export class SecretsService {
     return deriveKey(secret);
   }
 
-  /**
-   * `null` means "email channel not configured" — never a boot failure.
-   * `overlay` lets a settings write be verified against the *merged* result
-   * before it is committed, without exposing the bundle itself.
-   */
-  smtp(overlay?: SecretBundle): SmtpSettings | null {
-    const { SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_PORT, EMAIL_FROM } = {
-      ...this.bundle,
-      ...overlay,
-    };
-    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
-    const port = Number(SMTP_PORT);
-    return {
-      host: SMTP_HOST,
-      port: Number.isFinite(port) && port > 0 ? port : DEFAULT_SMTP_PORT,
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-      from: EMAIL_FROM ?? SMTP_USER,
-    };
-  }
-
   /** Booleans only. A value never leaves this process except to its provider. */
   status(): CredentialStatus {
     return {
       github: Boolean(this.bundle.GITHUB_TOKEN),
       openai: Boolean(this.bundle.OPENAI_API_KEY),
       gemini: Boolean(this.bundle.GEMINI_API_KEY),
-      smtp: this.smtp() !== null,
       slack: Boolean(this.bundle.SLACK_BOT_TOKEN),
-      emailFrom: Boolean(this.bundle.EMAIL_FROM),
     };
   }
 }
