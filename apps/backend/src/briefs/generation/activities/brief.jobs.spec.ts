@@ -24,7 +24,10 @@ type Activities = jest.Mocked<
 
 function makeJobs(overrides: Partial<Activities> = {}) {
   const activities = {
-    markGenerating: jest.fn(async () => ({ proceed: true })),
+    markGenerating: jest.fn(async () => ({
+      proceed: true,
+      alreadyGenerated: false,
+    })),
     generateContent: jest.fn(async () => ({ terminal: false })),
     deliver: jest.fn(async () => undefined),
     planBackfill: jest.fn(async () => ({ briefs: [] })),
@@ -58,7 +61,10 @@ describe('BriefJobs — briefs.generate (was GenerateBriefWorkflow)', () => {
 
   it('does not deliver when markGenerating returns proceed:false', async () => {
     const { jobs, activities } = makeJobs({
-      markGenerating: jest.fn(async () => ({ proceed: false })) as never,
+      markGenerating: jest.fn(async () => ({
+        proceed: false,
+        alreadyGenerated: false,
+      })) as never,
     });
 
     await jobs.generate({ briefId: 'b2', deliver: true });
@@ -84,6 +90,25 @@ describe('BriefJobs — briefs.generate (was GenerateBriefWorkflow)', () => {
 
     expect(activities.generateContent).toHaveBeenCalledWith({ briefId: 'b4' });
     expect(activities.deliver).not.toHaveBeenCalled();
+  });
+
+  // Regression: a crash between the generator's write and the send leaves the
+  // brief `generated` with the job row still alive, so boot requeues it. The
+  // content is already written — resume at deliver rather than re-spend the LLM
+  // call, which is the only recovery an on-demand brief (no schedule, never
+  // re-dispatched) ever gets.
+  it('skips generation and delivers when the brief is already generated', async () => {
+    const { jobs, activities } = makeJobs({
+      markGenerating: jest.fn(async () => ({
+        proceed: true,
+        alreadyGenerated: true,
+      })) as never,
+    });
+
+    await jobs.generate({ briefId: 'b6', deliver: true });
+
+    expect(activities.generateContent).not.toHaveBeenCalled();
+    expect(activities.deliver).toHaveBeenCalledWith({ briefId: 'b6' });
   });
 
   // `deliver` is optional on the input; only an explicit `false` suppresses it.

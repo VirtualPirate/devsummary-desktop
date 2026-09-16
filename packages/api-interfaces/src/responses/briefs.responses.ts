@@ -179,6 +179,12 @@ export interface BriefResponse {
    * "did this reach Slack?" reads this, never the status.
    */
   deliveredChannels: BriefDeliveryChannel[];
+  /**
+   * The Slack channel this brief carries itself — set only on an on-demand
+   * brief, which has no schedule to read one from. The manual re-send reads
+   * `schedule.delivery.slackChannelId ?? this`, exactly as the deliverer does.
+   */
+  deliverySlackChannelId: string | null;
   createdAt: string;
   updatedAt: string;
 }

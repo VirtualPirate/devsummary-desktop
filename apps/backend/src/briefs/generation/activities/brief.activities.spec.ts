@@ -83,7 +83,13 @@ function makeActivities(
 
 describe('BriefActivities', () => {
   describe('markGenerating', () => {
-    it('returns proceed:false and does not update when the brief is already generated', async () => {
+    // Regression: a crash between `generateContent`'s write and `deliver` left
+    // the brief `generated` with the job row still alive. Exiting here made the
+    // handler "succeed", deleted the row, and dropped the delivery for good —
+    // an on-demand brief has no schedule to re-fire and nothing re-dispatches a
+    // `generated` one. It resumes at delivery instead, with the status left
+    // alone so a channel-less brief is not wedged in `generating`.
+    it('resumes an already-generated brief at delivery without touching its status', async () => {
       const mocks = makeMocks();
       mocks.briefs.findById.mockResolvedValueOnce({
         id: 'b1',
@@ -93,7 +99,21 @@ describe('BriefActivities', () => {
 
       const result = await activities.markGenerating({ briefId: 'b1' });
 
-      expect(result).toEqual({ proceed: false });
+      expect(result).toEqual({ proceed: true, alreadyGenerated: true });
+      expect(mocks.briefs.update).not.toHaveBeenCalled();
+    });
+
+    it('returns proceed:false and does not update when the brief is already delivered', async () => {
+      const mocks = makeMocks();
+      mocks.briefs.findById.mockResolvedValueOnce({
+        id: 'b1',
+        status: 'delivered',
+      });
+      const activities = makeActivities(mocks);
+
+      const result = await activities.markGenerating({ briefId: 'b1' });
+
+      expect(result).toEqual({ proceed: false, alreadyGenerated: true });
       expect(mocks.briefs.update).not.toHaveBeenCalled();
     });
 
@@ -110,7 +130,7 @@ describe('BriefActivities', () => {
       expect(mocks.briefs.update).toHaveBeenCalledWith('b1', {
         status: 'generating',
       });
-      expect(result).toEqual({ proceed: true });
+      expect(result).toEqual({ proceed: true, alreadyGenerated: false });
     });
 
     it('returns proceed:false when the brief is not found', async () => {
@@ -120,7 +140,7 @@ describe('BriefActivities', () => {
 
       const result = await activities.markGenerating({ briefId: 'missing' });
 
-      expect(result).toEqual({ proceed: false });
+      expect(result).toEqual({ proceed: false, alreadyGenerated: false });
       expect(mocks.briefs.update).not.toHaveBeenCalled();
     });
 
@@ -157,6 +177,7 @@ describe('BriefActivities', () => {
 
       expect(await activities.markGenerating({ briefId: 'b1' })).toEqual({
         proceed: true,
+        alreadyGenerated: false,
       });
       await activities.generateContent({ briefId: 'b1' });
 

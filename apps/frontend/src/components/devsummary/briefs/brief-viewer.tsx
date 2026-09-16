@@ -174,13 +174,18 @@ export function BriefViewer({
 }
 
 /**
- * Manual re-delivery, bottom right. A brief is delivered exactly once by its
- * schedule — a Slack post that hit `not_in_channel`, or a channel added to the
- * schedule after the fact, has no other way out.
+ * Manual re-delivery, bottom right. A brief is delivered exactly once — a Slack
+ * post that hit `not_in_channel`, or a channel added to the schedule after the
+ * fact, has no other way out.
  *
- * Shown only when the brief's own schedule names a channel: sending somewhere
- * the schedule never named would be a surprise, and the backend refuses it
- * anyway.
+ * The channel is the brief's *effective* one, `schedule ?? brief`, which is the
+ * same expression `BriefDelivererService` resolves. Requiring a schedule left
+ * an on-demand brief — which carries its channel on its own row and has no
+ * schedule at all — with no button at any point, so a one-off brief whose send
+ * failed was unrecoverable from the UI even though the endpoint accepted it.
+ * Showing nothing when neither names a channel is still right: sending
+ * somewhere the user never named would be a surprise, and the backend refuses
+ * it anyway.
  */
 function DeliverActions({ brief }: { brief: BriefResponse }) {
   const deliver = useDeliverBrief();
@@ -192,15 +197,17 @@ function DeliverActions({ brief }: { brief: BriefResponse }) {
   const schedule = (schedulesQuery.data?.data ?? []).find(
     (s) => s.id === brief.briefScheduleId,
   );
+  const slackChannelId =
+    schedule?.delivery.slackChannelId ?? brief.deliverySlackChannelId;
 
   // No `generatedAt` means the failure was in generation, not delivery — there
   // is no summary to send.
-  if (!isAdmin || !schedule || !brief.generatedAt) return null;
+  if (!isAdmin || !brief.generatedAt) return null;
 
   // Per channel, never per brief: `status` is a whole-brief verdict, so a
   // successful desktop notification must not take the Slack button with it.
   const owed = !brief.deliveredChannels.includes("slack");
-  if (!schedule.delivery.slackChannelId || !owed) return null;
+  if (!slackChannelId || !owed) return null;
 
   const send = () =>
     deliver.mutate(

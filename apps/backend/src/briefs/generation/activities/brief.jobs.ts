@@ -51,14 +51,19 @@ export class BriefJobs implements OnModuleInit {
   }
 
   async generate(input: GenerateBriefInput): Promise<void> {
-    const { proceed } = await this.activities.markGenerating({
+    const { proceed, alreadyGenerated } = await this.activities.markGenerating({
       briefId: input.briefId,
     });
     if (!proceed) return;
-    const { terminal } = await this.activities.generateContent({
-      briefId: input.briefId,
-    });
-    if (terminal) return;
+    // Already generated means this is a requeue of a run that died between the
+    // generator and the send — pick up at `deliver` rather than re-spending the
+    // LLM call on content that is already written.
+    if (!alreadyGenerated) {
+      const { terminal } = await this.activities.generateContent({
+        briefId: input.briefId,
+      });
+      if (terminal) return;
+    }
     if (input.deliver === false) return;
     await this.activities.deliver({ briefId: input.briefId });
   }

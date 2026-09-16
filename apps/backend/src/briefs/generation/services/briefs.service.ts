@@ -556,6 +556,7 @@ export class BriefsService {
       generatedAt: row.generatedAt ? row.generatedAt.toISOString() : null,
       deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
       deliveredChannels: row.deliveredChannels,
+      deliverySlackChannelId: row.deliverySlackChannelId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

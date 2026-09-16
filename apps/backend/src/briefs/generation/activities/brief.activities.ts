@@ -75,32 +75,37 @@ export class BriefActivities {
 
   async markGenerating(input: {
     briefId: string;
-  }): Promise<{ proceed: boolean }> {
+  }): Promise<{ proceed: boolean; alreadyGenerated: boolean }> {
     const brief = await this.briefs.findById(input.briefId);
     if (!brief) {
       this.logger.warn(`brief ${input.briefId} not found`);
-      return { proceed: false };
+      return { proceed: false, alreadyGenerated: false };
     }
-    // `generating` proceeds too. Durability is now whole-handler retry, not
-    // Temporal replay: the deduped `brief:<id>` job row is the single execution
-    // authority, so a row that still exists means no run of this handler has
-    // finished. A crash (or a plain quit) during `generateContent` left the
-    // brief `generating`; boot requeued the job, this returned proceed:false,
-    // the handler "succeeded", the row was deleted — and `reapStalePending`
-    // only looks at `pending`, so the brief was wedged with no content forever.
-    // `generated`/`delivered` still exit: those cost an LLM call to redo and
-    // the brief detail view's per-channel button already re-sends them.
-    if (
-      brief.status !== 'pending' &&
-      brief.status !== 'failed' &&
-      brief.status !== 'generating'
-    ) {
+    // Durability is whole-handler retry, not Temporal replay: the deduped
+    // `brief:<id>` job row is the single execution authority, so a row that
+    // still exists means no run of this handler has finished. `delivered` is
+    // the one status that is actually done.
+    if (brief.status === 'delivered') {
       this.logger.log(`brief ${brief.id} already ${brief.status}; exiting`);
-      return { proceed: false };
+      return { proceed: false, alreadyGenerated: true };
+    }
+
+    // A crash (or a plain quit) between `generateContent`'s write and `deliver`
+    // left the brief `generated` with the job row still alive; boot requeues
+    // it. Exiting here made the handler "succeed", deleted the row, and dropped
+    // the delivery for good — and nothing re-dispatches a `generated` brief
+    // (`reapStalePending` only looks at `pending`), so a one-off brief with no
+    // schedule had no way back. Resume at `deliver` instead: the content is
+    // written, and re-running the generator would re-spend the LLM call.
+    // `status` deliberately stays `generated` — flipping it to `generating`
+    // would wedge a brief whose org configured no delivery channel at all.
+    if (brief.status === 'generated') {
+      this.logger.log(`brief ${brief.id} already generated; resuming delivery`);
+      return { proceed: true, alreadyGenerated: true };
     }
 
     await this.briefs.update(brief.id, { status: 'generating' });
-    return { proceed: true };
+    return { proceed: true, alreadyGenerated: false };
   }
 
   async generateContent(input: {
