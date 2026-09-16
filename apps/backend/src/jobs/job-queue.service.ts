@@ -79,7 +79,15 @@ export class JobQueueService {
       .onConflict((c) => {
         const rearm = c
           .column('id')
-          .doUpdateSet({ state: 'pending', attempts: 0, error: null, runAt })
+          // `args` too: a checkpointed cursor belongs to the run that died,
+          // and this is a new request with its own window.
+          .doUpdateSet({
+            state: 'pending',
+            attempts: 0,
+            error: null,
+            runAt,
+            args: JSON.stringify(args ?? {}),
+          })
           // Only a *terminally failed* row is re-armed; pending and running
           // still no-op, which is the dedup this whole method exists for.
           // Without it a dead row holds its id forever, and every stable id
@@ -103,6 +111,25 @@ export class JobQueueService {
       })
       .execute();
     return id;
+  }
+
+  /**
+   * A running handler's resume point, written back onto its own row.
+   *
+   * A retry re-invokes the handler with whatever `args` the row holds, so a
+   * paging loop that never writes its cursor back starts again at page 1 — on
+   * a sweep that is every repository re-ingested, on `analyzeRepo` every page
+   * re-planned. Called at a page boundary, this makes a retry cost one page.
+   *
+   * Not an upsert: the row is `running` (the runner claimed it) or already
+   * gone, and a checkpoint for a job nobody will retry is a no-op either way.
+   */
+  async saveArgs(jobId: string, args: unknown): Promise<void> {
+    await this.db
+      .updateTable('jobs')
+      .set({ args: JSON.stringify(args ?? {}) })
+      .where('id', '=', jobId)
+      .execute();
   }
 
   /** Drops every job for an org that has not started, and flags the rest. */

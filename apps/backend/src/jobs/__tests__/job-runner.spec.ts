@@ -230,6 +230,22 @@ describe('dedup', () => {
     });
   });
 
+  // A checkpointed cursor belongs to the run that died. The re-arm is a fresh
+  // request — a new window, a new `sinceISO` — so it must not resume the old
+  // one's position and skip everything before it.
+  it('resets args on re-arm', async () => {
+    const id = 'sweep:r1:main:2026-08-19';
+    await queue.enqueue('github.sweep', { cursor: null }, { id });
+    await queue.saveArgs(id, {
+      cursor: { repositoryId: 'r9', branch: 'main' },
+    });
+    await failRow(id, 2 * 60 * 60_000);
+
+    await queue.enqueue('github.sweep', { cursor: null }, { id });
+
+    expect((await row(id))?.args).toEqual({ cursor: null });
+  });
+
   it('still no-ops over a pending or running row', async () => {
     const id = 'sweep:2026-08-19';
     await queue.enqueue('github.sweep', { page: 1 }, { id });
@@ -327,5 +343,42 @@ describe('claim', () => {
     expect(await runner.runOnce()).toBe(true);
     expect(handler).not.toHaveBeenCalled();
     expect(await row(running)).toBeUndefined();
+  });
+});
+
+/**
+ * The retry half of the paging loops in `commit-analysis.jobs.ts`. A handler is
+ * re-invoked with whatever `args` its row holds, so a loop that does not write
+ * its cursor back restarts at page 1 — on a sweep that is every repository
+ * re-ingested, which on a big install is the expensive part of the retry.
+ */
+describe('checkpointed args', () => {
+  it('hands the next attempt the cursor the failed one saved', async () => {
+    const id = 'sweep:2026-08-19';
+    const seen: unknown[] = [];
+    let attempt = 0;
+
+    registry.register('github.sweep', async (args, job) => {
+      seen.push(args.cursor);
+      attempt += 1;
+      // Page one succeeds and checkpoints; the handler then dies on page two.
+      await queue.saveArgs(job.id, { cursor: `page-${attempt + 1}` });
+      if (attempt === 1) throw new Error('boom');
+    });
+
+    await queue.enqueue('github.sweep', { cursor: null }, { id });
+    expect(await runner.runOnce()).toBe(true);
+
+    // Past the `standard` profile's 30s first backoff.
+    await db
+      .updateTable('jobs')
+      .set({ runAt: new Date(Date.now() - 1000) })
+      .where('id', '=', id)
+      .execute();
+    expect(await runner.runOnce()).toBe(true);
+
+    expect(seen).toEqual([null, 'page-2']);
+    // Succeeded, so the row is gone rather than holding a stale cursor.
+    expect(await row(id)).toBeUndefined();
   });
 });

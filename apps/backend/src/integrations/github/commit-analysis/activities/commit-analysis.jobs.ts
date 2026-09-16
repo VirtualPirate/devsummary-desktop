@@ -101,10 +101,12 @@ export class CommitAnalysisJobs implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(JOB.analyzeRepo, (args) =>
-      this.analyzeRepo(args as unknown as AnalyzeRepoInput),
+    this.registry.register(JOB.analyzeRepo, (args, job) =>
+      this.analyzeRepo(args as unknown as AnalyzeRepoInput, job.id),
     );
-    this.registry.register(JOB.sweepRepositories, (args) => this.sweep(args));
+    this.registry.register(JOB.sweepRepositories, (args, job) =>
+      this.sweep(args, job.id),
+    );
     this.registry.register(JOB.ingestNewCommits, (args) =>
       this.ingestNewCommits(args as unknown as IngestNewCommitsInput),
     );
@@ -115,12 +117,15 @@ export class CommitAnalysisJobs implements OnModuleInit {
       this.backfillCommits(args as unknown as BackfillCommitsInput),
     );
     this.registry.register(JOB.backfillLocStats, () => this.backfillLocStats());
-    this.registry.register(JOB.backfillRepoLocStats, (args) =>
-      this.backfillRepoLocStats(args as unknown as BackfillRepoLocStatsInput),
+    this.registry.register(JOB.backfillRepoLocStats, (args, job) =>
+      this.backfillRepoLocStats(
+        args as unknown as BackfillRepoLocStatsInput,
+        job.id,
+      ),
     );
   }
 
-  async analyzeRepo(input: AnalyzeRepoInput): Promise<void> {
+  async analyzeRepo(input: AnalyzeRepoInput, jobId?: string): Promise<void> {
     let cursor = input.cursor ?? null;
 
     do {
@@ -177,10 +182,14 @@ export class CommitAnalysisJobs implements OnModuleInit {
       );
 
       cursor = planned.nextCursor;
+      await this.checkpoint(jobId, { ...input, cursor });
     } while (cursor);
   }
 
-  async sweep(input: SweepRepositoriesInput = {}): Promise<void> {
+  async sweep(
+    input: SweepRepositoriesInput = {},
+    jobId?: string,
+  ): Promise<void> {
     let cursor = input.cursor ?? null;
     // The first page owns the date; later pages keep it so child ids stay
     // stable even if a large install's sweep crosses midnight.
@@ -213,6 +222,7 @@ export class CommitAnalysisJobs implements OnModuleInit {
       }
 
       cursor = page.nextCursor;
+      await this.checkpoint(jobId, { ...input, cursor, runDate });
     } while (cursor);
   }
 
@@ -301,7 +311,10 @@ export class CommitAnalysisJobs implements OnModuleInit {
     }
   }
 
-  async backfillRepoLocStats(input: BackfillRepoLocStatsInput): Promise<void> {
+  async backfillRepoLocStats(
+    input: BackfillRepoLocStatsInput,
+    jobId?: string,
+  ): Promise<void> {
     let cursor = input.cursor;
     for (;;) {
       const { nextCursor } = await this.loc.pageRepo({
@@ -310,9 +323,31 @@ export class CommitAnalysisJobs implements OnModuleInit {
       });
       if (nextCursor === null) return;
       cursor = nextCursor;
+      await this.checkpoint(jobId, { ...input, cursor });
       this.logger.debug(`[loc.backfillRepo] ${input.repositoryId} next page`);
       await sleep(LOC_PAGE_DELAY_MS);
     }
+  }
+
+  /**
+   * Where the next attempt should pick up.
+   *
+   * A retry re-runs the handler with the row's `args`, so without this a
+   * failure on page 40 replays pages 1-39: on a sweep that re-enqueues every
+   * repository already ingested this run (their rows were deleted on success,
+   * so the stable id no longer dedupes them), and on `analyzeRepo` it re-plans
+   * every page. Written after the page, so a crash resumes at the page that
+   * was interrupted rather than skipping it.
+   *
+   * `jobId` is absent when a handler is called directly rather than through
+   * the runner — nothing to resume, nothing to write.
+   */
+  private async checkpoint(
+    jobId: string | undefined,
+    args: AnalyzeRepoInput | SweepRepositoriesInput | BackfillRepoLocStatsInput,
+  ): Promise<void> {
+    if (!jobId) return;
+    await this.queue.saveArgs(jobId, args);
   }
 
   private async enqueueAnalyze(

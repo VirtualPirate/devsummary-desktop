@@ -83,6 +83,7 @@ function makeJobs(
         opts?.id ?? 'job-id',
     ),
     isAborted: jest.fn(() => false),
+    saveArgs: jest.fn(async (_id: string, _args: unknown) => undefined),
   };
   const registry = new JobHandlerRegistry();
   const jobs = new CommitAnalysisJobs(
@@ -180,6 +181,49 @@ describe('CommitAnalysisJobs — analysis.analyzeRepo (was AnalyzeRepoWorkflow)'
     expect(commits.planRepoAnalysis.mock.calls[0][0]).toMatchObject({
       limit: 500,
     });
+  });
+
+  /**
+   * The retry half of the loop. A handler is re-invoked with the row's `args`,
+   * so without writing the cursor back an attempt that dies on page 3 replans
+   * pages 1 and 2 — and with `force` re-spends their LLM calls.
+   */
+  it('checkpoints the cursor onto its own job row after each page', async () => {
+    const { jobs, queue } = makeJobs({
+      planRepoAnalysis: jest
+        .fn()
+        .mockResolvedValueOnce({
+          commitIds: ['c1'],
+          nextCursor: { authoredAt: '2026-01-01T00:00:00.000Z', id: 'c1' },
+        })
+        .mockResolvedValueOnce({ commitIds: ['c2'], nextCursor: null }),
+    });
+
+    await jobs.analyzeRepo(
+      {
+        repositoryId: 'r1',
+        sinceISO: '2026-01-01T00:00:00Z',
+        force: false,
+        organizationId: 'org-1',
+      },
+      'analyze:r1:main:2026-08-19',
+    );
+
+    // The window travels with the cursor: a resume that lost `sinceISO` would
+    // plan a different set of commits.
+    expect(queue.saveArgs.mock.calls).toEqual([
+      [
+        'analyze:r1:main:2026-08-19',
+        {
+          repositoryId: 'r1',
+          sinceISO: '2026-01-01T00:00:00Z',
+          force: false,
+          organizationId: 'org-1',
+          cursor: { authoredAt: '2026-01-01T00:00:00.000Z', id: 'c1' },
+        },
+      ],
+      ['analyze:r1:main:2026-08-19', expect.objectContaining({ cursor: null })],
+    ]);
   });
 
   /**
@@ -406,6 +450,43 @@ describe('CommitAnalysisJobs — github.sweep (was SweepRepositoriesWorkflow)', 
       phase: 'fetching',
       organizationId: 'org-1',
     });
+  });
+
+  // A sweep retried from page 1 re-enqueues every repository it already
+  // ingested — their rows were deleted on success, so the stable id no longer
+  // dedupes them, and each is a fresh round of GitHub calls.
+  it('checkpoints the cursor and the run date after each page', async () => {
+    const { jobs, queue } = makeJobs({
+      listSweepTargets: jest
+        .fn()
+        .mockResolvedValueOnce({
+          runDate: '2026-08-19',
+          targets: [
+            { repositoryId: 'r1', branch: 'main', organizationId: 'org-1' },
+          ],
+          nextCursor: { repositoryId: 'r1', branch: 'main' },
+        })
+        .mockResolvedValueOnce({
+          runDate: '2026-08-20',
+          targets: [],
+          nextCursor: null,
+        }),
+    });
+
+    await jobs.sweep({}, 'sweep:2026-08-19');
+
+    // `runDate` is checkpointed with it, so a retry after midnight keeps the
+    // child ids the first page used.
+    expect(queue.saveArgs.mock.calls).toEqual([
+      [
+        'sweep:2026-08-19',
+        {
+          cursor: { repositoryId: 'r1', branch: 'main' },
+          runDate: '2026-08-19',
+        },
+      ],
+      ['sweep:2026-08-19', { cursor: null, runDate: '2026-08-19' }],
+    ]);
   });
 });
 
