@@ -10,7 +10,28 @@ export interface EnqueueOpts {
   organizationId?: string;
   /** Postpone the first attempt (the old `startDelay`). */
   delayMs?: number;
+  /**
+   * A person pressed a button. Re-arms a terminally failed row immediately
+   * instead of waiting out `REARM_COOLDOWN_MS`. Automatic callers — schedulers,
+   * fan-outs, reapers — must not set this: they are the ones the cooldown
+   * exists for.
+   */
+  force?: boolean;
 }
+
+/**
+ * How long a terminally failed row keeps its id before an *automatic* enqueue
+ * may re-arm it.
+ *
+ * The re-arm resets `attempts` to 0, so without a cooldown a deterministically
+ * failing handler behind a recurring stable id re-burns its whole retry budget
+ * every tick: `sweep:<repo>:<branch>:<date>` is re-enqueued every 15 minutes
+ * and costs 4 attempts each time (~380 GitHub calls/day against the user's own
+ * PAT), and `brief:<id>` is re-dispatched by `reapStalePending` every minute at
+ * an LLM call per attempt. One hour caps both at one budget per hour while
+ * still clearing the id, which is what the re-arm is for.
+ */
+const REARM_COOLDOWN_MS = 60 * 60_000;
 
 @Injectable()
 export class JobQueueService {
@@ -55,13 +76,8 @@ export class JobQueueService {
         maxAttempts: profileFor(type).maxAttempts,
         runAt,
       })
-      // ponytail: re-arm resets attempts=0, so a deterministically failing handler behind a
-      // recurring stable id (e.g. sweep:<repoId>:<branch>:<date>, re-enqueued every 15 min)
-      // re-burns its full retry budget each cycle — up to ~380 GitHub calls/day against the
-      // user's own PAT. Ceiling if it bites: skip the re-arm when the failed row's run_at is
-      // younger than the scheduler tick interval.
-      .onConflict((c) =>
-        c
+      .onConflict((c) => {
+        const rearm = c
           .column('id')
           .doUpdateSet({ state: 'pending', attempts: 0, error: null, runAt })
           // Only a *terminally failed* row is re-armed; pending and running
@@ -73,8 +89,18 @@ export class JobQueueService {
           // `reapStalePending` a silent no-op, and a failed `sweep:<date>`
           // kills the day's polling outright. A fresh enqueue is a fresh
           // request, so it also restarts the attempt budget.
-          .where('jobs.state', '=', 'failed'),
-      )
+          .where('jobs.state', '=', 'failed');
+        if (opts.force) return rearm;
+        // `run_at` on a failed row is the moment its last attempt was given up
+        // on (fail time plus the final backoff), so it is already the cooldown
+        // clock — no extra column. A no-op here leaves the row `failed`, which
+        // is what the UI reads to show the failure.
+        return rearm.where(
+          'jobs.runAt',
+          '<=',
+          new Date(Date.now() - REARM_COOLDOWN_MS),
+        );
+      })
       .execute();
     return id;
   }

@@ -160,6 +160,20 @@ describe('dedup', () => {
     expect(rows[0].args).toEqual({ page: 1 });
   });
 
+  /** Fails `id` terminally with `run_at` set `agoMs` in the past. */
+  const failRow = async (id: string, agoMs: number) => {
+    await db
+      .updateTable('jobs')
+      .set({
+        state: 'failed',
+        attempts: 4,
+        error: 'boom',
+        runAt: new Date(Date.now() - agoMs),
+      })
+      .where('id', '=', id)
+      .execute();
+  };
+
   // A terminally failed row keeps its dedup id forever, and every stable id
   // here is derived from state rather than time: without the re-arm a failed
   // `sweep:<repo>:<branch>:<date>` blocks that repository's ingest until the
@@ -168,16 +182,7 @@ describe('dedup', () => {
   it('re-arms a terminally failed row on re-enqueue', async () => {
     const id = 'sweep:r1:main:2026-08-19';
     await queue.enqueue('github.sweep', { page: 1 }, { id });
-    await db
-      .updateTable('jobs')
-      .set({
-        state: 'failed',
-        attempts: 4,
-        error: 'boom',
-        runAt: new Date(Date.now() - 60_000),
-      })
-      .where('id', '=', id)
-      .execute();
+    await failRow(id, 2 * 60 * 60_000);
 
     await queue.enqueue('github.sweep', { page: 1 }, { id });
 
@@ -186,6 +191,43 @@ describe('dedup', () => {
     // Claimable again, not just relabelled.
     registry.register('github.sweep', () => Promise.resolve());
     expect(await runner.runOnce()).toBe(true);
+  });
+
+  // The re-arm resets `attempts` to 0, so without a cooldown the 15-minute
+  // sweep hands a deterministically failing handler a fresh budget of 4 every
+  // tick — ~380 GitHub calls/day on the user's own PAT.
+  it('does not re-arm a row that failed inside the cooldown', async () => {
+    const id = 'sweep:r1:main:2026-08-19';
+    await queue.enqueue('github.sweep', { page: 1 }, { id });
+    await failRow(id, 15 * 60_000);
+
+    await queue.enqueue('github.sweep', { page: 1 }, { id });
+
+    expect(await row(id)).toMatchObject({
+      state: 'failed',
+      attempts: 4,
+      error: 'boom',
+    });
+  });
+
+  it('re-arms inside the cooldown when the caller forces it', async () => {
+    const id = 'analyze:r1:2026-08-19:false';
+    await queue.enqueue('analysis.analyzeRepo', { page: 1 }, { id });
+    await failRow(id, 15 * 60_000);
+
+    // The manual endpoints pass `force` — a person pressing retry must not wait
+    // out a cooldown that exists to throttle the schedulers.
+    await queue.enqueue(
+      'analysis.analyzeRepo',
+      { page: 1 },
+      { id, force: true },
+    );
+
+    expect(await row(id)).toMatchObject({
+      state: 'pending',
+      attempts: 0,
+      error: null,
+    });
   });
 
   it('still no-ops over a pending or running row', async () => {

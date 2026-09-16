@@ -95,6 +95,9 @@ export class CommitAnalysisController {
           id: `backfill:${repo.id}:${branch}:${dedupKey}`,
           phase: 'fetching',
           organizationId: membership.organizationId,
+          // A person clicked backfill: a failed row for this window re-arms now
+          // rather than sitting out the queue's anti-amplification cooldown.
+          force: true,
         },
       );
       jobIds.push(jobId);
@@ -143,6 +146,8 @@ export class CommitAnalysisController {
         id: `analyze:${repo.id}:${dedupKey}:${force}`,
         phase: 'analyzing',
         organizationId: membership.organizationId,
+        // Same as backfill: this endpoint is the manual retry.
+        force: true,
       },
     );
 
