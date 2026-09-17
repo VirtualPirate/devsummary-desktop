@@ -32,20 +32,18 @@ export class WebClient {
     v2: {
       access: route('oauth.v2.access', () => ({
         ok: true,
-      } as Record<string, unknown>)),
+      })),
     },
   };
   auth = {
     revoke: route('auth.revoke', () => ({ ok: true })),
-    test: route('auth.test', () =>
-      ({
-        ok: true,
-        team: 'Acme',
-        team_id: 'T1',
-        user_id: 'U-bot',
-        response_metadata: { scopes: ['chat:write', 'channels:read'] },
-      }) as Record<string, unknown>,
-    ),
+    test: route('auth.test', () => ({
+      ok: true,
+      team: 'Acme',
+      team_id: 'T1',
+      user_id: 'U-bot',
+      response_metadata: { scopes: ['chat:write', 'channels:read'] },
+    })),
   };
   chat = {
     postMessage: route('chat.postMessage', () => ({

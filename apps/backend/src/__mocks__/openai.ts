@@ -73,15 +73,16 @@ export default class OpenAI {
     this.apiKey = opts.apiKey;
     this.baseURL = opts.baseURL;
     this.responses = {
-      parse: jest.fn((args: ParseArgs & { model?: string; input?: unknown } = {}) =>
-        Promise.resolve(
-          answer({
-            kind: 'responses',
-            schemaName: args.text?.format?.name,
-            model: args.model,
-            messages: args.input,
-          }),
-        ),
+      parse: jest.fn(
+        (args: ParseArgs & { model?: string; input?: unknown } = {}) =>
+          Promise.resolve(
+            answer({
+              kind: 'responses',
+              schemaName: args.text?.format?.name,
+              model: args.model,
+              messages: args.input,
+            }),
+          ),
       ),
     };
     // Chat completions answer with a JSON *string* and report usage under

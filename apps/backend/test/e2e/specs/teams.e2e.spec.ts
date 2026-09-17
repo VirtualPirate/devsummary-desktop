@@ -80,7 +80,9 @@ describe('teams: the collaborator scope a brief is generated over', () => {
     expect(found.body.data.name).toBe('Backend');
 
     const missing = await api(testApp.server)
-      .get('/api/organizations/current/teams/00000000-0000-4000-8000-000000000000')
+      .get(
+        '/api/organizations/current/teams/00000000-0000-4000-8000-000000000000',
+      )
       .expect(404);
     expect(missing.body.code).toBe('TEAM_NOT_FOUND');
   });

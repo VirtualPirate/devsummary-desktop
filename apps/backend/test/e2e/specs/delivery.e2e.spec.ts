@@ -42,7 +42,10 @@ describe('delivering a brief to Slack and to the desktop', () => {
   ): Promise<Record<string, unknown>> {
     const res = await api(testApp.server)
       .post('/api/organizations/current/briefs/generate')
-      .send({ scope: { type: 'project', projectId }, ...(delivery ? { delivery } : {}) })
+      .send({
+        scope: { type: 'project', projectId },
+        ...(delivery ? { delivery } : {}),
+      })
       .expect(202);
     const briefId = res.body.data.briefId as string;
     await waitForJobs(db, 60_000);
@@ -50,7 +53,7 @@ describe('delivering a brief to Slack and to the desktop', () => {
       .selectFrom('briefs.briefs')
       .selectAll()
       .where('id', '=', briefId)
-      .executeTakeFirstOrThrow() as unknown as Record<string, unknown>;
+      .executeTakeFirstOrThrow();
   }
 
   it('lists the Slack channels the bot can post to', async () => {
@@ -148,7 +151,11 @@ describe('delivering a brief to Slack and to the desktop', () => {
       (await import('../../../src/jobs/job-queue.service')).JobQueueService,
     );
     const { JOB } = await import('../../../src/jobs/job-profiles');
-    await queue.enqueue(JOB.generateBrief, { briefId }, { id: `brief:${briefId}` });
+    await queue.enqueue(
+      JOB.generateBrief,
+      { briefId },
+      { id: `brief:${briefId}` },
+    );
     await waitForJobs(db, 60_000);
 
     const after = await db

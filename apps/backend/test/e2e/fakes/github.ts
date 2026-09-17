@@ -17,9 +17,7 @@ export interface GithubCall {
   paginated: boolean;
 }
 
-export type GithubHandler = (
-  params: Record<string, unknown>,
-) => unknown | Promise<unknown>;
+export type GithubHandler = (params: Record<string, unknown>) => unknown;
 
 interface Failure {
   status: number;
@@ -175,7 +173,7 @@ export async function installGithub(world: World): Promise<GithubFake> {
         };
       }
       case 'POST /graphql': {
-        const query = String(params.query ?? '');
+        const query = typeof params.query === 'string' ? params.query : '';
         const variables = (params.variables ?? {}) as Record<string, unknown>;
         const repo = world.repositories.find(
           (r) =>
@@ -277,7 +275,10 @@ export async function installGithub(world: World): Promise<GithubFake> {
         case 'GET /repos/{owner}/{repo}/commits': {
           const repo = findRepo(world, params);
           if (!repo) return pages([]);
-          const since = params.since ? new Date(String(params.since)) : null;
+          const since =
+            typeof params.since === 'string' && params.since
+              ? new Date(params.since)
+              : null;
           const commits = [...repo.commits]
             .filter((c) => !since || c.at >= since)
             .sort((a, b) => b.at.getTime() - a.at.getTime())

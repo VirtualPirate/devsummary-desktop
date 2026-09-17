@@ -246,9 +246,9 @@ describe('brief schedules', () => {
     const after = await api(testApp.server)
       .get(`/api/organizations/current/brief-schedules/${scheduleId}`)
       .expect(200);
-    expect(new Date(after.body.data.nextRunAt as string).getTime()).toBeGreaterThan(
-      Date.now(),
-    );
+    expect(
+      new Date(after.body.data.nextRunAt as string).getTime(),
+    ).toBeGreaterThan(Date.now());
   }, 60_000);
 
   it('deletes the schedule and stops listing it', async () => {

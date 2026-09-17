@@ -57,8 +57,7 @@ export async function installLlm(): Promise<LlmFake> {
       return { output_parsed: { nonsense: true }, usage };
     }
 
-    const body =
-      call.schemaName === 'brief_output' ? briefBody : analysisBody;
+    const body = call.schemaName === 'brief_output' ? briefBody : analysisBody;
     return { output_parsed: body, usage };
   });
 

@@ -117,7 +117,11 @@ describe('generating a brief on each provider', () => {
   }
 
   it('generates through OpenAI', async () => {
-    llm.brief({ title: 'OpenAI brief', summary: 'From the SDK.', highlights: [] });
+    llm.brief({
+      title: 'OpenAI brief',
+      summary: 'From the SDK.',
+      highlights: [],
+    });
     const brief = await generate();
     expect(brief.title).toBe('OpenAI brief');
     expect(brief.model).toBe('gpt-4o-mini');
@@ -127,7 +131,11 @@ describe('generating a brief on each provider', () => {
     const before = llm.calls.length;
     await selectProvider('gemini', { geminiApiKey: 'gm-e2e' });
 
-    llm.brief({ title: 'Gemini brief', summary: 'Same SDK, other endpoint.', highlights: [] });
+    llm.brief({
+      title: 'Gemini brief',
+      summary: 'Same SDK, other endpoint.',
+      highlights: [],
+    });
     const brief = await generate();
 
     expect(brief.title).toBe('Gemini brief');
@@ -206,8 +214,14 @@ describe('generating a brief on each provider', () => {
   }, 120_000);
 
   it('fails the brief when the CLI exits non-zero', async () => {
-    await api(testApp.server).get('/api/local-settings/agents?refresh=1').expect(200);
-    cli.fail('claude', { code: 1, stdout: '', stderr: 'Authentication required' });
+    await api(testApp.server)
+      .get('/api/local-settings/agents?refresh=1')
+      .expect(200);
+    cli.fail('claude', {
+      code: 1,
+      stdout: '',
+      stderr: 'Authentication required',
+    });
 
     const brief = await generateUntilFailed();
     expect(brief.status).not.toBe('delivered');

@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/databases/kysely/database.types';
-import { installGithub, type GithubFake } from '../fakes/github';
+import { installGithub } from '../fakes/github';
 import { installLlm, type LlmFake } from '../fakes/llm';
 import { daysAgo, defineWorld, seedWorld } from '../fakes/world';
 import { api } from '../harness/api';
@@ -21,7 +21,12 @@ const world = defineWorld({
         { sha: 'sha-feat', message: 'feat: a', at: daysAgo(2), parents: 1 },
         // Two parents: a merge commit, which the analyzer records as
         // `skipped_merge` instead of spending an LLM call on it.
-        { sha: 'sha-merge', message: "Merge pull request #1", at: daysAgo(1), parents: 2 },
+        {
+          sha: 'sha-merge',
+          message: 'Merge pull request #1',
+          at: daysAgo(1),
+          parents: 2,
+        },
       ],
     },
   ],
@@ -30,7 +35,6 @@ const world = defineWorld({
 describe('analysing the commits on a tracked branch', () => {
   let db: Kysely<Database>;
   let testApp: TestApp;
-  let github: GithubFake;
   let llm: LlmFake;
   let repositoryId: string;
 
@@ -38,7 +42,7 @@ describe('analysing the commits on a tracked branch', () => {
     // Set before the app is built: the OpenAI config reads it through
     // ConfigService, and `SecretsService` reads env in its constructor.
     process.env.OPENAI_API_KEY = 'sk-e2e';
-    github = await installGithub(world);
+    await installGithub(world);
     llm = await installLlm();
     ({ db } = await createTestDatabase());
     testApp = await createTestApp(db);
@@ -77,7 +81,9 @@ describe('analysing the commits on a tracked branch', () => {
   it('does not re-spend the provider on an already-analysed commit', async () => {
     const before = llm.calls.length;
     await api(testApp.server)
-      .post(`/api/integrations/github/repositories/${repositoryId}/commits/analyze`)
+      .post(
+        `/api/integrations/github/repositories/${repositoryId}/commits/analyze`,
+      )
       .send({ days: 30 })
       .expect(202);
     await waitForJobs(db);
@@ -93,7 +99,9 @@ describe('analysing the commits on a tracked branch', () => {
     });
 
     await api(testApp.server)
-      .post(`/api/integrations/github/repositories/${repositoryId}/commits/analyze`)
+      .post(
+        `/api/integrations/github/repositories/${repositoryId}/commits/analyze`,
+      )
       .send({ days: 30, force: true })
       .expect(202);
     await waitForJobs(db);
@@ -121,7 +129,9 @@ describe('analysing the commits on a tracked branch', () => {
 
   it('backfills an explicit window through the same path', async () => {
     const res = await api(testApp.server)
-      .post(`/api/integrations/github/repositories/${repositoryId}/commits/backfill`)
+      .post(
+        `/api/integrations/github/repositories/${repositoryId}/commits/backfill`,
+      )
       .send({ days: 7 })
       .expect(202);
     expect(typeof res.body.data.jobId).toBe('string');

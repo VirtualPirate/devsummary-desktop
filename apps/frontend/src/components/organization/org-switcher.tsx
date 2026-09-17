@@ -1,6 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Building2, Check, ChevronDown, Plus } from "lucide-react";
-import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -58,10 +57,7 @@ export function OrgSwitcher() {
   );
 
   const orgs = data?.data ?? [];
-  const active = useMemo(
-    () => orgs.find((o) => o.organization.id === activeOrgId) ?? null,
-    [orgs, activeOrgId],
-  );
+  const active = orgs.find((o) => o.organization.id === activeOrgId) ?? null;
 
   // Both updates land in the same React batch, so no request is ever made
   // pairing the new X-Organization-Id header with the previous org's ids.

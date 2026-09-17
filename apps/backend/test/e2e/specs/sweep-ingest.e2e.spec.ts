@@ -171,12 +171,19 @@ describe('the sweep that keeps a tracked branch current', () => {
     // suite already pins.
     await queue.enqueue(
       JOB.analyzeRepo,
-      { repositoryId: 'never-read', sinceISO: 'x', cursor: { authoredAt: 'y', id: 'z' } },
+      {
+        repositoryId: 'never-read',
+        sinceISO: 'x',
+        cursor: { authoredAt: 'y', id: 'z' },
+      },
       { id: 'analyze:e2e-checkpoint' },
     );
     await db
       .updateTable('jobs')
-      .set({ state: 'failed', runAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })
+      .set({
+        state: 'failed',
+        runAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      })
       .where('id', '=', 'analyze:e2e-checkpoint')
       .execute();
 

@@ -17,7 +17,9 @@ const world = defineWorld({
       fullName: 'octo-e2e/api',
       branch: 'main',
       private: false,
-      commits: [{ sha: 'sha-a', message: 'feat: a', at: daysAgo(2), parents: 1 }],
+      commits: [
+        { sha: 'sha-a', message: 'feat: a', at: daysAgo(2), parents: 1 },
+      ],
     },
     {
       githubId: 900124,
@@ -25,7 +27,9 @@ const world = defineWorld({
       fullName: 'octo-e2e/web',
       branch: 'main',
       private: false,
-      commits: [{ sha: 'sha-b', message: 'feat: b', at: daysAgo(2), parents: 1 }],
+      commits: [
+        { sha: 'sha-b', message: 'feat: b', at: daysAgo(2), parents: 1 },
+      ],
     },
   ],
 });

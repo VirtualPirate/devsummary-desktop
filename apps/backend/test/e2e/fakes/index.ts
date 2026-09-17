@@ -22,7 +22,9 @@ export interface Fakes {
  * Call it in `beforeAll` **before** `createTestApp`, so nothing is constructed
  * against an un-stubbed client.
  */
-export async function installFakes(world: World = defineWorld()): Promise<Fakes> {
+export async function installFakes(
+  world: World = defineWorld(),
+): Promise<Fakes> {
   const github = await installGithub(world);
   const llm = await installLlm();
   const agentCli = await installAgentCli();

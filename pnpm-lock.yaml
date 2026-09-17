@@ -129,6 +129,9 @@ importers:
       jest:
         specifier: ^30.0.0
         version: 30.4.2(@types/node@22.20.1)(ts-node@10.9.2(@swc/core@1.16.0)(@types/node@22.20.1)(typescript@5.9.3))
+      jest-environment-node:
+        specifier: ^30.0.0
+        version: 30.4.1
       kysely-ctl:
         specifier: ^0.21.0
         version: 0.21.0(kysely@0.28.17)
