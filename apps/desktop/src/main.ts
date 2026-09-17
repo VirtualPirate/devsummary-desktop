@@ -30,10 +30,22 @@ const DEV_URL = 'http://localhost:5173';
  */
 const PROD_FRONTEND_URL = 'app://local';
 
+/**
+ * `backend/` and `frontend/` are siblings of this file's compiled location, but
+ * one level closer once packaged. In the repo `__dirname` is `apps/desktop/dist`
+ * and they live at `apps/backend` / `apps/frontend`; in the bundle `__dirname` is
+ * `app.asar/dist` and electron-builder copied both to `app.asar/backend` and
+ * `app.asar/frontend`. Inside the archive, not beside it: 20k loose files is what
+ * made the first launch after install take minutes while Gatekeeper assessed each
+ * one. `utilityProcess.fork`, `require`, `worker_threads` and `loadFile` all read
+ * through Electron's asar shim, so nothing here needs a real path — except
+ * PGlite's wasm/data, which `asarUnpack` keeps on disk.
+ */
+const SIBLINGS = path.join(__dirname, app.isPackaged ? '..' : '../..');
+
 /** Overridable so the Phase-8 harness can fork a fake backend. */
 const BACKEND_ENTRY =
-  process.env.DESKTOP_BACKEND_ENTRY ??
-  path.join(__dirname, '../../backend/dist/main.js');
+  process.env.DESKTOP_BACKEND_ENTRY ?? path.join(SIBLINGS, 'backend/dist/main.js');
 
 type SecretBundle = Record<string, string>;
 
@@ -314,7 +326,7 @@ function createWindow(): BrowserWindow {
   });
 
   void (app.isPackaged
-    ? win.loadFile(path.join(__dirname, '../../frontend/dist/index.html'))
+    ? win.loadFile(path.join(SIBLINGS, 'frontend/dist/index.html'))
     : win.loadURL(DEV_URL));
 
   return win;

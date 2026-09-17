@@ -8,10 +8,7 @@ const { execFileSync } = require('node:child_process');
  * electron-builder `beforePack` hook — runs once, before electron-builder reads
  * `files` and starts copying things into the app package.
  *
- * UNVERIFIED. See docs/receipts/PHASE-10.md and electron-builder.yml's header
- * comment. Never executed; expect to debug this the first time `pnpm dist` runs
- * for real (pnpm version skew, workspace protocol resolution, etc. are all
- * plausible failure points).
+ * Verified against pnpm 10.33.2 — see docs/receipts/PHASE-10.md.
  *
  * Why this exists: pnpm's default node_modules layout is a symlink forest into a
  * shared content-addressed store, which electron-builder's own dependency-pruning
@@ -33,25 +30,49 @@ module.exports = async function beforePack() {
   // Requires apps/backend/dist and packages/*/dist to already exist — i.e. this
   // must run after `pnpm build`, same as the root "dist" script already does
   // (`pnpm build && pnpm --filter desktop dist`).
+  //
   // `--legacy`: pnpm v10 refuses to deploy from a workspace that is not set up
   // for injected dependencies (ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE). The flag
   // is pnpm's own escape hatch and keeps the pre-v10 behaviour we want here —
   // copy the workspace deps in rather than hard-link them from the store.
-  execFileSync('pnpm', ['--filter', 'backend', 'deploy', '--legacy', '--prod', target], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  });
+  //
+  // `--config.node-linker=hoisted`: deploy still lays the tree out the pnpm way
+  // by default — real packages under `node_modules/.pnpm/<name>@<ver>/`, with
+  // `node_modules/<name>` a *symlink* to each. That survives being copied beside
+  // the app, but not being packed into asar: Electron's archive shim resolves
+  // such a link to its target and then reads the target as a file, so the very
+  // first `require('@nestjs/core')` dies with
+  //
+  //   Error: ENOENT, node_modules/.pnpm/@nestjs+core@11.2.1_.../node_modules/
+  //   @nestjs/core not found in .../backend.asar
+  //
+  // The hoisted linker writes one flat tree of real directories instead, which
+  // packs and resolves correctly — and, being deduplicated, is smaller too.
+  execFileSync(
+    'pnpm',
+    [
+      '--filter',
+      'backend',
+      'deploy',
+      '--legacy',
+      '--prod',
+      '--config.node-linker=hoisted',
+      target,
+    ],
+    { cwd: repoRoot, stdio: 'inherit' },
+  );
 
   pruneEscapingSymlinks(target);
 };
 
 /**
- * `pnpm deploy` leaves one symlink pointing back out at the source workspace:
- * `node_modules/.pnpm/node_modules/backend -> ../../../../../backend`, i.e. the
- * deployed package linking to its own repo checkout. Harmless where it is
- * created — the target exists — but once electron-builder copies the tree into
- * `Contents/Resources/backend/`, those five `..` hops land on `Contents/backend`
- * and the link dangles.
+ * `pnpm deploy` used to leave one symlink pointing back out at the source
+ * workspace: `node_modules/.pnpm/node_modules/backend -> ../../../../../backend`,
+ * i.e. the deployed package linking to its own repo checkout. Harmless where it
+ * is created — the target exists — but once electron-builder copied the tree
+ * into the app, those five `..` hops landed outside it and the link dangled.
+ * The hoisted linker above no longer produces it; this stays as a guard, because
+ * any workspace dep pnpm chooses to link instead of copy would do the same.
  *
  * That is not cosmetic. Code signing walks the whole bundle, and a dangling link
  * aborts the build outright:

@@ -4,10 +4,11 @@
 # and the packaged arm64 app boots: PGlite initializes a fresh cluster in userData,
 # all 16 migrations apply, the backend listens on a random loopback port, and the
 # renderer completes its startup API calls through the x-desktop-token guard.
-# R6 (PGlite sealed in asar) is closed by construction — the backend ships outside
-# asar entirely. Still OPEN: R7 (migration-on-upgrade data loss; backend-side, not a
-# packaging concern), every non-mac target, and any machine other than the one that
-# built it, because nothing is signed (see mac.identity below).
+# R6 (PGlite sealed in asar) is closed by `asarUnpack` below — the backend itself
+# now ships *inside* asar, so first-launch Gatekeeper assessment sees one file
+# rather than 20k. Still OPEN: R7 (migration-on-upgrade data loss; backend-side,
+# not a packaging concern), every non-mac target, and any machine other than the
+# one that built it, because nothing is signed (see mac.identity below).
 
 appId: app.devsummary.com
 productName: DevSummary
@@ -28,37 +29,37 @@ publish: null
 # ---------------------------------------------------------------------------------
 # What ships inside the app.
 #
-# main.ts resolves its two children by relative path from its own compiled location
-# (apps/desktop/dist/main.js):
-#   backend:  __dirname/../../backend/dist/main.js
-#   frontend: __dirname/../../frontend/dist/index.html
-# Packaged, __dirname is `<app>.app/Contents/Resources/app.asar/dist`, so `../../`
-# lands in `Contents/Resources` — OUTSIDE the archive. Both children therefore ship
-# as extraResources, not as `files` entries: `files` would put them at
-# `app.asar/backend/...`, one level too deep, which is exactly how the first real
-# `pnpm dist` run failed (ERR_MODULE_NOT_FOUND on backend/dist/main.js, plus
-# ERR_FILE_NOT_FOUND on the frontend index.html).
+# main.ts resolves its two children relative to its own compiled location, one
+# level up once packaged (`SIBLINGS` in that file):
+#   backend:  <app.asar>/backend/dist/main.js
+#   frontend: <app.asar>/frontend/dist/index.html
+# so both are `files` entries with an explicit from/to, landing inside app.asar
+# next to this package's own `dist/`.
 #
-# Keeping the backend outside asar is also what makes it *work*, not just resolve:
-# it is ESM, and Node's ESM loader does not go through Electron's asar shim the way
-# require() does. Same reason PGlite is happy — its .wasm/.data sit on the real
-# filesystem here, so no asarUnpack rule is needed any more.
+# Inside the archive, deliberately. An earlier version shipped them as
+# extraResources — 20,435 loose backend node_modules files in Contents/Resources —
+# and that is what made the first launch after install take *minutes*: Gatekeeper
+# assesses every file in a freshly installed bundle, once. Warm launches were
+# 9-11 s, so the cost landed entirely on the launch a new user judges the app by.
+# One asar is one file to assess.
 #
-# Backend's node_modules is pnpm-managed (symlink forest into a shared content
-# store), which electron-builder's own dependency walker does not prune correctly.
-# `build/beforePack.js` runs `pnpm --filter backend deploy --legacy --prod` first,
-# which materializes a real, non-symlinked, production-only node_modules for the
-# backend (workspace deps like @launchstack/core get inlined, not left as symlinks)
-# into .backend-deploy/. `--legacy` is required on pnpm v10+, which otherwise
-# refuses with ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE.
+# Everything the backend does at runtime reads through Electron's asar shim, which
+# was the open question and is now measured: `utilityProcess.fork` of an entry
+# inside the archive, `require` of its node_modules, `fs.readFileSync`, and the
+# `worker_threads` Worker that pino's `pino-roll` transport spawns all work. The
+# backend boots from asar with all 16 migrations applied and its log file written
+# to DATA_DIR. What does *not* work is pnpm's symlinked node_modules layout — see
+# build/beforePack.js, which now deploys with a hoisted linker for that reason.
+#
+# `build/beforePack.js` runs `pnpm --filter backend deploy` first, which
+# materializes a real, production-only node_modules for the backend (workspace
+# deps like @launchstack/core inlined) into .backend-deploy/.
 beforePack: build/beforePack.js
 
 files:
   - dist/**/*
   - package.json
   - "!**/*.map"
-
-extraResources:
   - from: .backend-deploy/dist
     to: backend/dist
   - from: .backend-deploy/node_modules
@@ -67,6 +68,15 @@ extraResources:
     to: backend/package.json
   - from: ../frontend/dist
     to: frontend/dist
+
+# PGlite is the one thing that must stay on the real filesystem: it mmaps its
+# .wasm and opens .data directly, neither of which survives asar's read-only
+# virtual FS. Three files, unpacked to app.asar.unpacked/ and resolved there
+# transparently. The `**/` prefix rather than a hard-coded path so the glob keeps
+# matching if the deploy layout changes again.
+asarUnpack:
+  - "**/node_modules/@electric-sql/pglite/dist/*.wasm"
+  - "**/node_modules/@electric-sql/pglite/dist/*.data"
 
 # Data lives in the OS-managed per-user app-data directory, never inside the
 # (read-only, wiped-on-update) app bundle. main.ts already passes
