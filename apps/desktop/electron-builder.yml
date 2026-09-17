@@ -83,19 +83,14 @@ asarUnpack:
 # `DATA_DIR: app.getPath('userData')` to the backend at fork time — nothing for
 # electron-builder itself to configure here, noted for whoever debugs this next.
 
-# ---------------------------------------------------------------------------------
-# FUTURE WORK — vN -> vN+1 migration backup (plan Phase 10, risk R7).
-#
-# Skipped entirely for this pass (D-D: config sketched, never built or verified).
-# The plan requires: before the backend applies migrations on boot, copy the PGlite
-# data directory to `data.bak` inside userData; if migration throws, restore
-# `data.bak` over the live data dir and refuse to start dirty. This belongs in the
-# backend's MigrationRunner (apps/backend/src/databases/kysely/*), not here — it is
-# runtime behavior, not a packaging concern — but it is packaging's acceptance gate:
-# Phase 10 is not done until an explicit vN -> vN+1 test (install vN, generate data,
-# install vN+1 with a new migration, confirm data survives, including the
-# failure-restore path) passes. Nobody has written that backup/restore code yet.
-# Do not check this box from the packaging side alone.
+# vN -> vN+1 migration backup (plan Phase 10, risk R7) — implemented 2026-09-17 in
+# apps/backend/src/databases/kysely/kysely.module.ts (`openMigratedDatabase`), not
+# here: it is runtime behavior, not a packaging concern. A boot with migrations
+# pending against an existing database copies userData/data to userData/data.bak
+# before migrating and renames it back if a migration throws. Tested in
+# apps/backend/test/e2e/specs/migration-backup.e2e.spec.ts. What packaging still
+# owes it is the real thing: install vN, generate data, install vN+1, confirm the
+# data survived — see docs/RELEASE-CHECKLIST.md §7.
 
 mac:
   target:

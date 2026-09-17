@@ -2,6 +2,8 @@ export {
   KyselyModule,
   createAppDatabase,
   migrateToLatest,
+  openMigratedDatabase,
+  resolveBackupDir,
   resolveDataDir,
 } from './kysely.module';
 export type { AppDatabase } from './kysely.module';
