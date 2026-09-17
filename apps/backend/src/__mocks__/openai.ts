@@ -32,11 +32,33 @@ type ParseArgs = { text?: { format?: { name?: string } } };
 /** Gemini goes through `/chat/completions`, which names the schema here. */
 type ChatArgs = { response_format?: { json_schema?: { name?: string } } };
 
+export interface OpenAiCall {
+  kind: 'responses' | 'chat';
+  schemaName?: string;
+  model?: string;
+  messages: unknown;
+}
+
+/**
+ * The e2e fakes layer's seam. Left null by the Jest unit suites, which is why
+ * the default answers below are still what they get. A handler may return a
+ * body or throw — a throw is how a provider failure is simulated.
+ */
+export type OpenAiHandler = (call: OpenAiCall) => ParsedResponse;
+let handler: OpenAiHandler | null = null;
+export const __setHandler = (h: OpenAiHandler | null) => {
+  handler = h;
+};
+
 const bySchemaName = (name: string | undefined): ParsedResponse =>
   name === 'brief_output' ? __defaultBriefParsed : __defaultParsed;
 
+const answer = (call: OpenAiCall): ParsedResponse =>
+  handler ? handler(call) : bySchemaName(call.schemaName);
+
 export const __reset = () => {
   OpenAI.__instances = [];
+  handler = null;
 };
 
 export default class OpenAI {
@@ -51,26 +73,40 @@ export default class OpenAI {
     this.apiKey = opts.apiKey;
     this.baseURL = opts.baseURL;
     this.responses = {
-      parse: jest.fn((args: ParseArgs = {}) =>
-        Promise.resolve(bySchemaName(args.text?.format?.name)),
+      parse: jest.fn((args: ParseArgs & { model?: string; input?: unknown } = {}) =>
+        Promise.resolve(
+          answer({
+            kind: 'responses',
+            schemaName: args.text?.format?.name,
+            model: args.model,
+            messages: args.input,
+          }),
+        ),
       ),
     };
     // Chat completions answer with a JSON *string* and report usage under
     // different keys, which is the whole difference `GeminiLlmClient` handles.
     this.chat = {
       completions: {
-        create: jest.fn((args: ChatArgs = {}) => {
-          const picked = bySchemaName(args.response_format?.json_schema?.name);
-          return Promise.resolve({
-            choices: [
-              { message: { content: JSON.stringify(picked.output_parsed) } },
-            ],
-            usage: {
-              prompt_tokens: picked.usage?.input_tokens,
-              completion_tokens: picked.usage?.output_tokens,
-            },
-          });
-        }),
+        create: jest.fn(
+          (args: ChatArgs & { model?: string; messages?: unknown } = {}) => {
+            const picked = answer({
+              kind: 'chat',
+              schemaName: args.response_format?.json_schema?.name,
+              model: args.model,
+              messages: args.messages,
+            });
+            return Promise.resolve({
+              choices: [
+                { message: { content: JSON.stringify(picked.output_parsed) } },
+              ],
+              usage: {
+                prompt_tokens: picked.usage?.input_tokens,
+                completion_tokens: picked.usage?.output_tokens,
+              },
+            });
+          },
+        ),
       },
     };
     OpenAI.__instances.push(this);

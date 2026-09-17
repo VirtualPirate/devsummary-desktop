@@ -7,7 +7,7 @@ import request from 'supertest';
  */
 export const E2E_API_TOKEN = 'e2e-desktop-token';
 
-type Method = 'get' | 'post' | 'patch' | 'delete';
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 /**
  * supertest with the two headers the desktop client always sends.
@@ -32,6 +32,7 @@ export function api(server: Server, organizationId?: string) {
   return {
     get: (path: string) => call('get', path),
     post: (path: string) => call('post', path),
+    put: (path: string) => call('put', path),
     patch: (path: string) => call('patch', path),
     delete: (path: string) => call('delete', path),
   };

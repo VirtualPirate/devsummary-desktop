@@ -9,7 +9,7 @@
   "compilerOptions": {
     "module": "esnext",
     "moduleResolution": "bundler",
-    "types": ["node", "vitest/globals"],
+    "types": ["node", "vitest/globals", "jest"],
     "noEmit": true
   },
   // Harness files only. vitest.e2e.config.ts is deliberately excluded:

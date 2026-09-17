@@ -35,6 +35,16 @@ export default defineConfig({
         find: /^openai\/helpers\/zod$/,
         replacement: mock('openai/helpers/zod.ts'),
       },
+      // The agent CLIs' one spawn. Aliasing the module rather than
+      // `run-cli.ts` keeps that file under test: its credential stripping,
+      // stdin write, timeout and kill-grace are real. The fake re-exports
+      // everything it does not override, so any other consumer is untouched.
+      {
+        find: /^node:child_process$/,
+        replacement: fileURLToPath(
+          new URL('./test/e2e/fakes/child-process.ts', import.meta.url),
+        ),
+      },
     ],
   },
   test: {

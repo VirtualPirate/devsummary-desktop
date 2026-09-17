@@ -25,6 +25,14 @@ describe('outbound network isolation', () => {
       'function',
     );
     expect(typeof (openai as { __reset?: unknown }).__reset).toBe('function');
+
+    // The agent CLIs' spawn. `__setExecFile` exists only on the fake, so this
+    // fails the moment the alias stops matching and the real `execFile` — able
+    // to run any binary on the machine — is loaded into the app instead.
+    const childProcess = (await import('node:child_process')) as {
+      __setExecFile?: unknown;
+    };
+    expect(typeof childProcess.__setExecFile).toBe('function');
   });
 });
 

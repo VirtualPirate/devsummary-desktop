@@ -51,7 +51,9 @@ membership row inside a scratch workspace — there is nobody else to be.
 Every outbound network module, aliased in `vitest.e2e.config.ts` to the same
 `src/__mocks__/` files Jest loads through `moduleNameMapper`:
 `@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`, `openai`,
-`openai/helpers/zod`. An alias is Vitest's equivalent
+`openai/helpers/zod`. `node:child_process` is aliased too, to
+`test/e2e/fakes/child-process.ts` rather than a Jest mock — the agent CLIs
+spawn locally, not over the network. An alias is Vitest's equivalent
 of `moduleNameMapper` (which it does not read) and needs no DI override, so the
 app's own wiring stays under test. The aliases are anchored regexes, not bare
 strings: a string alias for `openai` is a prefix match and would rewrite
@@ -62,7 +64,67 @@ Those mocks are written against the `jest` global, so `setup-file.ts` sets
 
 `smoke.e2e.spec.ts` asserts a `__reset` static on every mocked client, which
 fails the moment an alias stops matching and a real, network-capable client is
-loaded instead.
+loaded instead. The same test asserts `__setExecFile` on `node:child_process`,
+which fails the moment that alias stops matching and the real `execFile` —
+able to run any binary on the machine — is loaded instead.
+
+### The fakes layer
+
+The aliases above stub the *modules*. `test/e2e/fakes/` is what makes them
+answer something: one file per outbound seam, each exporting an `installX()`
+that returns seeding and failure knobs plus a recorder.
+
+| Fake | Seam | Install before |
+|---|---|---|
+| `github.ts` | `Octokit.request` / `paginate.iterator` | `createTestApp` |
+| `llm.ts` | the `openai` SDK — both providers share it | `createTestApp` |
+| `agent-cli.ts` | `node:child_process` + a temp PATH directory | `createTestApp` |
+| `slack.ts` | `@slack/web-api` `WebClient` | `createTestApp` |
+| `shell.ts` | `process.parentPort` | any time |
+
+`installFakes()` in `fakes/index.ts` installs all five at once.
+
+`world.ts` holds the one fixture declaration. `seedWorld(server, db, world)`
+brings the app to "connected, tracked and ingested" by driving the real
+endpoints — not by INSERTing rows, so it cannot disagree with the schema the
+app owns.
+
+The GitHub fake is a route table over the seven routes the client actually
+calls, and **throws on an unknown route**. A silent `{}` is how a wrong
+assertion passes, so a new route is a loud failure naming itself.
+
+### The agent CLI seam
+
+`node:child_process` is aliased to `fakes/child-process.ts`, which re-exports
+the real module and overrides only `execFile`. `run-cli.ts` therefore stays
+under test: its credential stripping (`childEnv` deletes every `SECRET_KEYS`
+entry before the child sees the environment), its stdin write, its timeout and
+its kill-grace are real behaviour, and `llm-providers.e2e.spec.ts` asserts on
+them.
+
+The fake imports the bare specifier `child_process`; the alias is anchored to
+`^node:child_process$` and does not match it, so there is no recursion.
+
+`AgentCliDetector.locate()` walks `process.env.PATH` with `access(X_OK)` before
+it falls back to a login-shell probe, so `agent-cli.ts` writes executable stub
+files into a temp directory and **isolates PATH to that directory alone**
+(`process.env.PATH = dir + delimiter`). Prepending the stub dir over the real
+PATH would still find this machine's real `claude`/`opencode`/`agent`/`codex`
+binaries, because `locate()` checks `access(X_OK)` before it ever calls
+`execFile`. Teardown restores the original PATH. The login-shell fallback
+(`$SHELL -lic "command -v <binary>"`) is answered "not found" by the stub, so
+PATH is the only thing that decides what is installed. Those files are never
+executed — the alias intercepts every spawn. The detector caches a status for
+60 s, so a spec that installs or removes a binary mid-file must re-read with
+`GET /api/local-settings/agents?refresh=1`.
+
+### The desktop shell
+
+`parentPort()` reads `process.parentPort` at call time and returns null under
+plain node, so the desktop notification channel needs no alias — `shell.ts`
+assigns the property and deletes it again. Without it, a spec only ever
+exercises the channel's *failure* path, which is what every file that does not
+install it is doing.
 
 ## Why this directory has its own tsconfig
 
@@ -98,3 +160,4 @@ ESM through swc. `tsc --noEmit -p test/e2e/tsconfig.json` is clean.
 - `organization_members` has no `updated_at` column. Do not add one to a `set()`.
 - `DELETE /api/organizations/current` runs `OrganizationTeardownService`, which
   swallows its own integration failures, so it never fails the delete.
+- A spec that installs a fake must do it in `beforeAll` **before** `createTestApp(db)`, or the app builds a client against an un-stubbed module.
