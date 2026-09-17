@@ -119,3 +119,16 @@ docs/
 `AGENTS.md` at the root carries the product spec and the **Timezones** rules — read that section
 before touching anything that handles a date. `apps/backend/AGENTS.md` and
 `apps/frontend/AGENTS.md` cover their own implementations.
+
+## License
+
+**PolyForm Shield 1.0.0** — see `LICENSE`. Source-available, not open source: run it, read it,
+change it, share it, use it at work on your employer's repositories. The single prohibition is
+competing — you may not use DevSummary (or a fork of it) to provide a product that competes with
+DevSummary. Reselling it is exactly that.
+
+`LICENSE` is also the Terms of Use the app shows on first launch, and `PRIVACY.md` is the privacy
+policy; both ship inside the installer, so they are readable without a network connection.
+`THIRD-PARTY-NOTICES.md` is the attribution for every bundled dependency and is regenerated on
+each package by `apps/desktop/build/gen-notices.js`; Chromium's own notices ride along as
+`LICENSES.chromium.html`. All four land in `Contents/Resources` next to the app.

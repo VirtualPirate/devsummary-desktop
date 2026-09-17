@@ -4,6 +4,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
+const { generate: generateNotices } = require('./gen-notices');
+
 /**
  * electron-builder `beforePack` hook — runs once, before electron-builder reads
  * `files` and starts copying things into the app package.
@@ -24,6 +26,10 @@ const { execFileSync } = require('node:child_process');
 module.exports = async function beforePack() {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const target = path.resolve(__dirname, '..', '.backend-deploy');
+
+  // Attribution first, so the notices copied into the package below describe the
+  // dependency tree this build actually ships (docs/RELEASE-CHECKLIST.md §4).
+  generateNotices(repoRoot);
 
   fs.rmSync(target, { recursive: true, force: true });
 

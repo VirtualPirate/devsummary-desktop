@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "description": "Local-first daily engineering briefs from your GitHub activity.",
-  "author": "DevSummary",
+  "author": "Artaza Sameen",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

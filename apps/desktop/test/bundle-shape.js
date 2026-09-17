@@ -88,6 +88,17 @@ for (const name of ['pglite.wasm', 'initdb.wasm', 'pglite.data']) {
   check(`${name} is unpacked to disk`, fs.existsSync(unpacked), 'check electron-builder.yml asarUnpack');
 }
 
+// Release checklist §4: the terms, the privacy policy and the attribution for
+// everything bundled have to arrive with the binary. They were links to a site
+// that did not exist; a dropped `extraResources` entry would put them back there.
+for (const name of ['LICENSE', 'PRIVACY.md', 'THIRD-PARTY-NOTICES.md', 'LICENSES.chromium.html']) {
+  check(
+    `${name} ships in Contents/Resources`,
+    fs.existsSync(path.join(RESOURCES, name)),
+    'check electron-builder.yml extraResources',
+  );
+}
+
 const entries = countEntries(APP);
 check(
   `the bundle is under ${MAX_ENTRIES} entries for Gatekeeper to assess`,

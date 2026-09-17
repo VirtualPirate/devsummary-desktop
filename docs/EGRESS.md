@@ -70,10 +70,14 @@ transmission that does not yet happen, deliberately, rather than the other way r
 ## Opened in the system browser, not by the app
 
 `shell.openExternal` hands these to the default browser; DevSummary makes no request and
-sees no response. Commit and repository links on `github.com`, the PAT creation page
-(`github.com/settings/personal-access-tokens/new`), and the terms and privacy links on the
-consent dialog (`finlens.app`). Only `http:`/`https:` is accepted, in the main process
-(`apps/desktop/src/main.ts`) and again in the renderer's link handler.
+sees no response. Commit and repository links on `github.com`, and the PAT creation page
+(`github.com/settings/personal-access-tokens/new`). Only `http:`/`https:` is accepted, in the
+main process (`apps/desktop/src/main.ts`) and again in the renderer's link handler.
+
+The consent dialog's terms and privacy links used to be here, pointing at a marketing domain
+that never resolved. They open nothing now: `LICENSE` and `PRIVACY.md` are imported into the renderer bundle at
+build time and rendered in a dialog (`components/consent/legal-dialog.tsx`), so reading the
+terms opens no connection and depends on no website.
 
 ## What is not here
 

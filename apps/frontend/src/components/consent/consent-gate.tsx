@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog"
 import { getConsent } from "@/env/config-env"
 
+import { LegalDialog, type LegalDocId } from "./legal-dialog"
+
 /**
  * Bump this whenever the terms text changes. The stored version is compared
  * against it on every launch, so a bump re-gates every existing install — without
@@ -27,10 +29,6 @@ import { getConsent } from "@/env/config-env"
 // The rule applies from the first shipped build onward.
 const TERMS_VERSION = "1.0"
 const TERMS_CHANGES: string[] = []
-
-// TODO: confirm the final URLs before release. Nothing links out until they resolve.
-const TERMS_URL = "https://finlens.app/devsummary/terms"
-const PRIVACY_URL = "https://finlens.app/devsummary/privacy"
 
 const SENT = "a random install ID, app version, OS version, launch date"
 const NEVER_SENT = [
@@ -50,12 +48,25 @@ const NEVER_SENT = [
 const AI_EGRESS =
   "Analysing a commit sends its message and diff to the AI provider you choose — an API key you paste, or a coding-agent CLI already on this machine. Nothing is sent until you connect one, and the AI page names where it goes."
 
-function ExternalLink({ href, children }: { href: string; children: string }) {
+function DocLink({
+  doc,
+  onOpen,
+  children,
+}: {
+  doc: LegalDocId
+  onOpen: (doc: LegalDocId) => void
+  children: string
+}) {
   return (
     <button
       type="button"
       className="text-brand underline underline-offset-2"
-      onClick={() => void window.desktop?.openExternal(href)}
+      // The label wraps this button, so a click would otherwise toggle the
+      // checkbox on the way past.
+      onClick={(event) => {
+        event.preventDefault()
+        onOpen(doc)
+      }}
     >
       {children}
     </button>
@@ -90,6 +101,7 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
   )
   const [checked, setChecked] = useState(false)
   const [confirmingQuit, setConfirmingQuit] = useState(false)
+  const [viewingDoc, setViewingDoc] = useState<LegalDocId | null>(null)
   const [saving, setSaving] = useState(false)
 
   const isUpdate = initial.acceptedVersion !== null
@@ -200,9 +212,14 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
             />
             <span>
               I have read and accept the{" "}
-              <ExternalLink href={TERMS_URL}>Terms of Use</ExternalLink> and{" "}
-              <ExternalLink href={PRIVACY_URL}>Privacy Policy</ExternalLink>,
-              including anonymous install telemetry.
+              <DocLink doc="terms" onOpen={setViewingDoc}>
+                Terms of Use
+              </DocLink>{" "}
+              and{" "}
+              <DocLink doc="privacy" onOpen={setViewingDoc}>
+                Privacy Policy
+              </DocLink>
+              , including anonymous install telemetry.
             </span>
           </label>
 
@@ -219,6 +236,8 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LegalDialog doc={viewingDoc} onClose={() => setViewingDoc(null)} />
 
       <Dialog open={confirmingQuit}>
         <DialogContent

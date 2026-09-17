@@ -2,6 +2,7 @@
   "name": "devsummary-desktop",
   "version": "0.0.1",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "pnpm build:packages && pnpm build:backend && concurrently \"pnpm dev:frontend\" \"pnpm dev:desktop\"",
     "dev:frontend": "pnpm --filter frontend dev",
