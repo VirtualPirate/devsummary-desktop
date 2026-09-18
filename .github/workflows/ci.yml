@@ -1,0 +1,180 @@
+# Build every installer on its own native runner, and run the checks once.
+#
+# Why this exists: every artifact this project has ever produced came off one
+# M3 Mac (docs/receipts/PLATFORMS.md). electron-builder cross-builds all three
+# targets from there with no wine and no second machine — but "builds" is not
+# "runs". Windows has never been launched at all, and the x86_64 mac dmg has
+# only ever run under Rosetta on an arm64 host, which is translation, not an
+# Intel Mac. Native runners are the cheapest way to close both.
+#
+# Deliberately NOT here (docs/RELEASE-CHECKLIST.md §1):
+#   - Code signing and notarization. There is no Developer ID and no
+#     Authenticode certificate in this project. mac builds stay ad-hoc
+#     (`identity: "-"` in electron-builder.yml), which seals the bundle but is
+#     refused by Gatekeeper on any real download.
+#   - Publishing. `publish: null` in electron-builder.yml, and nothing here
+#     creates a GitHub Release. Installers land on the Actions run as
+#     artifacts; that is a thing a maintainer downloads, not a distribution
+#     channel.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first one's four runners pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # apps/desktop/build/beforePack.js is verified against pnpm 10.33.2, and the
+  # deploy flags it passes (--legacy, --config.node-linker=hoisted) are
+  # version-sensitive enough to pin rather than float.
+  PNPM_VERSION: 10.33.2
+  # Root package.json engines says >=22.12.0.
+  NODE_VERSION: 22.12.0
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      # One platform failing must not hide the state of the other three — the
+      # whole point of the matrix is finding out which ones are broken.
+      fail-fast: false
+      matrix:
+        include:
+          - name: mac arm64
+            os: macos-14
+            # Explicit arch per leg. A bare `electron-builder` (what `pnpm dist`
+            # runs) reads `mac.target.arch: [arm64, x64]` from the config and
+            # builds BOTH on whichever mac it lands on, which is the
+            # cross-build this workflow exists to stop doing.
+            builder_args: --mac --arm64
+            # Empty: bundle-shape.js falls back to its own candidate list
+            # (release/mac-arm64/DevSummary.app, then release/mac/...), so the
+            # arch-suffixed directory name is electron-builder's problem, not
+            # this file's.
+            bundle_root: ''
+            artifact: apps/desktop/release/*-arm64.dmg
+          - name: mac x64
+            # The last Intel image GitHub offers. If this label is retired the
+            # leg fails outright — swap it rather than folding x64 back onto an
+            # arm64 runner, which is the Rosetta measurement §2 rejects.
+            os: macos-13
+            builder_args: --mac --x64
+            bundle_root: ''
+            # No -arm64 suffix on the x64 dmg, and this runner builds only the
+            # one arch, so the glob cannot collide.
+            artifact: apps/desktop/release/*.dmg
+          - name: windows x64
+            os: windows-latest
+            builder_args: --win --x64
+            bundle_root: release/win-unpacked
+            artifact: apps/desktop/release/*.exe
+          - name: linux x64
+            os: ubuntu-latest
+            builder_args: --linux --x64
+            bundle_root: release/linux-unpacked
+            artifact: apps/desktop/release/*.AppImage
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Before setup-node, which needs pnpm on PATH to resolve the store it caches.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # pnpm-workspace.yaml's `allowBuilds` already approves the four packages
+      # with install scripts (@swc/core, electron, esbuild, unrs-resolver), so
+      # pnpm 10 does not need --config.confirmModulesPurge or an interactive
+      # approval here.
+      - run: pnpm install --frozen-lockfile
+
+      # Must precede packaging: beforePack.js runs `pnpm --filter backend
+      # deploy`, which copies apps/backend/dist and packages/*/dist as they are
+      # on disk. Package before build and you ship the previous compile.
+      - run: pnpm build
+
+      - name: Package
+        run: pnpm --filter desktop exec electron-builder ${{ matrix.builder_args }}
+
+      # The check that the asar layout survived — backend and renderer inside
+      # app.asar, PGlite's wasm/data unpacked beside it, the four legal
+      # documents in resources/, and a total entry count nowhere near the
+      # 20,435 loose files that made first launch take minutes.
+      - name: Bundle shape
+        run: node apps/desktop/test/bundle-shape.js ${{ matrix.bundle_root }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  checks:
+    name: lint + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Ahead of lint and the suites, not just the Electron run at the bottom:
+      # packages/core resolves through `main: ./dist/index.js`, so both jest and
+      # vitest import a file that does not exist until this step has run.
+      - run: pnpm build
+
+      # Note: the backend's lint script is `eslint --fix`, so this mutates the
+      # working tree. Harmless on a runner that commits nothing, and it still
+      # exits non-zero on anything eslint cannot fix.
+      - run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      # Its own job rather than folded into the matrix: jobs-activity.e2e.spec.ts
+      # is load-sensitive — it has a 20 s budget inside seedWorld, and under a
+      # concurrent full build on an idle M3 it failed 5 tests and took 711 s,
+      # against 39 s green on the same machine doing nothing else. A 2-core
+      # runner sharing with four packaging jobs is exactly that failure mode.
+      - name: E2E tests (PGlite)
+        run: pnpm --filter backend test:e2e
+
+      # Ubuntu 24.04 ships an AppArmor profile that denies unprivileged user
+      # namespaces, which is what Chromium's sandbox is built on — without this
+      # the Electron below dies before it opens a window, and the CSP result is
+      # a runner detail rather than anything about the policy. Scoped to this
+      # job: the linux packaging leg never launches what it builds.
+      - name: Allow Chromium's sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # test:csp launches a real Electron against the BUILT frontend — it is the
+      # only thing that catches a Content-Security-Policy strict enough to block
+      # the app's own bundle, which presents as a blank window rather than an
+      # error. Needs a display under it.
+      - name: CSP
+        run: xvfb-run --auto-servernum pnpm --filter desktop test:csp
