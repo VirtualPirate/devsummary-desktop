@@ -6,9 +6,15 @@
 # renderer completes its startup API calls through the x-desktop-token guard.
 # R6 (PGlite sealed in asar) is closed by `asarUnpack` below — the backend itself
 # now ships *inside* asar, so first-launch Gatekeeper assessment sees one file
-# rather than 20k. Still OPEN: R7 (migration-on-upgrade data loss; backend-side,
-# not a packaging concern), every non-mac target, and any machine other than the
-# one that built it, because nothing is signed (see mac.identity below).
+# rather than 20k. R7 was closed on 2026-09-17 in the backend (see the note above
+# the `mac:` block).
+#
+# 2026-09-18: every target below now builds on this Mac — the nsis installer too,
+# with no wine — and all three layouts pass `test/bundle-shape.js`. The x64 dmg
+# and both AppImages have been launched (Rosetta; a container under Xvfb) —
+# docs/receipts/PLATFORMS.md. Still OPEN: Windows, which has never been launched
+# at all, native Intel hardware, and any machine other than the one that built
+# this, because nothing is signed with a real identity (see mac.identity below).
 
 appId: app.devsummary.com
 productName: DevSummary

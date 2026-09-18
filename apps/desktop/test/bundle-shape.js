@@ -6,21 +6,31 @@
 // one `files` entry moved back to `extraResources` undoes it silently, and the
 // app still works, just slowly, and only on a machine that has never seen it.
 //
+// The same shape has to hold on every target, so the app root is an argument:
+// the mac .app by default, `release/win-unpacked` or `release/linux-unpacked`
+// when those are built (release checklist §2).
+//
 //   pnpm --filter desktop dist && pnpm --filter desktop test:bundle
+//   node test/bundle-shape.js release/win-unpacked
 const fs = require('node:fs');
 const path = require('node:path');
 
 // Whichever arch this machine built. `dir`-target output lives here too.
-const APP = ['release/mac-arm64/DevSummary.app', 'release/mac/DevSummary.app']
-  .map((p) => path.join(__dirname, '..', p))
-  .find((p) => fs.existsSync(p));
+const CANDIDATES = process.argv[2]
+  ? [process.argv[2]]
+  : ['release/mac-arm64/DevSummary.app', 'release/mac/DevSummary.app'];
+const APP = CANDIDATES.map((p) => path.resolve(__dirname, '..', p)).find((p) => fs.existsSync(p));
 
 if (!APP) {
   console.error('[bundle] no packaged app under release/ — run `pnpm dist` first');
   process.exit(1);
 }
 
-const RESOURCES = path.join(APP, 'Contents/Resources');
+// macOS buries the payload a level down; Windows and Linux keep it beside the
+// executable.
+const RESOURCES = APP.endsWith('.app')
+  ? path.join(APP, 'Contents/Resources')
+  : path.join(APP, 'resources');
 // A loose file ceiling, not the exact count: Electron's own .lproj directories and
 // helper binaries drift between versions. 20k fails, ~600 passes, and anything in
 // between is worth a look.
@@ -72,7 +82,7 @@ check(
 );
 check('the renderer ships inside app.asar', inAsar(header, 'frontend/dist/index.html'));
 check(
-  'neither child is loose in Contents/Resources',
+  'neither child is loose beside the archive',
   !fs.existsSync(path.join(RESOURCES, 'backend')) && !fs.existsSync(path.join(RESOURCES, 'frontend')),
   'a `files` entry moved back to `extraResources` — that is the minutes-long first launch',
 );
@@ -93,7 +103,7 @@ for (const name of ['pglite.wasm', 'initdb.wasm', 'pglite.data']) {
 // that did not exist; a dropped `extraResources` entry would put them back there.
 for (const name of ['LICENSE', 'PRIVACY.md', 'THIRD-PARTY-NOTICES.md', 'LICENSES.chromium.html']) {
   check(
-    `${name} ships in Contents/Resources`,
+    `${name} ships in ${path.basename(RESOURCES)}`,
     fs.existsSync(path.join(RESOURCES, name)),
     'check electron-builder.yml extraResources',
   );
