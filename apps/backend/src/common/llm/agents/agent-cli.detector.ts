@@ -19,6 +19,13 @@ const TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 5_000;
 
 /**
+ * What a Windows user is told instead of an install command, because
+ * installing would not help.
+ */
+const WINDOWS_HINT =
+  'Agent CLI providers are not available on Windows yet — DevSummary spawns the CLI itself, and that path is macOS/Linux only. Use OpenAI or Gemini with an API key instead.';
+
+/**
  * Whether an agent CLI can run here. A plain class with a module-level
  * singleton rather than a Nest provider: `BriefsModule` and
  * `CommitAnalysisModule` do not import `LocalSettingsModule`, and threading a
@@ -85,6 +92,30 @@ export class AgentCliDetector {
       displayName: adapter.displayName,
       installHint: adapter.installHint,
     };
+
+    // Windows: report absent rather than ship three unverifiable guesses.
+    // `$SHELL -lic` having no meaning there is the visible half and the least
+    // of it — `locate` also walks PATH for a bare `claude` where the file is
+    // `claude.cmd`, `X_OK` is not a permission Windows has, and `execFile`
+    // refuses to spawn a `.cmd` at all since Node's CVE-2024-27980 fix, so
+    // even a located shim would fail. This app has never launched on Windows
+    // (`docs/RELEASE-CHECKLIST.md` §2), so none of those fixes could be tested.
+    //
+    // Absent is a state every caller already handles: the card shows the hint
+    // instead of an install command, `Use <CLI>` stays disabled, and
+    // `binaryPath` answers null — so a provider forced through `LLM_PROVIDER`
+    // fails at the call instead of spawning something. OpenAI and Gemini need
+    // no binary and are unaffected.
+    if (process.platform === 'win32') {
+      return {
+        ...base,
+        installHint: WINDOWS_HINT,
+        installed: false,
+        path: null,
+        version: null,
+        authenticated: null,
+      };
+    }
 
     const path = await this.locate(adapter.binary);
     if (!path) {

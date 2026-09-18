@@ -31,6 +31,12 @@ function recorder(
   return { run, calls };
 }
 
+/** `process.platform` is a plain value property, so a test can pose as one. */
+const savedPlatform = Object.getOwnPropertyDescriptor(
+  process,
+  'platform',
+) as PropertyDescriptor;
+
 let savedPath: string | undefined;
 let savedShell: string | undefined;
 let emptyDir: string;
@@ -48,7 +54,9 @@ afterEach(() => {
   else process.env.PATH = savedPath;
   if (savedShell === undefined) delete process.env.SHELL;
   else process.env.SHELL = savedShell;
+  Object.defineProperty(process, 'platform', savedPlatform);
 });
+
 
 describe('AgentCliDetector.detect', () => {
   // `codex login status` writes its one line to stderr and leaves stdout
@@ -194,6 +202,34 @@ describe('AgentCliDetector.detect', () => {
         version: null,
       },
     );
+  });
+
+  // Windows is the one platform this app has never launched on, and the whole
+  // spawn path is wrong there (`docs/RELEASE-CHECKLIST.md` §2). A real binary
+  // sits on PATH here, so the platform is the only thing that can answer.
+  it('reports absent on Windows without spawning anything', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-cli-bin-'));
+    const bin = join(dir, 'claude');
+    await writeFile(bin, '#!/bin/sh\n');
+    await chmod(bin, 0o755);
+    process.env.PATH = `${dir}:${emptyDir}`;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+
+    const { run, calls } = recorder(() => Promise.resolve(done(VERSION_OUT)));
+
+    expect(await new AgentCliDetector(run).detect('claude-code')).toMatchObject(
+      {
+        installed: false,
+        path: null,
+        version: null,
+        authenticated: null,
+      },
+    );
+    // Not the adapter's own hint: installing it would not help.
+    expect(
+      (await new AgentCliDetector(run).detect('claude-code')).installHint,
+    ).toMatch(/not available on Windows/);
+    expect(calls).toHaveLength(0);
   });
 
   it('reports authenticated false when the login probe fails', async () => {
