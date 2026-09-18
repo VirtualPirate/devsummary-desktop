@@ -7,6 +7,14 @@ const { execFileSync } = require('node:child_process');
 const { generate: generateNotices } = require('./gen-notices');
 
 /**
+ * Windows ships pnpm as `pnpm.cmd`, and execFile refuses to spawn a .cmd at all
+ * since Node's CVE-2024-27980 fix — `spawnSync pnpm ENOENT`, which is what the
+ * windows-latest runner hit here. The same hazard is already handled a layer up
+ * in AgentCliDetector; packaging had never been run on Windows to find it.
+ */
+const PNPM = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+
+/**
  * electron-builder `beforePack` hook — runs once, before electron-builder reads
  * `files` and starts copying things into the app package.
  *
@@ -26,6 +34,8 @@ const { generate: generateNotices } = require('./gen-notices');
 module.exports = async function beforePack() {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const target = path.resolve(__dirname, '..', '.backend-deploy');
+
+  ensureElectronDist();
 
   // Attribution first, so the notices copied into the package below describe the
   // dependency tree this build actually ships.
@@ -55,7 +65,7 @@ module.exports = async function beforePack() {
   // The hoisted linker writes one flat tree of real directories instead, which
   // packs and resolves correctly — and, being deduplicated, is smaller too.
   execFileSync(
-    'pnpm',
+    PNPM,
     [
       '--filter',
       'backend',
@@ -70,6 +80,52 @@ module.exports = async function beforePack() {
 
   pruneEscapingSymlinks(target);
 };
+
+/**
+ * electron@43.4.0's published package.json has no `scripts` field, so nothing
+ * ever runs the install.js sitting beside it: a fresh checkout gets
+ * node_modules/electron with no dist/ directory at all. electron-builder does
+ * not care — it downloads its own Electron to pack — but the
+ * LICENSES.chromium.html that `extraResources` ships is read out of that dist,
+ * and a missing extraResources source is a *warning*:
+ *
+ *   • file source doesn't exist  from=.../node_modules/electron/dist/LICENSES.chromium.html
+ *
+ * so the app packages successfully with no Chromium attribution in it. Every
+ * build on the machine that has had a populated dist/ since its first install
+ * passed; the first clean runner caught it.
+ *
+ * install.js is electron's own downloader (@electron/get, honours
+ * ELECTRON_CACHE) and short-circuits on isInstalled(), so it is safe to run
+ * unconditionally — the existsSync just keeps the already-installed case free.
+ */
+function ensureElectronDist() {
+  // Same path electron-builder.yml's extraResources entry resolves, so the two
+  // cannot drift apart.
+  const electronDir = path.resolve(__dirname, '..', 'node_modules', 'electron');
+  const notices = path.join(electronDir, 'dist', 'LICENSES.chromium.html');
+
+  // Gate on the directory, not on the file: install.js decides for itself via
+  // isInstalled(), which looks for the binary, so handing it a dist that exists
+  // but is missing this one file would be a no-op and the throw below would
+  // blame the downloader for something it was never asked to fix.
+  if (!fs.existsSync(path.join(electronDir, 'dist'))) {
+    console.log('[beforePack] electron dist absent — running electron/install.js');
+    execFileSync(process.execPath, [path.join(electronDir, 'install.js')], {
+      cwd: electronDir,
+      stdio: 'inherit',
+    });
+  }
+
+  // Asserted either way. Shipping without Chromium's notices is the failure this
+  // function exists to prevent, and it is invisible in a passing build.
+  if (!fs.existsSync(notices)) {
+    throw new Error(
+      `[beforePack] ${notices} is missing — electron-builder would package without ` +
+        "Chromium's notices rather than fail",
+    );
+  }
+}
 
 /**
  * `pnpm deploy` used to leave one symlink pointing back out at the source

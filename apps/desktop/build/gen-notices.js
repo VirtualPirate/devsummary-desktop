@@ -4,6 +4,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
+/** See the note on the same constant in beforePack.js — execFile cannot spawn a .cmd. */
+const PNPM = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+
 /**
  * Regenerates THIRD-PARTY-NOTICES.md at the repo root — the attribution file the
  * installer ships (electron-builder.yml `extraResources`). Run from beforePack.js
@@ -24,11 +27,24 @@ const { execFileSync } = require('node:child_process');
  * license violation. Narrow it only if the file's size becomes a real problem.
  */
 function generate(repoRoot) {
-  const raw = execFileSync('pnpm', ['licenses', 'list', '--json', '--prod'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  let raw;
+  try {
+    raw = execFileSync(PNPM, ['licenses', 'list', '--json', '--prod'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (err) {
+    // execFileSync leaves the child's stderr on the error object and puts none
+    // of it in the message, so an unattended build reports only "Command
+    // failed: pnpm licenses list" with nothing to act on — which is exactly how
+    // the ubuntu runner failed here.
+    const stderr = (err.stderr || '').toString().trim();
+    throw new Error(
+      `[gen-notices] \`pnpm licenses list --json --prod\` failed (exit ${err.status})` +
+        (stderr ? `:\n${stderr}` : ' with no stderr'),
+    );
+  }
 
   /** @type {Record<string, Array<{name: string, versions: string[], paths: string[], license: string, author?: string, homepage?: string}>>} */
   const byLicense = JSON.parse(raw);
