@@ -4,15 +4,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
-const { generate: generateNotices } = require('./gen-notices');
-
-/**
- * Windows ships pnpm as `pnpm.cmd`, and execFile refuses to spawn a .cmd at all
- * since Node's CVE-2024-27980 fix — `spawnSync pnpm ENOENT`, which is what the
- * windows-latest runner hit here. The same hazard is already handled a layer up
- * in AgentCliDetector; packaging had never been run on Windows to find it.
- */
-const PNPM = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const { generate: generateNotices, runPnpm } = require('./gen-notices');
 
 /**
  * electron-builder `beforePack` hook — runs once, before electron-builder reads
@@ -64,17 +56,8 @@ module.exports = async function beforePack() {
   //
   // The hoisted linker writes one flat tree of real directories instead, which
   // packs and resolves correctly — and, being deduplicated, is smaller too.
-  execFileSync(
-    PNPM,
-    [
-      '--filter',
-      'backend',
-      'deploy',
-      '--legacy',
-      '--prod',
-      '--config.node-linker=hoisted',
-      target,
-    ],
+  runPnpm(
+    ['--filter', 'backend', 'deploy', '--legacy', '--prod', '--config.node-linker=hoisted', target],
     { cwd: repoRoot, stdio: 'inherit' },
   );
 
