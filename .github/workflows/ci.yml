@@ -12,17 +12,23 @@
 #     Authenticode certificate in this project. mac builds stay ad-hoc
 #     (`identity: "-"` in electron-builder.yml), which seals the bundle but is
 #     refused by Gatekeeper on any real download.
-#   - Publishing. `publish: null` in electron-builder.yml, and nothing here
-#     creates a GitHub Release. Installers land on the Actions run as
-#     artifacts; that is a thing a maintainer downloads, not a distribution
-#     channel.
+
+# Publishing now happens, but only on a tag, and only into a DRAFT release
+# (`releaseType: draft` in electron-builder.yml). A tag push uploads the
+# installers and the latest*.yml feed; nothing reaches an installed app until a
+# maintainer publishes that release by hand. Pushes and PRs still only produce
+# Actions artifacts.
 
 name: CI
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+  # Exercises the release job end to end with `--publish never`, so the
+  # packaging path is runnable without cutting a tag.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -50,6 +56,10 @@ env:
 jobs:
   build:
     name: ${{ matrix.name }}
+    # The release job below packages all three platforms on a tag and runs the
+    # same bundle-shape check. This matrix is PR/main verification — it keeps
+    # its native-Intel leg, which the release job does not have.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -185,3 +195,85 @@ jobs:
       # error. Needs a display under it.
       - name: CSP
         run: xvfb-run --auto-servernum pnpm --filter desktop test:csp
+
+      # Runs under Electron, not bare node: updater.ts imports `electron`, which
+      # outside an Electron runtime resolves to a path string rather than the
+      # API. It opens no window, but xvfb is what the runner's Electron needs to
+      # start at all.
+      - name: Updater
+        run: xvfb-run --auto-servernum pnpm --filter desktop test:updater
+
+  # Three legs, not four. The mac leg builds BOTH arches in one invocation
+  # because each electron-builder run writes its own latest-mac.yml, and two
+  # runners uploading that name to one release means the second overwrites the
+  # first — after which every mac client, arm64 included, is pointed at
+  # whichever zip survived. An arm64 user silently dropped onto Rosetta is worse
+  # than no update at all.
+  release:
+    name: release ${{ matrix.name }}
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Nothing is uploaded from a commit whose tests did not pass.
+    needs: checks
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      # Job-scoped, so the workflow default stays `read`. electron-builder needs
+      # it to create the draft release and upload assets.
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mac
+            os: macos-14
+            builder_args: --mac --arm64 --x64
+            bundle_root: ''
+          - name: windows
+            os: windows-latest
+            builder_args: --win --x64
+            bundle_root: release/win-unpacked
+          - name: linux
+            os: ubuntu-latest
+            builder_args: --linux --x64
+            bundle_root: release/linux-unpacked
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # electron-builder names the release from apps/desktop/package.json's
+      # `version`, not from the tag. A mismatch publishes v0.1.0 assets under a
+      # tag that says v0.1.1, and the clients that read latest.yml believe the
+      # file, not the tag.
+      - name: The tag must match the packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          packaged="v$(node -p "require('./apps/desktop/package.json').version")"
+          tag="${GITHUB_REF_NAME}"
+          if [ "$packaged" != "$tag" ]; then
+            echo "tag $tag but apps/desktop/package.json says $packaged" >&2
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Package and publish
+        run: >-
+          pnpm --filter desktop exec electron-builder ${{ matrix.builder_args }}
+          --publish ${{ github.event_name == 'workflow_dispatch' && 'never' || 'always' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bundle shape
+        run: node apps/desktop/test/bundle-shape.js ${{ matrix.bundle_root }}
