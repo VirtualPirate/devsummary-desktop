@@ -366,6 +366,10 @@ ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
   await shell.openExternal(parsed.href);
 });
 
+// The renderer names no path: the only directory it may ask for is the app's own,
+// so main resolves it rather than validating a string that came from the page.
+ipcMain.handle('shell:open-data-dir', async () => shell.openPath(app.getPath('userData')));
+
 // --------------------------------------------------------------- lifecycle ---
 
 // Two instances would open the same PGlite data directory. That is data loss,

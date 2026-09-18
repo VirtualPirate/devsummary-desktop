@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { FolderOpen, Monitor, Moon, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
@@ -19,6 +19,13 @@ import {
 } from "@/hooks/api/use-local-settings";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { cn } from "@/lib/utils";
+
+// `shell.openPath` reports failure by resolving to a message rather than throwing,
+// so an unopenable directory has to be read off the resolved value or it is silent.
+async function openDataDir() {
+  const error = await window.desktop?.openDataDir();
+  if (error) toast.error(error);
+}
 
 const THEMES: Array<{ value: Theme; label: string; icon: typeof Sun }> = [
   { value: "light", label: "Light", icon: Sun },
@@ -108,9 +115,26 @@ function NotificationsSection({
         <div className="h-px bg-border" />
 
         <div>
-          <div className="text-sm font-medium">Data directory</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            The database, logs and encrypted secrets live here.
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium">Data directory</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                The database, logs and encrypted secrets live here. Something
+                went wrong? <span className="font-mono">logs/app.log</span> is
+                what a bug report needs.
+              </div>
+            </div>
+            {window.desktop ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => void openDataDir()}
+              >
+                <FolderOpen className="size-3.5" />
+                Open
+              </Button>
+            ) : null}
           </div>
           <div className="mt-2 rounded-md border bg-muted/40 px-2.5 py-1.5 font-mono text-xs break-all">
             {dataDir}

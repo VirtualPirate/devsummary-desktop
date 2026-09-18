@@ -50,14 +50,35 @@ installed build do not share data**. The settings screen shows the exact path in
 |---|---|
 | Database | `<userData>/data/` — a PGlite directory |
 | Credentials | `<userData>/secrets.bin` — encrypted with Electron `safeStorage`, i.e. the OS keychain |
-| Logs | `<repo-root>/logs/app.log` in dev; `LOG_FILE_PATH` otherwise |
+| Logs | `<userData>/logs/app.log` — rolled at 50 MB, 7 kept. `<repo-root>/logs/app.log` only headless, where there is no `userData`; `LOG_FILE_PATH` overrides both |
 
-Nothing is sent anywhere except to GitHub, OpenAI and Slack — each only when you have given it a
-credential. The backend listens on a random loopback port and every request needs a
+Nothing is sent anywhere except to GitHub, your chosen AI provider and Slack — each only once you
+have given it a credential, and an agent CLI sends to whichever account that binary is logged into
+rather than to us. Host by host, with the payload and the credential that switches it on:
+`docs/EGRESS.md`. The backend listens on a random loopback port and every request needs a
 per-boot token, so other processes on the machine cannot read your data over HTTP either.
 
 A headless `pnpm --filter backend start:dev` uses `./.data` instead, and has no keychain — see
 `apps/backend/.env.example`.
+
+## Uninstalling
+
+Deleting the app leaves your data where it is, on purpose — reinstalling picks up the same database.
+To remove that too, delete the `userData` directory of the build you ran:
+
+| OS | Installed build | `pnpm dev` |
+|---|---|---|
+| macOS | `~/Library/Application Support/DevSummary` | `~/Library/Application Support/desktop` |
+| Windows | `%APPDATA%\DevSummary` | `%APPDATA%\desktop` |
+| Linux | `~/.config/DevSummary` | `~/.config/desktop` |
+
+That is the database, the logs and `secrets.bin` in one directory, so one delete is the whole
+purge — the settings screen prints the exact path, and its **Open** button reveals it in the file
+manager. Two leftovers it does not cover: on macOS and Linux the OS credential store keeps the key
+that encrypted `secrets.bin` (an item named after the app, ending in `Safe Storage`), which is
+harmless once the file is gone but can be deleted from Keychain Access / your keyring; and nothing
+is revoked at the other end — your GitHub PAT and Slack bot token stay valid until you delete them
+where they were issued.
 
 ## Connecting things
 
@@ -93,12 +114,13 @@ permanent for the desktop build; the rationale and the exact removal list are `d
 
 ## Packaging
 
-`pnpm dist` runs electron-builder against the config in `apps/desktop`. **It is an unverified
-sketch.** The config exists — targets, `asarUnpack` for PGlite's `.wasm`/`.data` files (which cannot
-be read from inside an asar), `userData` as the data directory — but no installer has been built or
-run on a clean machine, and there is no code signing, no notarization and no auto-update. Treat the
-first real packaging run as work, not as a command. See `docs/DELTAS.md` D-D and
-`docs/receipts/PHASE-10.md`.
+`pnpm dist` runs electron-builder against the config in `apps/desktop` and produces a dmg that has
+been installed and launched — backend up, migrations applied, briefs generated. What is **not** done
+is distribution: the bundle is ad-hoc signed (`mac.identity: "-"`), so a *downloaded* dmg is still
+refused by Gatekeeper without a Developer ID and notarization; there is no Windows certificate, no
+auto-update, and neither Windows nor Linux has ever been launched at all. `docs/RELEASE-CHECKLIST.md`
+is the live list of what is left; `docs/DELTAS.md` D-D and `docs/receipts/PHASE-10.md` are how it got
+here.
 
 ## Layout
 

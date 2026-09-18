@@ -17,6 +17,8 @@ declare global {
     desktop?: {
       apiConfig(): Promise<{ port: number; token: string }>;
       openExternal(url: string): Promise<void>;
+      /** Resolves to `shell.openPath`'s error string — empty when it opened. */
+      openDataDir(): Promise<string>;
       consentState(): Promise<{ acceptedVersion: string | null; acceptedAt: string | null }>;
       acceptConsent(termsVersion: string): Promise<void>;
       quitApp(): Promise<void>;
