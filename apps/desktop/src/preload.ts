@@ -1,4 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+
+import type { UpdateSnapshot } from './updater';
 
 /**
  * The whole renderer surface. `apiConfig` resolves once the forked backend has
@@ -15,4 +17,15 @@ contextBridge.exposeInMainWorld('desktop', {
   acceptConsent: (termsVersion: string): Promise<void> =>
     ipcRenderer.invoke('consent:accept', termsVersion),
   quitApp: (): Promise<void> => ipcRenderer.invoke('consent:quit'),
+  updateState: (): Promise<UpdateSnapshot> => ipcRenderer.invoke('updates:state'),
+  checkUpdates: (): Promise<UpdateSnapshot> => ipcRenderer.invoke('updates:check'),
+  setUpdatesEnabled: (enabled: boolean): Promise<UpdateSnapshot> =>
+    ipcRenderer.invoke('updates:preference', enabled),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
+  /** Returns its own unsubscribe — contextBridge proxies returned functions. */
+  onUpdatesChanged: (listener: (snapshot: UpdateSnapshot) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, snapshot: UpdateSnapshot): void => listener(snapshot);
+    ipcRenderer.on('updates:changed', handler);
+    return () => ipcRenderer.removeListener('updates:changed', handler);
+  },
 });
