@@ -37,8 +37,15 @@ env:
   # deploy flags it passes (--legacy, --config.node-linker=hoisted) are
   # version-sensitive enough to pin rather than float.
   PNPM_VERSION: 10.33.2
-  # Root package.json engines says >=22.12.0.
-  NODE_VERSION: 22.12.0
+  # Root package.json engines says >=22.12.0, but the floor is not enough here.
+  # The lockfile carries @napi-rs/lzma-linux-x64-gnu (rollup's optional xz
+  # binary) with `engines: ^22.20 || ^24.12 || >=25`. On 22.12 the linux runner
+  # is the one platform whose os/cpu/libc that package matches, so pnpm wants it
+  # and then skips it as an unsupported engine — after which `pnpm licenses
+  # list` inside beforePack dies on a package it expects in the store
+  # (ERR_PNPM_MISSING_PACKAGE_INDEX_FILE), taking the whole linux leg with it.
+  # 22.21.1 is what the machine that has built every artifact so far runs.
+  NODE_VERSION: 22.21.1
 
 jobs:
   build:
