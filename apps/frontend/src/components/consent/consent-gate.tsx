@@ -26,7 +26,9 @@ import { LegalDialog, type LegalDocId } from "./legal-dialog"
  */
 // Still 1.0 after the wording above changed: nothing has been released, so
 // there is no install consented to the earlier text that a bump would re-gate.
-// The rule applies from the first shipped build onward.
+// The rule applies from the first shipped build onward — which means the next
+// terms change after 0.1.0 ships MUST bump. The update check added on
+// 2026-09-18 is named in the dialog below rather than re-gating anyone.
 const TERMS_VERSION = "1.0"
 const TERMS_CHANGES: string[] = []
 
@@ -47,6 +49,14 @@ const NEVER_SENT = [
  */
 const AI_EGRESS =
   "Analysing a commit sends its message and diff to the AI provider you choose — an API key you paste, or a coding-agent CLI already on this machine. Nothing is sent until you connect one, and the AI page names where it goes."
+
+/**
+ * The second always-on connection, and the only one that exists before the user
+ * has connected anything. Named here because the dialog's whole claim is that
+ * you are told what leaves the machine.
+ */
+const UPDATE_EGRESS =
+  "DevSummary asks github.com every six hours whether a newer version exists, and downloads it in the background. No account, no install ID — an IP address and a version number. Settings → Updates switches it off."
 
 function DocLink({
   doc,
@@ -198,6 +208,11 @@ export function ConsentGate({ children }: { children: React.ReactNode }) {
           <p className="flex gap-2 rounded-lg border border-dashed p-3 text-muted-foreground">
             <CloudUpload className="mt-0.5 size-3.5 shrink-0" />
             <span>{AI_EGRESS}</span>
+          </p>
+
+          <p className="flex gap-2 rounded-lg border border-dashed p-3 text-muted-foreground">
+            <CloudUpload className="mt-0.5 size-3.5 shrink-0" />
+            <span>{UPDATE_EGRESS}</span>
           </p>
 
           <label

@@ -65,9 +65,23 @@ In the current build the destination is unset, so no telemetry request is made a
 ## What is never sent to us
 
 Repository names, commit messages, code and diffs, brief contents, teammate names and
-email addresses, and your credentials. There is no crash reporter and no update check.
+email addresses, and your credentials. There is no crash reporter.
 DevSummary does not use advertising, does not profile you, and has nothing to sell to a
 third party because it collects nothing to sell.
+
+## Update checks
+
+DevSummary asks `github.com` every six hours whether a newer version has been released, and
+downloads it in the background when there is one. The request carries nothing about you: no
+install identifier, no account, no repository names. GitHub sees what any web server sees —
+an IP address, and a user agent naming the app version asking. The download itself comes
+from `objects.githubusercontent.com`.
+
+Switch it off under Settings → Updates and nothing is asked. The preference is a file on
+your machine (`updates.json` in the data directory) and is never sent anywhere.
+
+On macOS the app only tells you a version exists; installing it is a download you start
+yourself, in your browser.
 
 ## Links you click
 

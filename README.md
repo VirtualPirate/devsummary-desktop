@@ -117,8 +117,10 @@ permanent for the desktop build.
 `pnpm dist` runs electron-builder against the config in `apps/desktop` and produces a dmg that has
 been installed and launched — backend up, migrations applied, briefs generated. What is **not** done
 is distribution: the bundle is ad-hoc signed (`mac.identity: "-"`), so a *downloaded* dmg is still
-refused by Gatekeeper without a Developer ID and notarization; there is no Windows certificate and
-no auto-update. The mac dmgs and both Linux AppImages have been launched; Windows never has.
+refused by Gatekeeper without a Developer ID and notarization; there is no Windows certificate.
+Auto-update does ship — a tag publishes a draft GitHub release, and installs follow that feed — but
+macOS is notify-only for the same signing reason (`docs/EGRESS.md`). The mac dmgs and both Linux
+AppImages have been launched; Windows never has.
 
 ## Tests
 
