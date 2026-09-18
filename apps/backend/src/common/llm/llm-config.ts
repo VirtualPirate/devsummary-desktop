@@ -47,11 +47,23 @@ export const DEFAULT_MODELS: Record<
     brief: 'gemini-3.1-flash-lite',
   },
   'claude-code': { commitAnalysis: 'haiku', brief: 'sonnet' },
-  // OpenCode ids are always `provider/model`. One value in both slots: Zen's
-  // free tier is the point of the default, and it has no cheaper sibling.
+  // OpenCode ids are always `provider/model`, and the provider half has to be
+  // one the user connected with `opencode auth login` — opencode holds its own
+  // credentials and this app never sees them, so no default can be right for
+  // everyone. OpenAI is the likeliest connection and the same Luna/Terra pair
+  // codex defaults to, which makes a wrong guess fail as
+  // `ProviderModelNotFoundError` in ~2 s against a model hint that says to run
+  // `opencode models` — a failure that names its own fix.
+  //
+  // It is *not* Zen's free tier any more. `opencode/big-pickle` and every
+  // other `opencode/*` id now answers HTTP 403 `FreeTierError`, "OpenCode's
+  // free tier can only be used from within OpenCode", to anything that is not
+  // the opencode TUI — measured 2026-09-18 on 1.1.53 across big-pickle and
+  // three `-free` siblings, 4 calls each, 16/16. The old ceiling was a quota
+  // that ran out after two calls; this one never starts.
   opencode: {
-    commitAnalysis: 'opencode/big-pickle',
-    brief: 'opencode/big-pickle',
+    commitAnalysis: 'openai/gpt-5.6-luna',
+    brief: 'openai/gpt-5.6-terra',
   },
   cursor: {
     commitAnalysis: 'composer-2.5-fast',

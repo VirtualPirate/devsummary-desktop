@@ -105,9 +105,12 @@ const PROVIDERS = {
     name: "OpenCode",
     label: "OpenCode",
     host: "local CLI · opencode",
+    // Not an `opencode/*` id: OpenCode Zen refuses every call that is not the
+    // opencode TUI. The provider half has to be one the user connected with
+    // `opencode auth login`; see `llm-config.ts`.
     defaultModels: {
-      commitAnalysis: "opencode/big-pickle",
-      brief: "opencode/big-pickle",
+      commitAnalysis: "openai/gpt-5.6-luna",
+      brief: "openai/gpt-5.6-terra",
     },
     modelHint: (
       <>
@@ -844,9 +847,9 @@ export function IntegrationsAiPage() {
                 </b>
                 <p className="[color:color-mix(in_oklab,currentColor_80%,var(--foreground))]">
                   Commit analysis and every scheduled brief will fail with{" "}
-                  <code className="font-mono">NOT_CONFIGURED</code> until a{" "}
-                  {PROVIDERS[provider].label} key is saved, or another provider
-                  is put in use.
+                  <code className="font-mono">NOT_CONFIGURED</code> until a key
+                  for {PROVIDERS[provider].label} is saved, or another provider
+                  is put in use.{/* "a {label}" was "a OpenAI" half the time */}
                 </p>
               </div>
             ) : detectError ? (

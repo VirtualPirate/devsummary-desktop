@@ -30,7 +30,7 @@ analyses (capped at ~30k chars) for a brief.
 | OpenAI | `api.openai.com` | The `openai` SDK with the user's own key | `common/llm/llm-config.ts:141` (no `baseURL` override) |
 | Google Gemini | `generativelanguage.googleapis.com` | The same SDK against Gemini's OpenAI-compatible endpoint | `common/llm/llm-config.ts:23` |
 | Claude Code | Anthropic's API, as the local `claude` binary's own login | Spawned subprocess — DevSummary opens no socket | `common/llm/agents/claude-code.adapter.ts` |
-| OpenCode | Whichever provider `opencode auth login` connected; OpenCode Zen for the default `opencode/big-pickle` model | Spawned subprocess | `common/llm/agents/opencode.adapter.ts` |
+| OpenCode | Whichever provider `opencode auth login` connected — OpenAI for the default `openai/gpt-5.6-luna`. **Not** OpenCode Zen: `opencode/*` ids answer 403 outside the opencode TUI | Spawned subprocess | `common/llm/agents/opencode.adapter.ts` |
 | Cursor | Cursor's own backend, as the account `agent login` authenticated | Spawned subprocess | `common/llm/agents/cursor.adapter.ts` |
 | Codex | OpenAI, as the local `codex` binary's own login | Spawned subprocess | `common/llm/agents/codex.adapter.ts` |
 

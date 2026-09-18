@@ -92,7 +92,7 @@ export const opencodeAdapter: AgentCliAdapter = {
   displayName: 'OpenCode',
   binary: 'opencode',
   installHint:
-    'Install it with `curl -fsSL https://opencode.ai/install | bash` (or `brew install sst/tap/opencode`), then run `opencode auth login` and connect the provider your model needs — OpenCode Zen for the default `opencode/big-pickle`.',
+    'Install it with `curl -fsSL https://opencode.ai/install | bash` (or `brew install sst/tap/opencode`), then run `opencode auth login` and connect the provider your model needs — OpenAI for the default `openai/gpt-5.6-luna`. OpenCode Zen (`opencode/*`) does not work here: it is refused outside the opencode TUI.',
   versionArgs: ['--version'],
 
   // No `authArgs`: credentials are per provider *inside* opencode

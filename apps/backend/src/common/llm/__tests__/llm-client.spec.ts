@@ -606,16 +606,19 @@ describe('opencode as a provider', () => {
         },
         job: 'brief',
       }),
-    ).toEqual({ provider: 'opencode', model: 'opencode/big-pickle' });
+    ).toEqual({ provider: 'opencode', model: 'openai/gpt-5.6-terra' });
   });
 
-  // OpenCode ids are always `provider/model`, and the default is Zen's free
-  // tier for both jobs.
-  it('defaults both jobs to opencode/big-pickle', () => {
+  // OpenCode ids are always `provider/model`. No `opencode/*` id may be a
+  // default: Zen answers 403 to everything but its own TUI.
+  it('defaults to a model behind the opencode login, never to Zen', () => {
     expect(DEFAULT_MODELS.opencode).toEqual({
-      commitAnalysis: 'opencode/big-pickle',
-      brief: 'opencode/big-pickle',
+      commitAnalysis: 'openai/gpt-5.6-luna',
+      brief: 'openai/gpt-5.6-terra',
     });
+    expect(Object.values(DEFAULT_MODELS.opencode)).not.toContainEqual(
+      expect.stringMatching(/^opencode\//),
+    );
   });
 
   it('builds the same agent CLI client from the factory', () => {
