@@ -120,8 +120,9 @@ function NotificationsSection({
               <div className="text-sm font-medium">Data directory</div>
               <div className="mt-0.5 text-xs text-muted-foreground">
                 The database, logs and encrypted secrets live here. Something
-                went wrong? <span className="font-mono">logs/app.log</span> is
-                what a bug report needs.
+                went wrong? The newest{" "}
+                <span className="font-mono">logs/app.log.*</span> is what a bug
+                report needs — the log rolls, so the number changes.
               </div>
             </div>
             {window.desktop ? (

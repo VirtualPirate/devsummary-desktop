@@ -50,7 +50,7 @@ installed build do not share data**. The settings screen shows the exact path in
 |---|---|
 | Database | `<userData>/data/` — a PGlite directory |
 | Credentials | `<userData>/secrets.bin` — encrypted with Electron `safeStorage`, i.e. the OS keychain |
-| Logs | `<userData>/logs/app.log` — rolled at 50 MB, 7 kept. `<repo-root>/logs/app.log` only headless, where there is no `userData`; `LOG_FILE_PATH` overrides both |
+| Logs | `<userData>/logs/app.log.<n>` — `pino-roll` appends the number, so there is no plain `app.log`; the highest number is the live one. Rolled at 50 MB, 7 kept. `<repo-root>/logs/` only headless, where there is no `userData`; `LOG_FILE_PATH` overrides both |
 
 Nothing is sent anywhere except to GitHub, your chosen AI provider and Slack — each only once you
 have given it a credential, and an agent CLI sends to whichever account that binary is logged into

@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type {
@@ -60,9 +60,16 @@ export class LocalSettingsService {
       ...this.secrets.status(),
       llmProvider,
       desktopNotifications: await this.settings.desktopNotificationsEnabled(),
+      // `DATA_DIR` itself — the `userData` root — not the `data/` child that
+      // `resolveDataDir()` returns. The screen that prints this also says the
+      // logs and `secrets.bin` are in it, and its Open button reveals
+      // `app.getPath('userData')`; naming the PGlite directory instead sent
+      // anyone following that copy into a folder holding neither, one level
+      // below the one the button had just opened.
+      //
       // Absolute, because the headless fallback is the relative `./.data` and a
       // path the user cannot paste into Finder is not an answer.
-      dataDir: resolve(resolveDataDir()),
+      dataDir: resolve(process.env.DATA_DIR ?? dirname(resolveDataDir())),
       // The effective model for the *selected* provider: an OpenAI override is
       // still stored while Gemini is selected, and reporting it would put a
       // model the run will never use in front of the user.

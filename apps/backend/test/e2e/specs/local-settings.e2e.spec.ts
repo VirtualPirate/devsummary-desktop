@@ -43,6 +43,11 @@ describe('the settings screen on a fresh install', () => {
       briefModel: 'gpt-4o-mini',
     });
     expect(res.body.data.dataDir).toMatch(/^\//);
+    // The `userData` root, not the PGlite `data/` child inside it. The screen
+    // printing this also names `logs/` and `secrets.bin`, which are its
+    // siblings, and its Open button reveals the parent — so naming `data/`
+    // sent anyone following that copy one directory too deep.
+    expect(res.body.data.dataDir.endsWith('/data')).toBe(false);
   });
 
   it('enqueues nothing on a fresh install', async () => {
