@@ -1,0 +1,19 @@
+# §2 "Launch on Linux (AppImage)" — the smallest Debian that can run an Electron
+# app with no desktop: the Chromium shared libraries, a keyring-less session (the
+# safeStorage path §3 predicted and nothing had ever exercised), and Xvfb for the
+# window. No X server on the host is involved.
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgtk-3-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 \
+      libasound2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+      libpango-1.0-0 libcairo2 libx11-xcb1 libsecret-1-0 libglib2.0-0 \
+      xvfb xauth ca-certificates fonts-liberation \
+      libxshmfence1 libxcb-dri3-0 libxi6 libxtst6 libnotify4 libexpat1 \
+      `# the AppImage runtime itself dlopens libz.so, not libz.so.1, so the` \
+      `# runtime package is not enough on a minimal image` \
+      zlib1g-dev \
+  && rm -rf /var/lib/apt/lists/*
+# Electron refuses to run as root unless the sandbox is disabled, so the app runs
+# as a normal user and keeps chrome-sandbox.
+RUN useradd -m -u 1000 app
+ENV APPIMAGE_EXTRACT_AND_RUN=1

@@ -10,7 +10,7 @@ const { generate: generateNotices } = require('./gen-notices');
  * electron-builder `beforePack` hook — runs once, before electron-builder reads
  * `files` and starts copying things into the app package.
  *
- * Verified against pnpm 10.33.2 — see docs/receipts/PHASE-10.md.
+ * Verified against pnpm 10.33.2.
  *
  * Why this exists: pnpm's default node_modules layout is a symlink forest into a
  * shared content-addressed store, which electron-builder's own dependency-pruning
@@ -28,7 +28,7 @@ module.exports = async function beforePack() {
   const target = path.resolve(__dirname, '..', '.backend-deploy');
 
   // Attribution first, so the notices copied into the package below describe the
-  // dependency tree this build actually ships (docs/RELEASE-CHECKLIST.md §4).
+  // dependency tree this build actually ships.
   generateNotices(repoRoot);
 
   fs.rmSync(target, { recursive: true, force: true });

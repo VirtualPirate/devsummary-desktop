@@ -110,32 +110,43 @@ as delivered even when Slack is unconfigured.
 **Email delivery.** There is no SMTP configuration, no email recipients on a schedule or a
 one-off brief, and no "deliver by email" button — on any screen. A brief is delivered to Slack
 and/or a desktop notification, and it is always readable in the app itself. This is deliberate and
-permanent for the desktop build; the rationale and the exact removal list are `docs/DELTAS.md` D-H.
+permanent for the desktop build.
 
 ## Packaging
 
 `pnpm dist` runs electron-builder against the config in `apps/desktop` and produces a dmg that has
 been installed and launched — backend up, migrations applied, briefs generated. What is **not** done
 is distribution: the bundle is ad-hoc signed (`mac.identity: "-"`), so a *downloaded* dmg is still
-refused by Gatekeeper without a Developer ID and notarization; there is no Windows certificate, no
-auto-update, and neither Windows nor Linux has ever been launched at all. `docs/RELEASE-CHECKLIST.md`
-is the live list of what is left; `docs/DELTAS.md` D-D and `docs/receipts/PHASE-10.md` are how it got
-here.
+refused by Gatekeeper without a Developer ID and notarization; there is no Windows certificate and
+no auto-update. The mac dmgs and both Linux AppImages have been launched; Windows never has.
+
+## Tests
+
+```bash
+pnpm test                          # backend unit tests (Jest)
+pnpm --filter backend test:e2e     # full pipeline over in-memory PGlite — no Docker, no network
+pnpm --filter desktop test:bundle  # packaged bundle stays asar-packed
+pnpm --filter desktop test:csp     # renderer CSP and navigation locks
+```
+
+Beyond those there are manual checks that drive the real app — installing a dmg, booting the
+AppImage in a container, a packaged upgrade, a run against a real GitHub PAT, and each agent
+CLI at the LLM boundary. They need credentials or a built artifact, so nothing runs them for
+you: see `apps/desktop/test/README.md` and `apps/backend/test/agent-cli/README.md`.
 
 ## Layout
 
 ```
 apps/
   desktop/    Electron main + preload: secrets, port handoff, notifications, tray
+              test/ also holds the packaging and platform checks
   backend/    NestJS + Kysely over PGlite + the job runner
   frontend/   React 19 + Vite + Tailwind v4 + TanStack Router/Query
 packages/
   api-interfaces/  Shared request/response types and Zod schemas
   core/            Small shared utilities
 docs/
-  MIGRATION-PLAN.md  How this was ported, and why each decision was made
-  DELTAS.md          Approved deviations from that plan
-  receipts/          What each phase actually did
+  EGRESS.md   Every host the app can reach, what is sent, and how to switch it off
 ```
 
 `AGENTS.md` at the root carries the product spec and the **Timezones** rules — read that section

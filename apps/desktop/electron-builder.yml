@@ -1,4 +1,4 @@
-# electron-builder config — docs/MIGRATION-PLAN.md Phase 10.
+# electron-builder config.
 #
 # STATUS: verified on 2026-09-10. `pnpm dist` produces arm64 + x64 dmgs on this Mac,
 # and the packaged arm64 app boots: PGlite initializes a fresh cluster in userData,
@@ -11,8 +11,8 @@
 #
 # 2026-09-18: every target below now builds on this Mac — the nsis installer too,
 # with no wine — and all three layouts pass `test/bundle-shape.js`. The x64 dmg
-# and both AppImages have been launched (Rosetta; a container under Xvfb) —
-# docs/receipts/PLATFORMS.md. Still OPEN: Windows, which has never been launched
+# and both AppImages have been launched (Rosetta; a container under Xvfb —
+# apps/desktop/test/platform/). Still OPEN: Windows, which has never been launched
 # at all, native Intel hardware, and any machine other than the one that built
 # this, because nothing is signed with a real identity (see mac.identity below).
 
@@ -115,7 +115,7 @@ extraResources:
 # before migrating and renames it back if a migration throws. Tested in
 # apps/backend/test/e2e/specs/migration-backup.e2e.spec.ts. What packaging still
 # owes it is the real thing: install vN, generate data, install vN+1, confirm the
-# data survived — see docs/RELEASE-CHECKLIST.md §7.
+# data survived — apps/desktop/test/packaged-upgrade/driver.mjs does exactly that.
 
 mac:
   target:
@@ -134,7 +134,7 @@ mac:
   # launches locally. It is NOT a substitute for release signing: an ad-hoc app that
   # arrives with a quarantine bit (i.e. any real download) is still refused, because
   # Gatekeeper wants a Developer ID plus notarization. Swap in the real identity and
-  # add notarization before shipping — see docs/RELEASE-CHECKLIST.md §1.
+  # add notarization before shipping.
   identity: "-"
 
 win:

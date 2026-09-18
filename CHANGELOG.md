@@ -9,8 +9,8 @@ First version with a number. Everything before it was `0.0.1` across four `packa
 files, which said nothing about what was in them.
 
 **Why 0.1.0 and not 1.0.0:** nothing has been distributed, and the app is not yet installable
-by a stranger — the dmg is ad-hoc signed, so Gatekeeper refuses a *downloaded* copy
-(`docs/RELEASE-CHECKLIST.md` §1). 1.0.0 is for the first build a customer can open.
+by a stranger — the dmg is ad-hoc signed, so Gatekeeper refuses a *downloaded* copy.
+1.0.0 is for the first build a customer can open.
 
 ### The product
 
@@ -31,15 +31,16 @@ storage, an in-process job runner, and pasted credentials instead of OAuth.
 
 ### Known limits in this version
 
-- **macOS only.** Never launched on Windows or Linux, and the Windows and AppImage targets are
-  unbuilt (§2). Agent-CLI providers report themselves unavailable on Windows rather than
-  guessing at a spawn path that has never run there.
+- **Windows has never been launched.** Every target builds, and the mac dmgs (arm64 and x64
+  under Rosetta) and both AppImages have been launched; the nsis installer has not. Agent-CLI
+  providers report themselves unavailable on Windows rather than guessing at a spawn path that
+  has never run there.
 - **Ad-hoc signed, not notarized.** A downloaded dmg is refused by Gatekeeper; a copy built or
   moved locally opens.
-- **No auto-update and no in-app update check** (§5). No crash reporter and no telemetry, by
+- **No auto-update and no in-app update check.** No crash reporter and no telemetry, by
   choice — `logs/app.log` in the data directory is what a bug report attaches, and the settings
   screen has a button that reveals it.
-- **No email delivery** (`docs/DELTAS.md` D-H). Slack and desktop notifications only.
+- **No email delivery.** Slack and desktop notifications only.
 - **OpenCode Zen is not usable** as an AI backend: `opencode/*` models answer HTTP 403 outside
   the opencode TUI, so OpenCode runs on whichever provider `opencode auth login` connected.
 

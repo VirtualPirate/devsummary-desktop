@@ -3,3 +3,9 @@ release/
 
 # scratch node_modules materialized by build/beforePack.js at package time
 .backend-deploy/
+
+# Artifacts the manual checks under test/ write next to themselves
+test/**/*.png
+test/**/*.log
+test/**/*.json
+test/first-run/shots/

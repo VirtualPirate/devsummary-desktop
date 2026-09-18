@@ -36,3 +36,32 @@ coverage/
 
 .superpowers/
 .data/
+
+# --- Kept on disk, kept out of the published repository -----------------------
+# These stay in the working tree because they are still useful locally. They are
+# not published: they describe the private cloud original this was ported from,
+# carry absolute paths from the machine that wrote them, or are screenshots of
+# real data. Adding a pattern here does NOT untrack a file that git already
+# knows about — `git rm -r --cached <path>` is what removes it from the index.
+
+# Internal working documents
+/checkpoint.md
+/docs/MIGRATION-PLAN.md
+/docs/DELTAS.md
+/docs/RELEASE-CHECKLIST.md
+/docs/superpowers/
+
+# Verification records: receipts, run results, screenshots. The reusable harness
+# out of this tree now lives in apps/desktop/test/ and apps/backend/test/agent-cli/.
+/docs/receipts/
+
+# Better Auth docs inherited from the cloud original — the desktop port has no
+# auth stack — plus the compiled .js/.d.ts/.map artifacts committed beside them.
+/apps/backend/docs/
+
+# Temporal search-attribute helper. Temporal is gone from the desktop port.
+/apps/backend/scripts/
+
+# Unmodified NestJS and Vite template READMEs.
+/apps/backend/README.md
+/apps/frontend/README.md
