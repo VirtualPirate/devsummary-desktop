@@ -68,3 +68,4 @@ aptrepo/
 # Unmodified NestJS and Vite template READMEs.
 /apps/backend/README.md
 /apps/frontend/README.md
+.gstack/

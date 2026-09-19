@@ -6,6 +6,7 @@ import { useGetBriefSchedules } from "@/hooks/api/use-brief-schedules";
 import { useGetBriefsFirstPage } from "@/hooks/api/use-briefs";
 import { useSidebarPrefs, type SidebarScope } from "@/stores/sidebar-prefs-store";
 import { EntityDot } from "@/components/devsummary/shared/entity-dot";
+import { CloudPromo } from "./cloud-promo";
 import { PinToggle } from "./pin-toggle";
 import { SidebarItem } from "./sidebar-item";
 import { SidebarSection } from "./sidebar-section";
@@ -154,6 +155,8 @@ export function SidebarNav() {
       <SidebarSection label="Workspace">
         <SidebarItem to="/settings" icon={<SettingsIcon className="size-3.5" />}>Settings</SidebarItem>
       </SidebarSection>
+
+      <CloudPromo />
     </nav>
   );
 }
