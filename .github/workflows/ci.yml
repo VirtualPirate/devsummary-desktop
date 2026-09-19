@@ -131,8 +131,15 @@ jobs:
       # on disk. Package before build and you ship the previous compile.
       - run: pnpm build
 
+      # --publish never is load-bearing, not decoration. electron-builder.yml
+      # carries a `publish` block with `releaseType: draft`, and the default
+      # policy is onTagOrDraft — which `draft` satisfies on its own. Without
+      # this flag every push to main tries to upload to a GitHub release and
+      # dies on the GH_TOKEN this job deliberately does not have. Pull requests
+      # hid it: electron-builder skips publishing on a PR, so the leg was green
+      # right up to the merge.
       - name: Package
-        run: pnpm --filter desktop exec electron-builder ${{ matrix.builder_args }}
+        run: pnpm --filter desktop exec electron-builder ${{ matrix.builder_args }} --publish never
 
       # The check that the asar layout survived — backend and renderer inside
       # app.asar, PGlite's wasm/data unpacked beside it, the four legal
