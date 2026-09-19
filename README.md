@@ -122,6 +122,11 @@ Auto-update does ship — a tag publishes a draft GitHub release, and installs f
 macOS is notify-only for the same signing reason (`docs/EGRESS.md`). The mac dmgs and both Linux
 AppImages have been launched; Windows never has.
 
+Debian and Ubuntu also get a `.deb` and an apt repository — `docs/install-apt.md` for the three
+commands that install it, how the repo is built (`scripts/apt-repo.sh`) and when it is published
+(`.github/workflows/apt.yml`, on a *published* release, not on the tag). apt owns upgrades for that
+build, so the in-app updater stands down there rather than installing over the package manager.
+
 ## Tests
 
 ```bash

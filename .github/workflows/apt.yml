@@ -1,0 +1,94 @@
+# The apt repository, rebuilt when a release is published.
+#
+# Deliberately not part of the tag push. ci.yml's release job uploads to a
+# *draft* release, and the whole point of that draft is that nothing is live
+# until a maintainer publishes it by hand. An apt repo built at tag time would
+# hand users a package the maintainer had not released yet, so this workflow
+# waits for the `published` event and takes the deb from the release itself
+# rather than rebuilding one that might not be bit-identical.
+#
+# Two things must be set up once before this can work:
+#
+#   1. Settings > Pages > Source = GitHub Actions. The repo's Pages site becomes
+#      the apt repo, served at https://virtualpirate.github.io/devsummary-desktop.
+#   2. Secrets APT_GPG_PRIVATE_KEY (an armored private key with no passphrase —
+#      unattended signing, and the secret store is the protection) and, if the
+#      key has more than one signing subkey, nothing else: the fingerprint is
+#      read back from the import.
+#
+# What a user does with the result is in docs/install-apt.md.
+name: apt
+
+on:
+  release:
+    types: [published]
+  # Re-run against the latest published release: a lost Pages deploy, a rotated
+  # signing key, a fix to apt-repo.sh.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two deploys racing would have one of them serve a half-written index.
+concurrency:
+  group: apt-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A prerelease is for testers with a download link, not for everyone's
+    # unattended `apt upgrade`.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the current release's deb is served. The Pages deployment replaces
+      # the whole site every time, so the repo holds exactly what this job
+      # assembles — enough to install and to upgrade, not enough to pin an old
+      # version. Serving history means downloading the last N releases' debs
+      # here instead, against a 1 GB Pages site limit and ~115 MB per deb.
+      - name: Take the deb from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag='${{ github.event.release.tag_name }}'
+          if [ -z "$tag" ]; then tag="$(gh release view --json tagName -q .tagName)"; fi
+          echo "publishing apt repo for $tag"
+          mkdir -p debs
+          gh release download "$tag" --pattern '*.deb' --dir debs
+          ls -la debs
+
+      - name: Debian index tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev apt-utils
+
+      - name: Import the signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          [ -n "$APT_GPG_PRIVATE_KEY" ] || { echo "secret APT_GPG_PRIVATE_KEY is not set" >&2; exit 1; }
+          printf '%s' "$APT_GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')"
+          [ -n "$keyid" ] || { echo "no secret key after import" >&2; exit 1; }
+          echo "KEYID=$keyid" >> "$GITHUB_ENV"
+
+      # Signs the index and then makes a container apt verify it against the
+      # exported public key before any of it is deployed.
+      - name: Build and verify the repo
+        run: scripts/apt-repo.sh --debs debs aptrepo
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: aptrepo
+      - id: deploy
+        uses: actions/deploy-pages@v4

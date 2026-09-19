@@ -100,7 +100,12 @@ jobs:
             os: ubuntu-latest
             builder_args: --linux --x64
             bundle_root: release/linux-unpacked
-            artifact: apps/desktop/release/*.AppImage
+            # Both Linux targets. The deb is what the apt repo serves, and a
+            # deb that fails to build is a broken publish two steps later —
+            # this is the leg that finds out on the pull request instead.
+            artifact: |
+              apps/desktop/release/*.AppImage
+              apps/desktop/release/*.deb
 
     steps:
       - uses: actions/checkout@v4

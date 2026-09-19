@@ -163,7 +163,29 @@ linux:
   target:
     - target: AppImage
       arch: [x64]
+    # x64 only, matching the AppImage. `arch: [x64, arm64]` builds both, but the
+    # release job passes --x64 and the apt repo would then advertise an arm64
+    # package nothing ever uploads.
+    - target: deb
+      arch: [x64]
   category: Development
+  # fpm refuses to build a deb at all without a maintainer email and a project
+  # homepage — the latter reads from apps/desktop/package.json, since this schema
+  # has no `homepage` key. executableName is what keeps the installed binary off
+  # /usr/bin/desktop: electron-builder derives it from the package's `name`,
+  # which PLATFORMS.md called cosmetic under AppImage and is not under apt.
+  executableName: devsummary
+  maintainer: Artaza Sameen <artaza.developer@gmail.com>
+  synopsis: Local-first daily engineering briefs from your GitHub activity
+
+deb:
+  # The apt package name. Deb-specific, and does not validate under `linux:`.
+  # Defaults to package.json's `name` — "desktop", which is not a name to take
+  # onto a public apt repo.
+  packageName: devsummary
+  # Default is `${name}_${version}_${arch}.deb`, i.e. a filename that disagrees
+  # with the package inside it.
+  artifactName: devsummary_${version}_${arch}.${ext}
 
 nsis:
   oneClick: false
