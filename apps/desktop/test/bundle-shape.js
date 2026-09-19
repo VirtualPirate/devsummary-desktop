@@ -98,6 +98,18 @@ for (const name of ['pglite.wasm', 'initdb.wasm', 'pglite.data']) {
   check(`${name} is unpacked to disk`, fs.existsSync(unpacked), 'check electron-builder.yml asarUnpack');
 }
 
+// The first runtime dependency this package has ever shipped. pnpm's symlinked
+// node_modules is what beforePack.js's --config.node-linker=hoisted exists to
+// defeat: a symlink inside asar resolves to a file, and the first `require`
+// dies. electron-builder collects the desktop package's own deps itself, which
+// is a different code path from the backend's deploy — so it gets its own check
+// rather than an assumption.
+check(
+  'electron-updater ships inside app.asar',
+  inAsar(header, 'node_modules/electron-updater/package.json'),
+  'a runtime dependency — check it is in package.json `dependencies`, not `devDependencies`',
+);
+
 // Release checklist §4: the terms, the privacy policy and the attribution for
 // everything bundled have to arrive with the binary. They were links to a site
 // that did not exist; a dropped `extraResources` entry would put them back there.

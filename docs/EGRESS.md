@@ -5,9 +5,21 @@ off. Written 2026-09-15 against branch `feat/agent-cli-provider`; the evidence c
 says where in this repo the connection is made, so this file can be re-derived rather
 than trusted.
 
-An install that has connected nothing talks to nothing. Every row below is switched on
-by a credential the user pastes or a CLI they select — there is no baseline connection,
-no update check and no crash reporter.
+An install that has connected nothing talks to one host: `github.com`, to ask whether a newer
+version exists. Every other row below is switched on by a credential the user pastes or a CLI
+they select. There is no crash reporter.
+
+## Always, unless switched off
+
+| Host | Port | What is sent | What comes back | Evidence |
+|---|---|---|---|---|
+| `github.com` | 443 | A request for the release feed. No credential, no install id, no account — an IP address and the app version in the user agent | `latest.yml` / `latest-mac.yml` / `latest-linux.yml`: the newest version and its artifact names | `apps/desktop/src/updater.ts`, `publish:` in `apps/desktop/electron-builder.yml` |
+| `objects.githubusercontent.com` | 443 | Nothing but the request for the artifact the feed named | The installer, resumed in chunks; on Windows only the blocks that changed | `electron-updater`'s downloader |
+
+Frequency: once 30 seconds after launch, then every six hours. **Off** switches both rows off
+entirely — Settings → Updates, stored in `updates.json` in the data directory. macOS never
+downloads: it only reads the feed, because an ad-hoc signature cannot be auto-installed
+(`docs/RELEASE-CHECKLIST.md` §1).
 
 ## Always, once GitHub is connected
 
@@ -81,8 +93,6 @@ terms opens no connection and depends on no website.
 
 ## What is not here
 
-- **No update check.** `publish: null`, no `electron-updater`. A new version reaches a user
-  the way the first one did.
 - **No crash reporter.** Deliberate; see `docs/RELEASE-CHECKLIST.md` §5.
 - **Nothing bound off loopback.** The backend listens on `127.0.0.1` with an OS-assigned
   port and a per-boot bearer token; the renderer's CSP allows `connect-src` to that host

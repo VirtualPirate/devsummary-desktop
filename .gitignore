@@ -34,6 +34,9 @@ coverage/
 # Turbo
 .turbo/
 
+# scripts/apt-repo.sh's default output: signed index plus a ~115 MB deb.
+aptrepo/
+
 .superpowers/
 .data/
 

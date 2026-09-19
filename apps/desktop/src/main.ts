@@ -12,6 +12,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { initUpdates } from './updater';
+
 /**
  * Per-boot bearer token for the loopback API (plan D9). Regenerated every launch
  * and never written to disk — the renderer gets it over IPC, the backend gets it
@@ -398,7 +400,7 @@ if (!app.requestSingleInstanceLock()) {
     consent = loadConsent();
     if (consent) pingTelemetry(consent);
     startBackend();
-    createWindow();
+    initUpdates(createWindow());
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

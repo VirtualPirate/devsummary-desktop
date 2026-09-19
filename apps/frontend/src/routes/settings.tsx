@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { FolderOpen, Monitor, Moon, Sun } from "lucide-react";
+import { Download, FolderOpen, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
@@ -19,6 +19,7 @@ import {
 } from "@/hooks/api/use-local-settings";
 import { extractErrorMessage } from "@/lib/extract-error";
 import { cn } from "@/lib/utils";
+import { useAppUpdates } from "@/hooks/use-app-updates";
 
 // `shell.openPath` reports failure by resolving to a message rather than throwing,
 // so an unopenable directory has to be read off the resolved value or it is silent.
@@ -146,6 +147,75 @@ function NotificationsSection({
   );
 }
 
+function UpdatesSection() {
+  const { state, currentVersion, enabled, canInstall, setEnabled, checkNow, install } =
+    useAppUpdates();
+
+  const result =
+    state.status === "available"
+      ? `Version ${state.version} is available.`
+      : state.status === "downloading"
+        ? `Downloading… ${state.percent}%`
+        : state.status === "ready"
+          ? `Version ${state.version} is ready to install.`
+          : state.status === "error"
+            ? `Last check failed: ${state.message}`
+            : "Up to date.";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Updates</CardTitle>
+        <CardDescription>
+          How this machine gets new versions of DevSummary.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium">Automatic updates</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              Asks <span className="font-mono">github.com</span> every six hours
+              whether a newer version exists, and downloads it in the background.
+              GitHub sees the request — an IP address and an app version, with no
+              account attached. Switch this off and nothing is asked.
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={(next) => void setEnabled(next)}
+            disabled={!window.desktop}
+            aria-label="Automatic updates"
+          />
+        </div>
+
+        <div className="h-px bg-border" />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-medium">
+              Version <span className="font-mono">{currentVersion || "—"}</span>
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{result}</div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" onClick={() => void checkNow()} disabled={!window.desktop}>
+              <RefreshCw className="size-3.5" />
+              Check now
+            </Button>
+            {state.status === "ready" || (state.status === "available" && !canInstall) ? (
+              <Button size="sm" onClick={() => void install()}>
+                {canInstall ? <RefreshCw className="size-3.5" /> : <Download className="size-3.5" />}
+                {canInstall ? "Restart now" : "Download"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const settings = useLocalSettings();
 
@@ -176,6 +246,8 @@ export function SettingsPage() {
           enabled={status?.desktopNotifications ?? false}
           dataDir={status?.dataDir ?? ""}
         />
+
+        <UpdatesSection />
 
         <Card>
           <CardHeader>
