@@ -3,7 +3,7 @@
 Notable changes per release. Dates are the tag date. Versions follow
 [semantic versioning](https://semver.org); until 1.0.0 the minor is the breaking one.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-09-19
 
 First version with a number. Everything before it was `0.0.1` across four `package.json`
 files, which said nothing about what was in them.
