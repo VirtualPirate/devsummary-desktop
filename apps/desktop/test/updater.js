@@ -66,5 +66,12 @@ check('darwin cannot install in place', canInstallInPlace('darwin') === false);
 check('win32 can install in place', canInstallInPlace('win32') === true);
 check('linux can install in place', canInstallInPlace('linux') === true);
 
+// An AppImage owns its own file and replaces it; a deb belongs to apt, which is
+// already going to upgrade it. Installing over apt's copy means a pkexec prompt
+// for work the package manager had in hand.
+check('an AppImage can install in place', canInstallInPlace('linux', null) === true);
+check('an apt-managed deb cannot', canInstallInPlace('linux', 'deb') === false);
+check('nor can an rpm', canInstallInPlace('linux', 'rpm') === false);
+
 fs.rmSync(dir, { recursive: true, force: true });
 app.exit(failures === 0 ? 0 : 1);

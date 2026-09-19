@@ -35,7 +35,7 @@ export interface UpdateSnapshot {
   state: UpdateState;
   currentVersion: string;
   enabled: boolean;
-  /** False on darwin. The renderer branches on this, never on a platform. */
+  /** False on darwin and on an apt-managed deb. The renderer branches on this, never on a platform. */
   canInstall: boolean;
 }
 
@@ -69,8 +69,33 @@ export function reduce(state: UpdateState, event: UpdateEvent): UpdateState {
  * Squirrel.Mac cannot validate an ad-hoc signature, and a dmg is not an
  * updatable target. One function so the flag and the install branch cannot
  * disagree with each other.
+ *
+ * `linuxPackage` is the second no: a build installed from the apt repo is owned
+ * by apt, and `apt upgrade` is where its updates come from. electron-updater
+ * would happily install over it — it swaps in DebUpdater, which shells out to
+ * `pkexec dpkg -i` — and the result is a polkit password prompt for something
+ * the user's package manager was going to do anyway, against a dpkg database
+ * that did not ask for it. Notify and link out instead, exactly as on darwin.
  */
-export const canInstallInPlace = (platform: NodeJS.Platform): boolean => platform !== 'darwin';
+export const canInstallInPlace = (
+  platform: NodeJS.Platform,
+  linuxPackage: string | null = null,
+): boolean => platform !== 'darwin' && !(platform === 'linux' && linuxPackage !== null);
+
+/**
+ * How the app was installed on Linux, or null for an AppImage (and for anything
+ * not packaged). electron-builder writes this file for its fpm targets only —
+ * deb, rpm, pacman — and it is the same file electron-updater itself reads to
+ * choose an updater, so the two cannot drift apart.
+ */
+export function linuxPackageType(): string | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    return readFileSync(path.join(process.resourcesPath, 'package-type'), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Plain JSON in userData, the same shape and the same tolerance as
@@ -112,7 +137,7 @@ const snapshot = (): UpdateSnapshot => ({
   state,
   currentVersion: app.getVersion(),
   enabled,
-  canInstall: canInstallInPlace(process.platform),
+  canInstall: canInstallInPlace(process.platform, linuxPackageType()),
 });
 
 export function initUpdates(win: BrowserWindow): void {
@@ -135,7 +160,7 @@ export function initUpdates(win: BrowserWindow): void {
   });
 
   ipcMain.handle('updates:install', async () => {
-    if (!canInstallInPlace(process.platform)) {
+    if (!canInstallInPlace(process.platform, linuxPackageType())) {
       await shell.openExternal(RELEASES_URL);
       return;
     }
@@ -152,8 +177,9 @@ export function initUpdates(win: BrowserWindow): void {
 
   enabled = loadPreference(prefFile());
 
-  // mac must never download something it cannot install.
-  autoUpdater.autoDownload = canInstallInPlace(process.platform);
+  // mac — and an apt-managed deb — must never download something they will not
+  // install.
+  autoUpdater.autoDownload = canInstallInPlace(process.platform, linuxPackageType());
   // A user who never clicks Restart still gets it on their next quit.
   autoUpdater.autoInstallOnAppQuit = true;
 
