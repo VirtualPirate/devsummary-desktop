@@ -5,6 +5,47 @@ const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
 /**
+ * Every pnpm invocation in the packaging path goes through here.
+ *
+ * Windows has no `pnpm` executable to spawn: npm installs it as a set of shims
+ * (pnpm.cmd, pnpm.ps1) whose exact membership depends on how pnpm was put
+ * there, and execFile has refused to spawn a .cmd at all since Node's
+ * CVE-2024-27980 fix. Naming `pnpm.cmd` explicitly just moves the guess — the
+ * windows-latest runner still came back with `status: null`, i.e. the spawn
+ * never happened. Going through the shell lets the OS resolve whichever shim
+ * actually exists. Arguments are quoted for that path because a checkout under
+ * e.g. "Program Files" would otherwise split into two.
+ *
+ * The catch exists because the default failure is useless on an unattended
+ * runner: execFileSync puts none of the child's output in the message, and pnpm
+ * reports its errors on stdout rather than stderr, so the first two CI rounds
+ * failed here with nothing to act on beyond "Command failed".
+ */
+function runPnpm(args, opts = {}) {
+  const viaShell = process.platform === 'win32';
+  const argv = viaShell ? args.map((a) => (/[\s"]/.test(a) ? `"${a}"` : a)) : args;
+
+  try {
+    return execFileSync('pnpm', argv, { shell: viaShell, ...opts });
+  } catch (err) {
+    const how = [
+      `exit=${err.status}`,
+      err.signal ? `signal=${err.signal}` : null,
+      err.code ? `code=${err.code}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const output = [err.stdout, err.stderr]
+      .map((s) => (s || '').toString().trim())
+      .filter(Boolean)
+      .join('\n');
+    throw new Error(
+      `\`pnpm ${args.join(' ')}\` failed (${how})${output ? `:\n${output}` : ' with no output'}`,
+    );
+  }
+}
+
+/**
  * Regenerates THIRD-PARTY-NOTICES.md at the repo root — the attribution file the
  * installer ships (electron-builder.yml `extraResources`). Run from beforePack.js
  * so a shipped build can never carry notices that predate a dependency change.
@@ -24,7 +65,7 @@ const { execFileSync } = require('node:child_process');
  * license violation. Narrow it only if the file's size becomes a real problem.
  */
 function generate(repoRoot) {
-  const raw = execFileSync('pnpm', ['licenses', 'list', '--json', '--prod'], {
+  const raw = runPnpm(['licenses', 'list', '--json', '--prod'], {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -122,7 +163,7 @@ function electronNotice(repoRoot) {
   };
 }
 
-module.exports = { generate };
+module.exports = { generate, runPnpm };
 
 if (require.main === module) {
   generate(path.resolve(__dirname, '..', '..', '..'));

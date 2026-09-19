@@ -6,6 +6,7 @@ import { useBootstrapActiveOrganization } from "@/hooks/use-bootstrap-active-org
 import { Topbar } from "./topbar/topbar";
 import { SidebarNav } from "./sidebar/sidebar-nav";
 import { BackgroundJobsToast } from "./background-jobs-toast";
+import { UpdateBanner } from "./update-banner";
 
 export function AppShell() {
   useBootstrapActiveOrganization();
@@ -41,6 +42,7 @@ export function AppShell() {
         </main>
       </div>
       <BackgroundJobsToast />
+      <UpdateBanner />
     </div>
   );
 }

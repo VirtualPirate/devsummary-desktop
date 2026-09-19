@@ -28,9 +28,16 @@ directories:
   output: release
   buildResources: build
 
-# No auto-update for v1 (plan §Phase 10). Do not let electron-builder infer a
-# publish target from repo metadata either.
-publish: null
+# The version feed. `releaseType: draft` is the safety property: a tag push
+# uploads artifacts and writes latest*.yml, but nothing is live until a
+# maintainer publishes the release by hand. Public repo on purpose — a private
+# feed needs a token to download assets, and a token inside a distributed binary
+# is a published token.
+publish:
+  provider: github
+  owner: VirtualPirate
+  repo: devsummary-desktop
+  releaseType: draft
 
 # ---------------------------------------------------------------------------------
 # What ships inside the app.
@@ -118,8 +125,16 @@ extraResources:
 # data survived — apps/desktop/test/packaged-upgrade/driver.mjs does exactly that.
 
 mac:
+  # dmg is what a human downloads. zip is what Squirrel.Mac reads — a dmg cannot
+  # be auto-installed. Nothing consumes the zip today (mac is notify-only while
+  # `identity: "-"` below is ad-hoc, because Squirrel.Mac validates that an
+  # update's signature matches the running app's and every ad-hoc build has a
+  # different cdhash). It ships anyway so that a real Developer ID turns mac
+  # auto-install on with a code flag instead of a packaging change.
   target:
     - target: dmg
+      arch: [arm64, x64]
+    - target: zip
       arch: [arm64, x64]
   category: public.app-category.developer-tools
   # Ad-hoc signature. There is no Apple Developer ID in this environment, and
@@ -148,7 +163,29 @@ linux:
   target:
     - target: AppImage
       arch: [x64]
+    # x64 only, matching the AppImage. `arch: [x64, arm64]` builds both, but the
+    # release job passes --x64 and the apt repo would then advertise an arm64
+    # package nothing ever uploads.
+    - target: deb
+      arch: [x64]
   category: Development
+  # fpm refuses to build a deb at all without a maintainer email and a project
+  # homepage — the latter reads from apps/desktop/package.json, since this schema
+  # has no `homepage` key. executableName is what keeps the installed binary off
+  # /usr/bin/desktop: electron-builder derives it from the package's `name`,
+  # which PLATFORMS.md called cosmetic under AppImage and is not under apt.
+  executableName: devsummary
+  maintainer: Artaza Sameen <artaza.developer@gmail.com>
+  synopsis: Local-first daily engineering briefs from your GitHub activity
+
+deb:
+  # The apt package name. Deb-specific, and does not validate under `linux:`.
+  # Defaults to package.json's `name` — "desktop", which is not a name to take
+  # onto a public apt repo.
+  packageName: devsummary
+  # Default is `${name}_${version}_${arch}.deb`, i.e. a filename that disagrees
+  # with the package inside it.
+  artifactName: devsummary_${version}_${arch}.${ext}
 
 nsis:
   oneClick: false

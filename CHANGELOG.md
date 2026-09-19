@@ -28,6 +28,11 @@ storage, an in-process job runner, and pasted credentials instead of OAuth.
   schedule in a named timezone, or on demand. Delivered to Slack and/or as a desktop
   notification. Token counts are stored per brief and per analysis.
 - **Organize** — projects group repositories, teams group collaborators; both scope a brief.
+- **Updates** — the app asks GitHub every six hours whether a newer version exists,
+  downloads it in the background, and restarts into it when you click Restart. Off in one
+  switch on the Settings page, which is also the only place a failed check is reported. On
+  macOS it only tells you: an ad-hoc signature cannot be auto-installed, so the button opens
+  the Releases page instead.
 
 ### Known limits in this version
 
@@ -37,7 +42,9 @@ storage, an in-process job runner, and pasted credentials instead of OAuth.
   has never run there.
 - **Ad-hoc signed, not notarized.** A downloaded dmg is refused by Gatekeeper; a copy built or
   moved locally opens.
-- **No auto-update and no in-app update check.** No crash reporter and no telemetry, by
+- **No macOS auto-install.** Windows and Linux download and restart in place; macOS only
+  reports that a version exists and sends you to the Releases page, because an ad-hoc
+  signature cannot be validated by Squirrel.Mac. No crash reporter and no telemetry, by
   choice — `logs/app.log` in the data directory is what a bug report attaches, and the settings
   screen has a button that reveals it.
 - **No email delivery.** Slack and desktop notifications only.

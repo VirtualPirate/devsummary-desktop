@@ -12,6 +12,26 @@ export interface AppConfig {
   token: string;
 }
 
+/**
+ * Mirrors `UpdateSnapshot` in `apps/desktop/src/updater.ts`. Declared rather
+ * than imported: the renderer is a separate package and does not depend on the
+ * Electron shell's sources.
+ */
+export type UpdateState =
+  | { status: "idle" }
+  | { status: "available"; version: string }
+  | { status: "downloading"; percent: number }
+  | { status: "ready"; version: string }
+  | { status: "error"; message: string };
+
+export interface UpdateSnapshot {
+  state: UpdateState;
+  currentVersion: string;
+  enabled: boolean;
+  /** False on macOS, where an ad-hoc signature cannot be auto-installed. */
+  canInstall: boolean;
+}
+
 declare global {
   interface Window {
     desktop?: {
@@ -22,6 +42,11 @@ declare global {
       consentState(): Promise<{ acceptedVersion: string | null; acceptedAt: string | null }>;
       acceptConsent(termsVersion: string): Promise<void>;
       quitApp(): Promise<void>;
+      updateState(): Promise<UpdateSnapshot>;
+      checkUpdates(): Promise<UpdateSnapshot>;
+      setUpdatesEnabled(enabled: boolean): Promise<UpdateSnapshot>;
+      installUpdate(): Promise<void>;
+      onUpdatesChanged(listener: (snapshot: UpdateSnapshot) => void): () => void;
     };
   }
 }

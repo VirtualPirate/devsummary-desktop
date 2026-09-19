@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local-first daily engineering briefs from your GitHub activity.",
+  "homepage": "https://github.com/VirtualPirate/devsummary-desktop",
   "author": "Artaza Sameen",
   "license": "SEE LICENSE IN LICENSE",
   "main": "dist/main.js",
@@ -11,7 +12,11 @@
     "dev": "tsc -p tsconfig.json && wait-on -t 120000 http://localhost:5173 && electron .",
     "dist": "electron-builder",
     "test:csp": "electron test/csp.js",
+    "test:updater": "electron test/updater.js",
     "test:bundle": "node test/bundle-shape.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
