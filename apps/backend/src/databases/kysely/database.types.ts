@@ -499,6 +499,34 @@ export interface MarketingWaitlistTable {
 }
 
 // ---------------------------------------------------------------------------
+// agents schema
+// ---------------------------------------------------------------------------
+
+/** One chat thread with the workspace's agent; `id` is the LangGraph thread id. */
+export interface AgentSessionsTable {
+  id: Generated<string>;
+  organizationId: string;
+  createdBy: string;
+  title: string | null;
+  createdAt: GeneratedTimestamp;
+  updatedAt: GeneratedTimestamp;
+  deletedAt: Date | null;
+}
+
+/** One row per agent run. Inserted before the model runs, so a run that dies
+ *  halfway still leaves a record; the token counts are filled in on the way out. */
+export interface AgentUsageTable {
+  id: Generated<string>;
+  organizationId: string;
+  sessionId: string;
+  userId: string;
+  model: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  createdAt: GeneratedTimestamp;
+}
+
+// ---------------------------------------------------------------------------
 // public schema — local job queue (replaces Temporal, see migration 00015)
 // ---------------------------------------------------------------------------
 
@@ -572,6 +600,9 @@ export interface Database {
   'briefs.briefCommits': BriefCommitsTable;
 
   'marketing.waitlist': MarketingWaitlistTable;
+
+  'agents.sessions': AgentSessionsTable;
+  'agents.usage': AgentUsageTable;
 }
 
 // ---------------------------------------------------------------------------
@@ -672,3 +703,11 @@ export type JobUpdate = Updateable<JobsTable>;
 
 export type LocalSettingSelect = Selectable<LocalSettingsTable>;
 export type LocalSettingInsert = Insertable<LocalSettingsTable>;
+
+export type AgentSessionSelect = Selectable<AgentSessionsTable>;
+export type AgentSessionInsert = Insertable<AgentSessionsTable>;
+export type AgentSessionUpdate = Updateable<AgentSessionsTable>;
+
+export type AgentUsageSelect = Selectable<AgentUsageTable>;
+export type AgentUsageInsert = Insertable<AgentUsageTable>;
+export type AgentUsageUpdate = Updateable<AgentUsageTable>;

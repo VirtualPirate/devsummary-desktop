@@ -22,7 +22,7 @@ export interface TestDatabase {
  * memory: nothing to clean up, no Docker, and — unlike the `postgres:18`
  * testcontainer this replaces — no shared server, so files cannot see each
  * other's rows and there is no template database to clone from. The migration
- * chain is replayed per file instead (~1.2 s for all 16), which is cheaper than
+ * chain is replayed per file instead (~1.2 s for the whole chain), which is cheaper than
  * the container start it removes.
  *
  * Call this in a `beforeAll`, before the file's `createTestApp()`.
