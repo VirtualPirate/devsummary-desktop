@@ -15,11 +15,14 @@ describe('CommitsRepository.findCommitTimestampsForScope', () => {
   it('maps rows to the clock it was asked for', async () => {
     const authored = new Date('2026-01-01T10:00:00Z');
     const committed = new Date('2026-02-02T11:00:00Z');
+    const landed = new Date('2026-03-03T12:00:00Z');
     const chain: any = {
       select: () => chain,
       where: () => chain,
       execute: () =>
-        Promise.resolve([{ authoredAt: authored, committedAt: committed }]),
+        Promise.resolve([
+          { authoredAt: authored, committedAt: committed, landedAt: landed },
+        ]),
     };
     const repo = new CommitsRepository({ selectFrom: () => chain } as never);
     const query = {
@@ -41,6 +44,12 @@ describe('CommitsRepository.findCommitTimestampsForScope', () => {
         commitClock: 'authored',
       }),
     ).toEqual([authored]);
+    expect(
+      await repo.findCommitTimestampsForScope({
+        ...query,
+        commitClock: 'landed',
+      }),
+    ).toEqual([landed]);
   });
 });
 
@@ -102,6 +111,13 @@ const commit = (over: Row): Row => ({
   ...over,
 });
 
+/** The common case: nothing rewrote the commit and nothing delayed ingest. */
+const sameInstant = (iso: string): Row => ({
+  authoredAt: new Date(iso),
+  committedAt: new Date(iso),
+  landedAt: new Date(iso),
+});
+
 const PERIOD = {
   repositoryIds: ['r1'],
   periodStart: new Date('2026-01-26T00:00:00Z'),
@@ -119,6 +135,7 @@ describe('CommitsRepository.findForBriefScope commit clock', () => {
   const rebased = commit({
     authoredAt: new Date('2026-01-05T09:00:00Z'),
     committedAt: new Date('2026-01-27T14:00:00Z'),
+    landedAt: new Date('2026-01-27T14:00:00Z'),
   });
 
   it('includes it on the committer clock and not on the author clock', async () => {
@@ -146,6 +163,7 @@ describe('CommitsRepository.findForBriefScope commit clock', () => {
         sha: 'at-start',
         authoredAt: PERIOD.periodStart,
         committedAt: PERIOD.periodStart,
+        landedAt: PERIOD.periodStart,
       }),
       commit({
         id: 'hi',
@@ -154,6 +172,7 @@ describe('CommitsRepository.findForBriefScope commit clock', () => {
         // periodEnd is the next period's start: including it would put this
         // commit in two consecutive briefs.
         committedAt: PERIOD.periodEnd,
+        landedAt: PERIOD.periodEnd,
       }),
     ];
     const out = await new CommitsRepository(
@@ -162,11 +181,65 @@ describe('CommitsRepository.findForBriefScope commit clock', () => {
     expect(out.map((r) => r.commit.sha)).toEqual(['at-start']);
   });
 
+  /**
+   * The case the committer clock does *not* cover, and the reason `landed_at`
+   * exists. GitHub's default merge button runs `git merge --no-ff`, which
+   * rewrites neither date — so a branch cut three weeks ago and merged inside
+   * this period carries two three-week-old timestamps and selects into a period
+   * whose brief was generated and emailed weeks ago. The clock that files it
+   * under the period it shipped in is the one ingestion stamped when it first
+   * saw the commit on the branch.
+   */
+  const mergedNoFf = commit({
+    authoredAt: new Date('2026-01-05T09:00:00Z'),
+    committedAt: new Date('2026-01-05T09:00:00Z'),
+    landedAt: new Date('2026-01-29T16:00:00Z'),
+  });
+
+  it('includes a --no-ff merged commit only on the landed clock', async () => {
+    const repo = () => new CommitsRepository(scopeDb([mergedNoFf]) as never);
+
+    const onLanded = await repo().findForBriefScope({
+      ...PERIOD,
+      commitClock: 'landed',
+    });
+    expect(onLanded.map((r) => r.commit.sha)).toEqual(['sha1']);
+
+    // Both git dates are stale, so neither of the older clocks can see it —
+    // which is the whole bug, not an artefact of the fixture.
+    for (const commitClock of ['authored', 'committed'] as const) {
+      expect(
+        await repo().findForBriefScope({ ...PERIOD, commitClock }),
+      ).toEqual([]);
+    }
+  });
+
+  it('stays half-open on the landed column too', async () => {
+    const rows = [
+      commit({
+        id: 'lo',
+        sha: 'at-start',
+        ...sameInstant('2026-01-26T00:00:00Z'),
+      }),
+      // periodEnd is the next period's start: including it would put this
+      // commit in two consecutive briefs.
+      commit({
+        id: 'hi',
+        sha: 'at-end',
+        ...sameInstant('2026-02-02T00:00:00Z'),
+      }),
+    ];
+    const out = await new CommitsRepository(
+      scopeDb(rows) as never,
+    ).findForBriefScope({ ...PERIOD, commitClock: 'landed' });
+    expect(out.map((r) => r.commit.sha)).toEqual(['at-start']);
+  });
+
   it('throws on a junk clock rather than composing SQL', async () => {
     await expect(
       new CommitsRepository(scopeDb([rebased]) as never).findForBriefScope({
         ...PERIOD,
-        commitClock: 'landed' as never,
+        commitClock: 'landing' as never,
       }),
     ).rejects.toThrow(/unknown commit clock/);
   });

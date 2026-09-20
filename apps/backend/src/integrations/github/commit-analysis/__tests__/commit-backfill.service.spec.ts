@@ -285,6 +285,97 @@ describe('CommitBackfillService', () => {
     expect(mocks.commitsRepo.upsertMany).not.toHaveBeenCalled();
   });
 
+  /**
+   * `landed_at` is the clock every new brief selects on, and these two cases are
+   * the whole of how it gets its value. Getting the split wrong is not a subtle
+   * regression: stamping the read's own clock on an import files a backfilled
+   * year under the day the backfill ran, and stamping `committed_at` on an
+   * incremental read puts a `--no-ff` merge's contents back into a period whose
+   * brief already went out.
+   */
+  describe('landedAt', () => {
+    const landedOf = (mocks: ReturnType<typeof makeMocks>) =>
+      mocks.commitsRepo.upsertMany.mock.calls[0][0].map(
+        (row: { landedAt: Date }) => row.landedAt,
+      );
+
+    it('stamps the read clock when the read is watching commits arrive', async () => {
+      const { svc, mocks } = makeService();
+      mocks.client.listCommits.mockImplementation(streamPages(['s1']));
+      const before = Date.now();
+
+      await svc.run({
+        repositoryId: 'repo-1',
+        branch: 'main',
+        sinceISO: '2026-05-01T00:00:00Z',
+        landedNow: true,
+      });
+
+      const [landedAt] = landedOf(mocks);
+      expect(landedAt.getTime()).toBeGreaterThanOrEqual(before);
+      // Not the commit's own dates, which is the entire point — a merge commit
+      // backdates both of those.
+      expect(landedAt).not.toEqual(makeCommit('s1').committedAt);
+    });
+
+    it('seeds committedAt when the read is importing history', async () => {
+      const { svc, mocks } = makeService();
+      mocks.client.listCommits.mockImplementation(streamPages(['s1', 's2']));
+
+      // The default, so a caller that says nothing gets import semantics — that
+      // is what keeps a manual backfill and an adopted branch from collapsing
+      // their whole window into one brief period.
+      await svc.run({
+        repositoryId: 'repo-1',
+        branch: 'main',
+        sinceISO: '2026-05-01T00:00:00Z',
+      });
+
+      expect(landedOf(mocks)).toEqual([
+        makeCommit('s1').committedAt,
+        makeCommit('s2').committedAt,
+      ]);
+    });
+
+    it('gives every page of one incremental read the same timestamp', async () => {
+      const { svc, mocks } = makeService();
+      mocks.client.listCommits.mockImplementation(
+        streamPages(['s1'], ['s2'], ['s3']),
+      );
+
+      await svc.run({
+        repositoryId: 'repo-1',
+        branch: 'main',
+        sinceISO: '2026-05-01T00:00:00Z',
+        landedNow: true,
+      });
+
+      // A per-page clock would spread one arrival over minutes on a busy
+      // repository and, on an unlucky boundary, across two brief periods.
+      const stamps = mocks.commitsRepo.upsertMany.mock.calls.flatMap(
+        (call: [Array<{ landedAt: Date }>]) =>
+          call[0].map((row) => row.landedAt.getTime()),
+      );
+      expect(new Set(stamps).size).toBe(1);
+    });
+
+    it('never stamps the read clock on a first read of a branch', async () => {
+      const { svc, mocks } = makeService();
+      mocks.client.getLatestCommitDate.mockResolvedValueOnce(
+        new Date('2026-05-10T00:00:00Z'),
+      );
+      mocks.client.listCommits.mockImplementation(streamPages(['s1']));
+
+      await svc.runFromLatest({
+        repositoryId: 'repo-1',
+        branch: 'main',
+        lookbackDays: 30,
+      });
+
+      expect(landedOf(mocks)).toEqual([makeCommit('s1').committedAt]);
+    });
+  });
+
   describe('runFromLatest', () => {
     it('computes since = latest - lookbackDays, pulls, and returns sinceISO', async () => {
       const { svc, mocks } = makeService();
