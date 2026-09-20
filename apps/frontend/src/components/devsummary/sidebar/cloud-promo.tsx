@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Cloud, ExternalLink, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const CLOUD_URL = "https://devsummary.app/cloud";
+const CLOUD_URL = "https://app.devsummary.com";
 
 /** In-memory only: resets when the renderer process starts, survives remounts. */
 let dismissedThisSession = false;
