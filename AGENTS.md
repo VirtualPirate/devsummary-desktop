@@ -8,14 +8,26 @@ Never take credit for a commit. No `Co-Authored-By` trailer for the agent, no "g
 
 ## Project Overview
 
-`devsummary-desktop` is a single-user Electron port of **DevSummary**, ported from the `launchstack` multi-tenant cloud monorepo (NestJS + Postgres + Temporal + React SPA). All data lives locally (PGlite instead of hosted Postgres, an in-process job runner instead of Temporal, pasted credentials instead of OAuth installs). See `docs/MIGRATION-PLAN.md` for the full target architecture, the decisions behind it, and the phase-by-phase execution plan, and `docs/DELTAS.md` for approved deviations from that plan. `docs/receipts/PHASE-*.md` record what each phase actually did.
+`devsummary-desktop` is a single-user Electron port of **DevSummary**, ported from the `launchstack` multi-tenant cloud monorepo (NestJS + Postgres + Temporal + React SPA). All data lives locally (PGlite instead of hosted Postgres, an in-process job runner instead of Temporal, pasted credentials instead of OAuth installs). The approved deviations from the cloud original are listed under "Deviations from the cloud original" below; `docs/UPSTREAM-DRIFT.md` tracks what upstream has shipped since and is not here yet.
 
-The product spec below (user flows, AI usage, module table, database schema) describes DevSummary's behavior and carries over to the desktop app unchanged except where a migration phase's receipt says otherwise.
+The product spec below (user flows, AI usage, module table, database schema) describes DevSummary's behavior and carries over to the desktop app unchanged except where a deviation below says otherwise.
+
+### Deviations from the cloud original
+
+Only the ids that the code and the other AGENTS.md files cite are kept; the rest are listed without one.
+
+- **D-A — workspaces kept.** Multi-tenancy survives as local workspaces; `organizationId` is threaded everywhere, only its source changed (a seeded default, no login).
+- **D-E — mocked-externals E2E.** E2E runs against an in-memory PGlite with GitHub/Slack/LLM stubbed; no Docker, no network.
+- **D-H — no email delivery.** No SMTP setting, no email recipient field, no email channel; `'email'` survives only as read-only history in old rows.
+- Single seeded user with a per-boot loopback token instead of sessions; no Google OAuth, no Better Auth.
+- Pasted credentials (GitHub PAT, Slack bot token, provider keys), encrypted locally; no App installs, no OAuth callbacks, no webhooks.
+- PGlite instead of hosted Postgres; a `jobs` table with a poll loop instead of Temporal; migrations imported statically.
+- Four coding-agent CLIs are LLM providers alongside OpenAI and Gemini; the cloud original has only the two keyed providers.
 
 ## Product Spec: DevSummary
 
 DevSummary is an AI-powered engineering activity reporter. It connects to a GitHub organization, ingests commit activity, and generates plain-English briefs aimed at non-technical stakeholders (founders, PMs, executives). Briefs are scoped to a project, team, collaborator, or repository, generated on a recurring schedule or on demand, and delivered to Slack and/or as a desktop
-notification. **Email delivery is not available in the desktop version** (`docs/DELTAS.md` D-H) —
+notification. **Email delivery is not available in the desktop version** (deviation D-H) —
 there is no SMTP setting and no email recipient field on any screen.
 
 ### Core User Flows
@@ -127,11 +139,11 @@ pnpm lint                   # Lint all workspaces
 
 ## Desktop architecture
 
-This repo is being ported phase by phase per `docs/MIGRATION-PLAN.md` — read §0–§4 there before touching anything, plus `docs/DELTAS.md` for approved deviations (workspaces kept, auto-login single user, no Google OAuth, packaging deliverable scoped to dev-runnable, mocked-externals E2E, the 14-migration count, and the commit-per-phase-boundary rule). `docs/receipts/PHASE-*.md` are the append-only record of what each phase actually did, including deviations and out-of-scope defects found along the way. Do not relitigate a decision in the plan's §3 table without evidence from the Phase 0 spike (`docs/receipts/PHASE-0.md`).
+The port is complete and tracks the cloud original by hand: `docs/UPSTREAM-DRIFT.md` records what upstream shipped that is not here yet, and `CHECKPOINT.md` holds the upstream SHA this repo is level with. The deviations listed under "Deviations from the cloud original" above are decisions, not drift — do not "fix" them toward upstream. The planning documents and per-phase receipts that drove the port are gitignored working files (`.gitignore`, "Internal working documents") and are not part of this repo.
 
 ## Timezones
 
-Read this before writing anything that touches a date. Every rule below is here because the bug it prevents has already shipped once — see `docs/timezone-audit.md` for the findings and their fixes.
+Read this before writing anything that touches a date. Every rule below is here because the bug it prevents has already shipped once; the rules are the distilled findings of that audit.
 
 The model: **an instant and a calendar date are different types.** A `timestamptz` column, a JS `Date`, and an ISO string with an offset are instants. A brief's period, a chart bucket, and anything a user picks in a date input are calendar dates in some specific zone. Converting between them requires naming the zone, and there are exactly three legitimate zones to name — the schedule's (for a brief's period), the viewer's (for something the viewer themselves just picked), and UTC (for a calendar date that is already resolved and only needs printing). Anything else is a bug.
 
