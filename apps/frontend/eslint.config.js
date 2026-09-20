@@ -33,4 +33,19 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  // Vendored assistant-ui templates, written by `assistant-ui add` and updated
+  // in place by re-running it. Same treatment as the shadcn components in
+  // `ui/**`: local edits are restyling only, so their lint findings are not
+  // ours to fix and would be overwritten on the next generator run. Anything we
+  // author lives in `devsummary/agents/` and is linted normally.
+  {
+    files: ['src/components/assistant-ui/**'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/component-hook-factories': 'off',
+      'react-hooks/static-components': 'off',
+    },
+  },
 ])

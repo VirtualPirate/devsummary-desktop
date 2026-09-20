@@ -53,7 +53,7 @@ type ProviderMeta = {
   /** Short form — buttons, field labels, toasts. */
   label: string;
   host: string;
-  defaultModels: { commitAnalysis: string; brief: string };
+  defaultModels: { commitAnalysis: string; brief: string; agent: string };
   Mark: (props: { className?: string }) => React.ReactNode;
 } & (
   | { kind: "key"; keyPlaceholder: string }
@@ -70,7 +70,11 @@ const PROVIDERS = {
     name: "OpenAI",
     label: "OpenAI",
     host: "api.openai.com",
-    defaultModels: { commitAnalysis: "gpt-4o-mini", brief: "gpt-4o-mini" },
+    defaultModels: {
+      commitAnalysis: "gpt-4o-mini",
+      brief: "gpt-4o-mini",
+      agent: "gpt-4o",
+    },
     keyPlaceholder: "sk-…",
     Mark: OpenAiMark,
   },
@@ -82,6 +86,7 @@ const PROVIDERS = {
     defaultModels: {
       commitAnalysis: "gemini-3.1-flash-lite",
       brief: "gemini-3.1-flash-lite",
+      agent: "gemini-3.6-flash",
     },
     keyPlaceholder: "AIza…",
     Mark: GeminiMark,
@@ -91,7 +96,7 @@ const PROVIDERS = {
     name: "Claude Code",
     label: "Claude Code",
     host: "local CLI · claude",
-    defaultModels: { commitAnalysis: "haiku", brief: "sonnet" },
+    defaultModels: { commitAnalysis: "haiku", brief: "sonnet", agent: "sonnet" },
     modelHint: (
       <>
         Model aliases or full ids accepted by{" "}
@@ -111,6 +116,7 @@ const PROVIDERS = {
     defaultModels: {
       commitAnalysis: "openai/gpt-5.6-luna",
       brief: "openai/gpt-5.6-terra",
+      agent: "openai/gpt-5.6-terra",
     },
     modelHint: (
       <>
@@ -128,6 +134,7 @@ const PROVIDERS = {
     defaultModels: {
       commitAnalysis: "composer-2.5-fast",
       brief: "composer-2.5",
+      agent: "composer-2.5",
     },
     modelHint: (
       <>
@@ -146,6 +153,7 @@ const PROVIDERS = {
     defaultModels: {
       commitAnalysis: "gpt-5.6-luna",
       brief: "gpt-5.6-terra",
+      agent: "gpt-5.6-terra",
     },
     modelHint: (
       <>
@@ -454,7 +462,7 @@ function ModelRow({
   description,
   value,
 }: {
-  field: "commitAnalysisModel" | "briefModel";
+  field: "commitAnalysisModel" | "briefModel" | "agentModel";
   title: string;
   description: string;
   value: string;
@@ -468,10 +476,14 @@ function ModelRow({
     if (!next) return;
     setError(null);
     try {
+      // Spelled out rather than `{ [field]: next }`: a computed key widens the
+      // literal to an index signature, and the request type stops being checked.
       await update.mutateAsync(
         field === "briefModel"
           ? { briefModel: next }
-          : { commitAnalysisModel: next },
+          : field === "agentModel"
+            ? { agentModel: next }
+            : { commitAnalysisModel: next },
       );
       setDraft(null);
       toast.success("Model saved");
@@ -541,9 +553,11 @@ function ModelRow({
 function ModelsBlock({
   commitAnalysisModel,
   briefModel,
+  agentModel,
 }: {
   commitAnalysisModel: string;
   briefModel: string;
+  agentModel: string;
 }) {
   return (
     <div className="border-t pt-1">
@@ -558,6 +572,12 @@ function ModelsBlock({
         title="Brief writing"
         description="Runs once per schedule window, over the analysed commits. This is the text people read."
         value={briefModel}
+      />
+      <ModelRow
+        field="agentModel"
+        title="Assistant"
+        description="The conversational agent. It picks tools in a loop, so a stronger model is the usual choice."
+        value={agentModel}
       />
     </div>
   );
@@ -824,6 +844,7 @@ export function IntegrationsAiPage() {
       <ModelsBlock
         commitAnalysisModel={status?.commitAnalysisModel ?? ""}
         briefModel={status?.briefModel ?? ""}
+        agentModel={status?.agentModel ?? ""}
       />
     ) : null;
 

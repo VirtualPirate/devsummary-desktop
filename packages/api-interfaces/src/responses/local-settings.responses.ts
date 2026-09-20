@@ -58,6 +58,7 @@ export interface LocalSettingsStatus {
    */
   commitAnalysisModel: string;
   briefModel: string;
+  agentModel: string;
 }
 
 /** Bot scopes the Slack app must be granted, shown next to the token field. */

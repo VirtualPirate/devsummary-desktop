@@ -1,5 +1,5 @@
 import { useLocation } from "@tanstack/react-router";
-import { CalendarClock, ChevronDown, ChevronRight, FileText, Home, Plug, Settings as SettingsIcon } from "lucide-react";
+import { Bot, CalendarClock, ChevronDown, ChevronRight, FileText, Home, Plug, Settings as SettingsIcon } from "lucide-react";
 import { useGetProjects } from "@/hooks/api/use-projects";
 import { useGetTeams } from "@/hooks/api/use-teams";
 import { useGetBriefSchedules } from "@/hooks/api/use-brief-schedules";
@@ -123,6 +123,9 @@ export function SidebarNav() {
     <nav className="flex h-full flex-col gap-1 overflow-y-auto p-3 text-sm">
       <SidebarSection>
         <SidebarItem to="/" icon={<Home className="size-3.5" />} exact>Home</SidebarItem>
+        <SidebarItem to="/agents" icon={<Bot className="size-3.5" />}>
+          Agent
+        </SidebarItem>
         <SidebarItem to="/briefs" icon={<FileText className="size-3.5" />}>
           Briefs {briefBadge ? <span className="ml-1 text-muted-foreground">{briefBadge}</span> : null}
         </SidebarItem>

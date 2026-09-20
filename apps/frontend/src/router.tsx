@@ -19,6 +19,7 @@ import {
   type FilterKey,
   type SavedFilters,
 } from "@/stores/filter-prefs-store";
+import { AgentsPage } from "@/routes/agents";
 import { CreateOrganizationPage } from "@/routes/create-organization";
 import { BriefCommitsPage } from "@/routes/brief-commits";
 import { BriefDetailPage } from "@/routes/brief-detail";
@@ -312,6 +313,15 @@ const integrationsAiRoute = createRoute({
   component: IntegrationsAiPage,
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/agents",
+  component: AgentsPage,
+  // The conversation owns its own scroll, so the shell must not wrap it in the
+  // padded, scrolling container every other page wants.
+  staticData: { fullBleed: true },
+});
+
 const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     homeRoute,
@@ -333,6 +343,7 @@ const routeTree = rootRoute.addChildren([
     integrationsGithubSetupRoute,
     integrationsSlackRoute,
     integrationsAiRoute,
+    agentsRoute,
   ]),
 ]);
 
@@ -347,5 +358,10 @@ export const router = createRouter({
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
+  }
+
+  interface StaticDataRouteOption {
+    /** Render this route without the shell's max-width padding and scroll. */
+    fullBleed?: boolean;
   }
 }
