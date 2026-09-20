@@ -57,7 +57,6 @@ afterEach(() => {
   Object.defineProperty(process, 'platform', savedPlatform);
 });
 
-
 describe('AgentCliDetector.detect', () => {
   // `codex login status` writes its one line to stderr and leaves stdout
   // empty. Reading stdout alone reported a logged-in user as signed out on

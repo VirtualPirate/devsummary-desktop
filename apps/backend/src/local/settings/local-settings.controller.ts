@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import type {
   AgentCliStatus,
   ApiResponse,
+  EmailVerificationStatus,
   LocalSettingsStatus,
   LocalSettingsTestResult,
 } from '@launchstack/api-interfaces';
@@ -14,11 +15,14 @@ import { ZodValidationPipe } from '../../organizations/dto/zod-validation.pipe';
 import {
   AgentCliParamSchema,
   AgentCliQuerySchema,
+  RequestEmailVerificationSchema,
   UpdateLocalCredentialsSchema,
   type AgentCliParam,
   type AgentCliQuery,
+  type RequestEmailVerificationBody,
   type UpdateLocalCredentialsBody,
 } from './dto/local-settings.dto';
+import { EmailVerificationService } from './email-verification.service';
 import { LocalSettingsService } from './local-settings.service';
 
 /**
@@ -28,7 +32,10 @@ import { LocalSettingsService } from './local-settings.service';
  */
 @Controller('api/local-settings')
 export class LocalSettingsController {
-  constructor(private readonly svc: LocalSettingsService) {}
+  constructor(
+    private readonly svc: LocalSettingsService,
+    private readonly verification: EmailVerificationService,
+  ) {}
 
   @Get()
   @RequireOrgRole('member')
@@ -58,6 +65,35 @@ export class LocalSettingsController {
   ): Promise<ApiResponse<AgentCliStatus[]>> {
     const data = await this.svc.agentClis(q.refresh === '1');
     return { data, message: 'OK', success: true };
+  }
+
+  /**
+   * One poll of the magic-link gate. Cheap and idempotent: a verified install
+   * answers from disk, and a check that cannot reach the API stays pending
+   * rather than failing — this is what the settings screen polls every 4 s.
+   */
+  @Get('verification')
+  @RequireOrgRole('member')
+  async verificationStatus(): Promise<ApiResponse<EmailVerificationStatus>> {
+    return {
+      data: await this.verification.check(),
+      message: 'OK',
+      success: true,
+    };
+  }
+
+  /** Mail a link to this address. Pressing Resend is the same call again. */
+  @Post('verification')
+  @RequireOrgRole('admin')
+  async requestVerification(
+    @Body(new ZodValidationPipe(RequestEmailVerificationSchema))
+    body: RequestEmailVerificationBody,
+  ): Promise<ApiResponse<EmailVerificationStatus>> {
+    return {
+      data: await this.verification.request(body.email),
+      message: 'Check your email',
+      success: true,
+    };
   }
 
   @Post('agents/:id/test')

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgentCliProviderName,
+  RequestEmailVerificationRequest,
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
 import { LocalSettingsAPI } from "@/api/local-settings.api";
@@ -12,6 +13,7 @@ export const localSettingsKeys = {
   // Machine-wide like status: which CLIs are installed has nothing to do with
   // the active workspace.
   agents: ["local-settings", "agents"] as const,
+  verification: ["local-settings", "verification"] as const,
 };
 
 export function useLocalSettings() {
@@ -73,6 +75,39 @@ export function useTestAgentCli() {
       await queryClient.invalidateQueries({
         queryKey: localSettingsKeys.agents,
       });
+    },
+  });
+}
+
+/**
+ * Polls the magic-link gate while a link is outstanding.
+ *
+ * 4 s is the pacing the API is sized for: 15 checks a minute against a 60/min
+ * per-IP budget, which leaves room for other installs behind the same NAT.
+ * Polling stops on `verified` — the unlock is ours to keep — and on an expired
+ * link, where the answer can no longer change without a new one. `linkExpired`
+ * is the backend's own reading of its clock, refreshed by each poll.
+ */
+export function useEmailVerification() {
+  return useQuery({
+    queryKey: localSettingsKeys.verification,
+    queryFn: () => LocalSettingsAPI.verification(),
+    refetchInterval: (query) => {
+      const state = query.state.data?.data;
+      return state?.status === "pending" && !state.linkExpired ? 4_000 : false;
+    },
+  });
+}
+
+export function useRequestEmailVerification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: RequestEmailVerificationRequest) =>
+      LocalSettingsAPI.requestVerification(payload),
+    // The response is the state after one check, so there is nothing to refetch
+    // — and writing it is what restarts the poll on the new `requestedAt`.
+    onSuccess: (res) => {
+      queryClient.setQueryData(localSettingsKeys.verification, res);
     },
   });
 }
