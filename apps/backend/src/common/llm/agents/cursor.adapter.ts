@@ -3,9 +3,9 @@ import {
   firstLine,
   isEnvelope,
   jsonContractPrompt,
+  parseAnswerJson,
   parseStdout,
   scratchDir,
-  stripFence,
   sumTokens,
 } from './agent-cli.helpers';
 
@@ -111,17 +111,15 @@ export const cursorAdapter: AgentCliAdapter = {
         };
       }
 
-      let raw: unknown;
-      try {
-        raw = JSON.parse(stripFence(body.result));
-      } catch {
+      const answer = parseAnswerJson(body.result);
+      if (!answer.ok) {
         return { ok: false, kind: 'invalid', reason: 'answer was not JSON' };
       }
 
       const usage = body.usage ?? {};
       return {
         ok: true,
-        raw,
+        raw: answer.value,
         // No field names the resolved model; the client falls back to the
         // configured string.
         model: null,

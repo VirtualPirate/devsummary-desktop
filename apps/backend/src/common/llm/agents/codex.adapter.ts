@@ -3,9 +3,9 @@ import type { AgentCliAdapter, AgentCliOutput } from './agent-cli.adapter';
 import {
   firstLine,
   lastOfType,
+  parseAnswerJson,
   parseJsonLines,
   scratchDir,
-  stripFence,
 } from './agent-cli.helpers';
 
 /**
@@ -156,10 +156,8 @@ export const codexAdapter: AgentCliAdapter = {
 
     const answer = lastMessage(events);
     if (answer !== null) {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(stripFence(answer));
-      } catch {
+      const parsed = parseAnswerJson(answer);
+      if (!parsed.ok) {
         // The process ran fine and the body cannot change on a retry.
         return { ok: false, kind: 'invalid', reason: 'answer was not JSON' };
       }
@@ -170,7 +168,7 @@ export const codexAdapter: AgentCliAdapter = {
         // No event names the resolved model; the client falls back to the
         // configured string.
         model: null,
-        raw,
+        raw: parsed.value,
         // `input_tokens` is the **total**, with `cached_input_tokens` and
         // `cache_write_input_tokens` as breakdowns of it — adding them would
         // double-count. Measured: a prompt 4797 tokens longer moved the total
