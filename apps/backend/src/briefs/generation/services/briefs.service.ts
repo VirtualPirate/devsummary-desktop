@@ -257,9 +257,10 @@ export class BriefsService {
       // the way the person who asked for it reads dates. UTC only when the
       // request names none.
       periodTimezone: body.timezone ?? 'UTC',
-      // A brief covers what landed on the tracked branch in the period — the
-      // same clock ingestion resumes from.
-      commitClock: 'committed',
+      // A brief covers what arrived on the tracked branch during the period.
+      // Not a git date: a merge commit backdates neither of those, so work
+      // merged today would select into a period already reported on.
+      commitClock: 'landed',
       status: 'pending',
       deliverySlackChannelId: body.delivery?.slackChannelId ?? null,
     });
@@ -331,8 +332,8 @@ export class BriefsService {
       authorFilter: resolved.authorFilter,
       branchFilter: resolved.branchFilter,
       // No brief row to read a snapshot off yet — this previews the brief that
-      // pressing Generate would create, and that one is written 'committed'.
-      commitClock: 'committed' as const,
+      // pressing Generate would create, and that one is written 'landed'.
+      commitClock: 'landed' as const,
     };
     const window = { ...entity, from: periodStart, to: periodEnd };
 

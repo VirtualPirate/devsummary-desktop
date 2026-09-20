@@ -409,7 +409,7 @@ describe('BriefActivities', () => {
           periodStart: period.start,
           periodEnd: period.end,
           periodTimezone: 'Asia/Kolkata',
-          commitClock: 'committed',
+          commitClock: 'landed',
           status: 'pending',
         }),
         fakeTx,
@@ -903,7 +903,7 @@ describe('BriefActivities', () => {
           periodStart: windowJan2.start,
           periodEnd: windowJan2.end,
           periodTimezone: 'Asia/Kolkata',
-          commitClock: 'committed',
+          commitClock: 'landed',
           status: 'pending',
         }),
       );

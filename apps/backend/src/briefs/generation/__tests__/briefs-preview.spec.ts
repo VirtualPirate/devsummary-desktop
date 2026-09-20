@@ -120,8 +120,8 @@ describe('BriefsService.preview', () => {
       authorFilter: [7n],
       branchFilter: undefined,
       // No brief row exists yet; the preview is of the brief Generate would
-      // create, and that one is written on the committer clock.
-      commitClock: 'committed',
+      // create, and that one is written on the landed clock.
+      commitClock: 'landed',
       from: new Date(PERIOD.periodStart),
       to: new Date(PERIOD.periodEnd),
     });
@@ -131,7 +131,7 @@ describe('BriefsService.preview', () => {
       repositoryIds: ['r1', 'r2'],
       authorFilter: [7n],
       branchFilter: undefined,
-      commitClock: 'committed',
+      commitClock: 'landed',
     });
   });
 

@@ -315,9 +315,11 @@ export class BriefActivities {
           // Snapshot, not a lookup: `windowsInRange` cut these boundaries in
           // the schedule's zone as it stands now, and that zone is editable.
           periodTimezone: schedule.timezone,
-          // A brief covers what landed on the tracked branch in the period —
-          // the same clock ingestion resumes from.
-          commitClock: 'committed',
+          // A brief covers what arrived on the tracked branch during the
+          // period. Not a git date: a merge commit backdates neither of those,
+          // so work merged today would select into a period already reported
+          // on.
+          commitClock: 'landed',
           status: 'pending',
         });
         created.push({
@@ -447,9 +449,11 @@ export class BriefActivities {
           // Snapshot, not a lookup: `computePeriod` cut these boundaries in the
           // schedule's zone as it stands now, and that zone is editable.
           periodTimezone: schedule.timezone,
-          // A brief covers what landed on the tracked branch in the period —
-          // the same clock ingestion resumes from.
-          commitClock: 'committed',
+          // A brief covers what arrived on the tracked branch during the
+          // period. Not a git date: a merge commit backdates neither of those,
+          // so work merged today would select into a period already reported
+          // on.
+          commitClock: 'landed',
           status: 'pending',
         },
         tx,
