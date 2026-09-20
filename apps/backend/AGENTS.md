@@ -399,12 +399,38 @@ routes.** OpenAI and Gemini are one `ChatOpenAI` — Gemini answers on an
 OpenAI-compatible endpoint, so the provider is a base URL and a key rather than a
 second SDK, and the key is passed explicitly or a Gemini-configured agent would
 silently bill OpenAI. The four agent CLIs are spawned binaries and cannot drive
-`ChatOpenAI` at all; they go through `createCliChatModel` (`cli-chat-model.ts`),
-a LangChain `BaseChatModel` over this repo's `LlmClient.parse()` seam. **That
-file is currently a stub that throws** — a CLI-selected agent fails the run the
-way a missing key does, which is the honest state until CLI tool-calling lands.
-Note the agent deliberately does *not* go through `LlmClient` itself: that class
-is one structured-output call, and the agent needs streaming plus a tool loop.
+`ChatOpenAI` at all; they go through `createCliChatModel`.
+
+**The four agent CLIs reach LangChain through `createCliChatModel`**
+(`cli-chat-model.ts`), a `BaseChatModel` over this repo's `LlmClient.parse()`
+seam. A CLI has no chat API and no tool-calling protocol — one process, a prompt
+on stdin, one JSON object on stdout — so every turn is **one `parse()` call
+carrying the whole conversation** (the system messages plus a rendered `[user]` /
+`[assistant]` / `[tool …]` transcript, clamped to 30k chars by dropping the
+oldest middle turns), and the tool loop is emulated: the bound tools and their
+JSON schemas go in the system prompt, and the model answers
+`{ text, toolCalls: [{ name, argumentsJson }] }`, which becomes an `AIMessage`
+with `tool_calls` that LangGraph then executes. `argumentsJson` is a JSON
+*string* rather than an object because Codex runs the schema through OpenAI
+strict mode, which rejects an open object outright; an unparseable one is
+emitted as a `tool_call` with `args: {}` **and** an `invalid_tool_calls` entry,
+so the tool node hands the model its own error back instead of the loop ending
+on an empty answer. Nothing here spawns: detection, the concurrency gate,
+scratch files, the 120 s timeout, token accounting and the error mapping are all
+`AgentCliLlmClient`'s, and an `ApiException` from it (`OPENAI_NOT_CONFIGURED`
+for a missing binary) travels out untouched so the SSE error frame carries the
+install hint. **`_streamResponseChunks` is deliberately not overridden but must
+stay present on the prototype** — `langchain`'s `isBaseChatModel` probes
+`"_streamResponseChunks" in model` before it will call `bindTools`, and refusing
+there surfaces as `llm … must define bindTools method` rather than as anything
+about streaming. A CLI answers once at the end, so the `messages` stream mode
+emits nothing incremental on this path; `updates` carries the finished message,
+which is also where `AgentGraphService` accumulates `usage_metadata`. Two known
+ceilings: the abort signal does not reach the spawned CLI (`LlmClient.parse`
+takes none, so a disconnected run unwinds when the CLI returns or hits its
+timeout), and `createDeepAgent`'s built-in tools put ~9 kB of system prompt on
+every turn on top of each CLI's own preamble, so a CLI agent is pricier per turn
+than a keyed one.
 
 **The checkpointer runs on a `pg.Pool` shim** (`databases/kysely/pglite-pool.ts`).
 `PostgresSaver.fromConnString` is unusable here — PGlite is Postgres compiled to

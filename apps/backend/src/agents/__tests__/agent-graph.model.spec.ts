@@ -85,14 +85,18 @@ describe('AgentGraphService model', () => {
     );
   });
 
-  // The four CLI providers are spawned binaries, not an SDK; until their
-  // LangChain adapter lands they fail the run the same way a missing key does.
+  // The four CLI providers are spawned binaries, not an SDK, so they must not
+  // reach `ChatOpenAI` at all — they go through `createCliChatModel` over this
+  // repo's own `LlmClient`.
   it('routes a CLI provider away from ChatOpenAI', () => {
-    expect(() =>
-      serviceFor(() => ({
-        provider: 'claude-code',
-        model: 'sonnet',
-      })).getModel(),
-    ).toThrow(/Agent CLIs are not wired yet/);
+    const model = serviceFor(() => ({
+      provider: 'claude-code',
+      model: 'sonnet',
+    })).getModel();
+    expect(model._llmType()).toBe('devsummary-cli');
+    expect(model.invocationParams()).toEqual({
+      provider: 'claude-code',
+      model: 'sonnet',
+    });
   });
 });
