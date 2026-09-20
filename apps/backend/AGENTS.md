@@ -56,6 +56,7 @@ AppModule (RequestIdMiddleware + LocalSessionMiddleware on all routes)
 ├── GithubCollaboratorsModule ─ repo collaborator sync
 ├── BriefsModule ───────────── projects, teams, schedules, generation, delivery
 ├── AnalyticsModule ────────── dashboard activity buckets
+├── AgentsModule ───────────── the /agents chat: threads, tools, the LangGraph run
 ├── JobActivityModule ──────── the background-jobs toast, backed by the jobs table
 └── HealthModule ──────────── readiness (PGlite ping) + liveness
 ```
@@ -123,7 +124,7 @@ Every LLM call goes through the abstract `LlmClient`: `parse(zodSchema, schemaNa
 - **`--agent` failing to resolve is a trust-boundary failure, and `parseOutput` refuses the run.** If `OPENCODE_CONFIG_CONTENT` ever stops defining `devsummary` (a renamed env var, or a machine-managed config — that one merges *after* it), opencode prints `Falling back to default agent` to stderr and runs its default **build** agent: no system prompt, no schema, no `permission {"*": "deny"}`, tools live in the backend's own working directory, with a commit diff as the prompt. There are events in that case, so the stderr check has to come *before* stdout is trusted. Also note the agent `prompt` replaces only opencode's default *build* prompt: the `<env>` block and one global instruction file (`~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md`) are still appended **after** our JSON-only instruction, and 1.1.53 offers no way to suppress the global one — `instructions: []` is unioned, not replaced. `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1` at least keeps a personal Claude Code memory from being the file that wins.
 - **Two flags must never be passed to `claude`.** `--bare` drops the claude.ai login and every call answers `Not logged in`. `--disallowedTools "*"` blocks the internal `StructuredOutput` tool and the model answers in prose; `--tools ""` is how tools are removed.
 - **Detection executes, it does not just locate** (`agents/agent-cli.detector.ts`). An Electron GUI process inherits a minimal `PATH` with no `~/.local/bin` and no nvm, so the binary is resolved through `$SHELL -lic 'command -v <binary>'` when `PATH` misses — and then **run** with its version flag, because a path found on `PATH` can still fail `ENOENT` on spawn (the Codex case). The detector is a module singleton with a 60 s cache, not a Nest provider: `BriefsModule` and `CommitAnalysisModule` do not import `LocalSettingsModule`, and one cache beats three module graphs. `LocalSettingsModule` registers that same singleton under the class token purely so the settings service is testable. **On `win32` it does neither**: all four providers are reported absent with a hint saying so, because the whole resolve-and-spawn path is macOS/Linux only (`$SHELL -lic` has no Windows meaning, the binary is `claude.cmd` rather than `claude`, `X_OK` is not a Windows permission, and `execFile` refuses a `.cmd` since Node's CVE-2024-27980 fix) and no fix for it could be tested on a platform this app has never launched on.
-- **`DEFAULT_MODELS` is per provider *and* per job.** A CLI wants the cheap model for per-commit volume and a stronger one for the brief people read (Claude Code: `haiku` / `sonnet`; Cursor: `composer-2.5-fast` / `composer-2.5`; Codex: `gpt-5.6-luna` / `gpt-5.6-terra`); OpenAI and Gemini keep the same value in both slots. `loadLlmSettings` therefore takes a `job: 'commitAnalysis' | 'brief'`.
+- **`DEFAULT_MODELS` is per provider *and* per job.** A CLI wants the cheap model for per-commit volume and a stronger one for the brief people read (Claude Code: `haiku` / `sonnet`; Cursor: `composer-2.5-fast` / `composer-2.5`; Codex: `gpt-5.6-luna` / `gpt-5.6-terra`); OpenAI and Gemini keep the same value in those two slots. The third is `agent`, which is above both on *every* provider (`gpt-4o`, `gemini-3.6-flash`, `sonnet`, `openai/gpt-5.6-terra`, `composer-2.5`, `gpt-5.6-terra`): the agent picks tools in a loop and a wrong pick costs a whole extra turn, where per-commit analysis is one shot at one diff. `loadLlmSettings` therefore takes a `job: 'commitAnalysis' | 'brief' | 'agent'`.
 - **Error codes keep the `OPENAI_` prefix** (`OPENAI_NOT_CONFIGURED`, `OPENAI_API_FAILED`, `OPENAI_RESPONSE_INVALID`) so stored `failure_reason` values and any client matching on them stay valid; the *messages* are provider-neutral.
 
 ### Database (Kysely over PGlite)
@@ -145,9 +146,9 @@ constructor(@Inject(KYSELY_DB) private db: AppDatabase) {}
 - **An upgrade migrates behind a backup** (plan risk R7). `openMigratedDatabase()` is the `KYSELY_DB` factory: on a boot with migrations pending against an *existing* database it closes PGlite, copies the data directory to `data.bak` (a sibling, so `userData/data.bak`), reopens and migrates; if any migration throws it removes the dirty directory, renames the snapshot back and rethrows, so the app refuses to start on a half-migrated database. A first launch and an up-to-date launch copy nothing — otherwise every launch would duplicate ~40 MB. The snapshot is kept after a successful upgrade (the user's only rollback) and overwritten by the next one. It lives in the provider factory rather than `onModuleInit` because the close/reopen is only possible before the handle every repository holds is handed out. `test/e2e/specs/migration-backup.e2e.spec.ts` is the vN → vN+1 → failure-restore test, and the only e2e spec that uses a real data directory.
 - **PGlite has exactly one connection.** A `db.transaction()` holds it for its whole lifetime, blocking the other job loop and every HTTP request — which is why `JobRunnerService` claims a job with a single `update … returning` statement instead of a transaction. Keep transactions short and never open one around a network call.
 
-PG schema namespaces: `public` (`demo`, `organizations`, `organization_members`, `organization_invites`, `jobs`, `local_settings`), `auth` (`user`, `session`, `account`, `verification` — Better Auth's tables, now holding one seeded user row; the shipped migrations are frozen so they stay), `github` (`installations`, `repositories`, `repository_branches`, `commits`, `commit_branches`, `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`), `slack` (`installations`), `briefs` (`briefs`, `brief_commits`, `brief_schedules`, `projects`, `project_repositories`, `teams`, `team_collaborators`), `marketing` (`waitlist`). Several of those tables are now unused (`organization_invites`, `webhook_events`, `marketing.waitlist`, most of `auth`) — the migrations that create them are shipped and **never edited**, so the tables stay and nothing reads them.
+PG schema namespaces: `public` (`demo`, `organizations`, `organization_members`, `organization_invites`, `jobs`, `local_settings`), `auth` (`user`, `session`, `account`, `verification` — Better Auth's tables, now holding one seeded user row; the shipped migrations are frozen so they stay), `github` (`installations`, `repositories`, `repository_branches`, `commits`, `commit_branches`, `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`), `slack` (`installations`), `briefs` (`briefs`, `brief_commits`, `brief_schedules`, `projects`, `project_repositories`, `teams`, `team_collaborators`), `agents` (`sessions`, `usage`, plus the four `checkpoint*` tables `PostgresSaver.setup()` creates for itself), `marketing` (`waitlist`). Several of those tables are now unused (`organization_invites`, `webhook_events`, `marketing.waitlist`, most of `auth`) — the migrations that create them are shipped and **never edited**, so the tables stay and nothing reads them.
 
-Migrations live in `migrations/`; `00001–00014` are copied verbatim from the cloud original and must never be edited. `00015_jobs.ts` adds the `jobs` and `local_settings` tables; `00016_seed_local_singleton.ts` seeds the one user row and the default workspace with the fixed UUIDs in `src/local/local-identity.ts`. Migrations must stay independent of application code: import only from `kysely` and write **literal snake_case** identifiers, since `CamelCasePlugin` is not installed on the migration connection.
+Migrations live in `migrations/`; `00001–00014` are copied verbatim from the cloud original and must never be edited. `00015_jobs.ts` adds the `jobs` and `local_settings` tables; `00016_seed_local_singleton.ts` seeds the one user row and the default workspace with the fixed UUIDs in `src/local/local-identity.ts`; `00017_commit_landed_at.ts` adds the landed clock; `00018_agents.ts` + `00019_agent_threads.ts` are the agents schema, ported as the same two files the cloud original had so the chains stay comparable — the second drops a column the first adds. Migrations must stay independent of application code: import only from `kysely` and write **literal snake_case** identifiers, since `CamelCasePlugin` is not installed on the migration connection.
 
 Domain tables use UUID PKs, `created_at`/`updated_at`, and **soft deletes** (`deleted_at`) almost everywhere — repository queries must filter `deletedAt IS NULL`.
 
@@ -278,6 +279,7 @@ Every route except `/api/health*` requires the `x-desktop-token` header. Org-sco
 | `api/integrations/github/repositories/:repoId/commits` | github/commit-analysis | commit/analysis endpoints, backfill triggers |
 | `api/integrations/slack/installations` | slack | `GET`, `POST /token` (paste a bot token), `GET /scopes`, `DELETE /:id` (revokes) |
 | `api/integrations/slack` | slack | `GET /channels`, `GET /members`, `POST /messages` |
+| `api/agents/threads` | agents | thread CRUD, `GET /:id/messages` (history), `POST /:id/stream` (SSE run) |
 | `api/local-settings` | local/settings | `GET` status (booleans + dataDir + effective models), `GET /usage` (token totals), `GET /agents` (installed agent CLIs, `?refresh=1` forces a re-detect), `PUT /credentials`, `POST /agents/:id/test` |
 | `api/health` | health | public; `GET /` readiness (PGlite ping, 200/503), `GET /live` liveness |
 
@@ -369,6 +371,101 @@ The manual re-send resolves its channel as `schedule?.slackChannelId ?? brief.de
 
 `BriefDeliveryChannel` is still `'email' | 'slack' | 'desktop'` in both the DTO and the database types. `'email'` is **read-only history**: nothing writes it any more, but a `delivered_channels` row written before D-H still carries it.
 
+### Agents (`src/agents/`)
+
+The `/agents` chat: a conversational agent over this workspace's own commit
+history, running **in this process** — LangChain deep agents (`deepagents`) with
+seven read-only tools, checkpointing thread state to the app's PGlite under the
+`agents` schema. No separate service, no port, no shared secret. Ported from the
+cloud original with four deliberate differences, all recorded in
+`docs/UPSTREAM-DRIFT.md` §4.
+
+**There is no enable flag.** `AGENTS_ENABLED` and `VITE_AGENTS_ENABLED` are
+gone. The agent is available whenever an LLM provider is configured, and an
+unconfigured one surfaces as the same `OPENAI_NOT_CONFIGURED` every other LLM
+call raises, on the first run rather than as a menu item that is absent for
+reasons the user cannot see.
+
+**The provider is resolved per run, like briefs.** `loadAgentsConfig` returns an
+object whose `llm` is a getter over `ConfigService` (`AGENTS_LLM_PROVIDER`
+overriding `LLM_PROVIDER`, `AGENT_MODEL_VARS` for the override, job `'agent'`),
+so pasting a key or switching provider in settings takes effect on the next run
+instead of the next launch. `AgentGraphService` caches the built chat model keyed
+on `[provider, apiKey, model]`, exactly as `LiveLlmClient` caches its delegate —
+a model built once in the constructor is the bug that pattern exists to avoid.
+
+**All six providers are selectable, but they reach LangChain by two different
+routes.** OpenAI and Gemini are one `ChatOpenAI` — Gemini answers on an
+OpenAI-compatible endpoint, so the provider is a base URL and a key rather than a
+second SDK, and the key is passed explicitly or a Gemini-configured agent would
+silently bill OpenAI. The four agent CLIs are spawned binaries and cannot drive
+`ChatOpenAI` at all; they go through `createCliChatModel` (`cli-chat-model.ts`),
+a LangChain `BaseChatModel` over this repo's `LlmClient.parse()` seam. **That
+file is currently a stub that throws** — a CLI-selected agent fails the run the
+way a missing key does, which is the honest state until CLI tool-calling lands.
+Note the agent deliberately does *not* go through `LlmClient` itself: that class
+is one structured-output call, and the agent needs streaming plus a tool loop.
+
+**The checkpointer runs on a `pg.Pool` shim** (`databases/kysely/pglite-pool.ts`).
+`PostgresSaver.fromConnString` is unusable here — PGlite is Postgres compiled to
+WASM with no wire protocol and there is no `DATABASE_URL` — but its other
+constructor takes a pool, and the whole surface it touches is `query`, `connect`
+→ a client with `query`/`release`, and `end`. Two things in that shim are
+load-bearing and both have a failure mode that is silent: `withoutPlugins()`,
+because `CamelCasePlugin` would rename the saver's own snake_case columns on the
+way back and every read would be `undefined`; and `connect()` borrowing **one**
+real Kysely connection, because PGlite has a single session and `PGliteDriver`'s
+mutex is the only thing keeping the saver's `BEGIN … COMMIT` from interleaving
+with an application transaction. `end()` is a no-op — `KyselyModule` owns the
+handle. `pglite-pool.spec.ts` drives the real `PostgresSaver` through
+`setup` / `put` / `getTuple` / `list` / `putWrites` / `deleteThread` against an
+in-memory PGlite with the plugin installed, which is what proves the `bytea`
+round-trip (PGlite returns `Uint8Array` where `pg` returns `Buffer`) and the
+`42P01` probe in `setup()`.
+
+**There is no daily cap.** The cloud original metered runs against
+`maxAgentMessagesPerDay`; a single-user install has nothing to meter — the key is
+the user's own — so `AgentUsageService` keeps only the token accounting, and
+`AGENT_DAILY_LIMIT_REACHED` does not exist. The row is still written *before* the
+run, so a stream that dies halfway leaves a record. `sessions.created_by` and
+`usage.user_id` are the seeded local identity, arriving the normal way through
+`@OrgMembership()`.
+
+**The workspace is bound once, in `buildAgentTools`, and is never a tool
+argument.** A model cannot name an organization, so it cannot name the wrong one;
+every query in `AgentDataRepository` joins commits → repositories → installations
+and filters on `installations.organization_id`, and raw diffs are never selected.
+A fresh agent is built per run for that reason — construction is free, and a graph
+shared between workspaces is one plumbing mistake away from answering with
+another's commits.
+
+**On Gemini the agent's HTTP client is wrapped** (`gemini-fetch.ts`). Gemini 3
+attaches a `thought_signature` to every function call it emits and answers the
+*next* turn with a 400 `INVALID_ARGUMENT` unless that signature comes back with
+the call — so a Gemini agent died the moment it used a tool. It rides on
+`tool_calls[].extra_content.google`, which is not OpenAI schema, so
+`@langchain/openai` drops it while parsing and rebuilds outgoing tool calls from
+the typed `tool_calls` alone; the seam has to be at the transport, where it is
+still on the wire. The wrapper also unwraps the single-element array Gemini
+returns errors in, which the `openai` SDK otherwise renders as the contentless
+`400 status code (no body)`. Briefs and commit analysis are one-shot calls with
+no second turn, so none of this touches them.
+
+**Nothing in `agent-wire.ts` may use `instanceof`.** pnpm resolves two copies of
+`@langchain/core` (deepagents pins its own peer set), so messages off the stream
+are built by different classes than the ones that file imports and every
+`instanceof` is false — silently: chunks came through labelled `ai`, so the
+client replaced the answer on every token instead of appending. `getType()` and
+property presence are the same across copies. Whether a message is a streaming
+delta is likewise not detectable — the checkpointer stores the accumulated answer
+as an `AIMessageChunk` too — so only the caller knows, and it says so.
+
+**The stream endpoint answers with `@Res()`, not `@Sse()`.** `@Sse` frames
+whatever you hand it and these frames are already SSE; piping through it produced
+the literal text `data: data: {...}`. Everything else is a normal
+`ApiResponse<T>`. Like every route outside `/api/health*`, all of them require
+`x-desktop-token`.
+
 ## Testing
 
 **Unit tests**: `*.spec.ts` under `src/` (convention: colocated `__tests__/` dirs). ESM-only packages don't work with Jest (CJS), so manual mocks in `src/__mocks__/` are wired via `moduleNameMapper` in package.json for: `@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`, `openai` (+ `/helpers/zod`).
@@ -420,6 +517,7 @@ See `.env.example` for the full template. In normal operation **the Electron mai
 - `LLM_PROVIDER` — `openai` (default), `gemini`, `claude-code`, `opencode`, `cursor` or `codex`. Written by the AI page; decides which key and which model vars are read. The four CLIs read no key at all.
 - `OPENAI_API_KEY` / `GEMINI_API_KEY` — the selected provider's key is the one that matters; each is shared by commit analysis and brief generation. Only one needs to be set, and a CLI provider needs neither.
 - `OPENAI_COMMIT_ANALYSIS_MODEL`, `OPENAI_BRIEF_MODEL` (default `gpt-4o-mini`), `GEMINI_COMMIT_ANALYSIS_MODEL`, `GEMINI_BRIEF_MODEL` (default `gemini-3.1-flash-lite`), `CLAUDE_CODE_COMMIT_ANALYSIS_MODEL` / `CLAUDE_CODE_BRIEF_MODEL` (defaults `haiku` / `sonnet` — aliases or full ids accepted by `claude --model`), `OPENCODE_COMMIT_ANALYSIS_MODEL` / `OPENCODE_BRIEF_MODEL` (both default `opencode/big-pickle` — always `provider/model`, as printed by `opencode models`), and `CURSOR_COMMIT_ANALYSIS_MODEL` / `CURSOR_BRIEF_MODEL` (defaults `composer-2.5-fast` / `composer-2.5` — ids as printed by `agent --list-models`; `auto` is valid). Read live, so a change applies to the next job. Not in the bundle and not settable from the app: `COMMIT_ANALYSIS_LLM_PROVIDER` / `BRIEFS_LLM_PROVIDER`, honoured from env only.
+- `OPENAI_AGENT_MODEL`, `GEMINI_AGENT_MODEL`, `CLAUDE_CODE_AGENT_MODEL`, `OPENCODE_AGENT_MODEL`, `CURSOR_AGENT_MODEL`, `CODEX_AGENT_MODEL` — the `/agents` chat's model per provider (defaults `gpt-4o`, `gemini-3.6-flash`, `sonnet`, `openai/gpt-5.6-terra`, `composer-2.5`, `gpt-5.6-terra`). Written by the AI page as `agentModel` alongside the other two. `AGENTS_LLM_PROVIDER` overrides `LLM_PROVIDER` for this workload, honoured from env only.
 - `SLACK_BOT_TOKEN` — mirrors the encrypted `slack.installations` row, same as `GITHUB_TOKEN`.
 
 **Process timezone:** `TZ`, defaulted to `UTC` by `process.env.TZ ??= 'UTC'` as the first statement of `src/main.ts`. The `auth` schema stores naive `timestamp` columns (see `migrations/00001_init.ts:39-41`), so the pin is the safety net for those; application logic does not depend on it — `CadenceService` is process-zone independent by construction.
@@ -428,4 +526,4 @@ See `.env.example` for the full template. In normal operation **the Electron mai
 
 **Logging:** `LOG_LEVEL` (info), `LOG_FILE_PATH` (`$DATA_DIR/logs/app.log`, or `../../logs/app.log` headless), `LOG_FILE_MAX_SIZE` (50M), `LOG_FILE_KEEP_FILES` (7). `pino-http` logs request headers, so `authorization`, `cookie`, `set-cookie` and `x-desktop-token` are redacted; request **bodies** are never serialized, which is what keeps a pasted credential out of the log.
 
-**Gone:** `DATABASE_URL`, `BETTER_AUTH_*`, `GOOGLE_*`, `RESEND_API_KEY`, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` (D-H), `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET`, `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_REDIRECT_URI`/`SLACK_SCOPES`, `TEMPORAL_*`, `INTERNAL_API_TOKEN`.
+**Gone:** `DATABASE_URL` (the agent checkpointer gets a `pg.Pool` shim over PGlite instead — see Agents), `AGENTS_ENABLED`, `BETTER_AUTH_*`, `GOOGLE_*`, `RESEND_API_KEY`, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` (D-H), `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET`, `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_REDIRECT_URI`/`SLACK_SCOPES`, `TEMPORAL_*`, `INTERNAL_API_TOKEN`.

@@ -51,6 +51,7 @@ there is no SMTP setting and no email recipient field on any screen.
 | LLM provider | `src/common/llm/` | Abstract `LlmClient` + one subclass per provider (OpenAI, Gemini, unconfigured) and the live per-call resolver |
 | Slack integration | `src/integrations/slack/` | Bot-token paste + message posting |
 | Jobs | `src/jobs/` | A `jobs` table plus an in-process poll loop (replaces Temporal): brief dispatch/generation/backfill, GitHub commit ingestion + analysis, collaborator sync, LOC-stats backfill (see backend AGENTS.md for the full job catalog) |
+| Agents | `src/agents/` | The `/agents` chat: threads, seven read-only tools over local data, and an in-process LangGraph run checkpointed to the `agents` schema (`/api/agents/threads*`) |
 | Local settings | `src/local/` | Seeded identity, the per-boot API token guard, the credential bundle, and the settings API |
 
 All DevSummary endpoints are workspace-scoped via the global `OrgContextGuard` with role checks (`RequireOrgRole('admin'|'member')`); the guard falls back to the seeded default workspace when the `x-organization-id` header is absent. Every request outside `/api/health*` must also carry the per-boot `x-desktop-token`.
