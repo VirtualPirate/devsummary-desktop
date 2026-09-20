@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { createRequire } from "node:module"
 import path from 'path';
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
@@ -79,31 +78,6 @@ const cspPlugin: Plugin = {
   },
 }
 
-/**
- * `@assistant-ui/react@0.15.15` pins `assistant-cloud: ^0.1.41`, but the
- * `@assistant-ui/core@0.3.20` it pulls in peer-requires `^0.2.1` and imports
- * `assistant-cloud/ai-sdk` — a subpath 0.1.x does not export, which fails the
- * build outright. The sibling `@assistant-ui/react-*` packages already resolve
- * 0.2.2, so point every `assistant-cloud` specifier at that copy and let the
- * whole tree agree on one version.
- *
- * A bundler alias rather than a `pnpm.overrides` pin only because the lockfile
- * is not this change's to rewrite; replace it with the override when it is.
- */
-function assistantCloudAlias() {
-  const req = createRequire(path.join(__dirname, "vite.config.ts"))
-  const cloud = createRequire(req.resolve("@assistant-ui/react-langgraph"))
-  return [
-    // Regex, not a string: a string `find` matches as a prefix, so the bare
-    // specifier would also swallow the subpath and rewrite it to a file path
-    // with "/ai-sdk" glued on the end.
-    { find: /^assistant-cloud$/, replacement: cloud.resolve("assistant-cloud") },
-    {
-      find: /^assistant-cloud\/ai-sdk$/,
-      replacement: cloud.resolve("assistant-cloud/ai-sdk"),
-    },
-  ]
-}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -116,7 +90,6 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@\//, replacement: `${path.resolve(__dirname, "./src")}/` },
-      ...assistantCloudAlias(),
     ],
   },
 })
