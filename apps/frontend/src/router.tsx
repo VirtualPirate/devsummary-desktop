@@ -23,6 +23,7 @@ import { CreateOrganizationPage } from "@/routes/create-organization";
 import { BriefCommitsPage } from "@/routes/brief-commits";
 import { BriefDetailPage } from "@/routes/brief-detail";
 import { BriefsPage } from "@/routes/briefs";
+import { CommitsPage } from "@/routes/commits";
 import { ProjectDetailPage } from "@/routes/project-detail";
 import { ProjectsPage } from "@/routes/projects";
 import { ScheduleDetailPage } from "@/routes/schedule-detail";
@@ -37,7 +38,11 @@ import { IntegrationsGithubSetupPage } from "@/routes/integrations-github-setup"
 import { IntegrationsSlackPage } from "@/routes/integrations-slack";
 import { OrganizationSettingsPage } from "@/routes/organization-settings";
 import { SettingsPage } from "@/routes/settings";
-import type { BriefScopeType } from "@launchstack/api-interfaces";
+import {
+  BRIEF_COMMIT_TYPES,
+  type BriefCommitType,
+  type BriefScopeType,
+} from "@launchstack/api-interfaces";
 
 type IntegrationsGithubSearch = {
   connected?: string;
@@ -86,6 +91,45 @@ const briefsSearchSchema = (
     typeof search.page === "number" && search.page >= 0
       ? Math.floor(search.page)
       : 0,
+});
+
+/**
+ * The commits explorer's filters, all carried in the URL so a door can arrive
+ * pre-filtered. Deliberately **not** persisted in `filter-prefs-store`: the
+ * doors carry their own filters, and a remembered one would fight the link the
+ * user just clicked.
+ */
+export type CommitsSearch = {
+  from: string; // "" or YYYY-MM-DD
+  to: string; // "" or YYYY-MM-DD
+  commitType: string; // "" or a BRIEF_COMMIT_TYPES value
+  repo: string; // "" or a repository uuid
+  analyzedOnly: boolean; // defaults to true
+  page: number;
+  back: string; // "" or an app path to return to
+};
+
+const isCommitType = (v: unknown): v is BriefCommitType =>
+  BRIEF_COMMIT_TYPES.includes(v as BriefCommitType);
+
+// An in-app path only: a protocol-relative "//host" would leave the shell.
+const isAppPath = (v: unknown): v is string =>
+  typeof v === "string" && v.startsWith("/") && !v.startsWith("//");
+
+const commitsSearchSchema = (
+  search: Record<string, unknown> & SearchSchemaInput,
+): CommitsSearch => ({
+  from: isDateKey(search.from) ? search.from : "",
+  to: isDateKey(search.to) ? search.to : "",
+  commitType: isCommitType(search.commitType) ? search.commitType : "",
+  repo: typeof search.repo === "string" ? search.repo : "",
+  // Analyzed-only is the default view; only an explicit `false` widens it.
+  analyzedOnly: search.analyzedOnly !== false,
+  page:
+    typeof search.page === "number" && search.page >= 0
+      ? Math.floor(search.page)
+      : 0,
+  back: isAppPath(search.back) ? search.back : "",
 });
 
 export type HomeSearch = {
@@ -184,6 +228,13 @@ const briefsRoute = createRoute({
   component: BriefsPage,
 });
 
+const commitsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/commits",
+  validateSearch: commitsSearchSchema,
+  component: CommitsPage,
+});
+
 const briefDetailRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/briefs/$briefId",
@@ -271,6 +322,7 @@ const routeTree = rootRoute.addChildren([
     briefsRoute,
     briefDetailRoute,
     briefCommitsRoute,
+    commitsRoute,
     schedulesRoute,
     scheduleNewRoute,
     scheduleDetailRoute,

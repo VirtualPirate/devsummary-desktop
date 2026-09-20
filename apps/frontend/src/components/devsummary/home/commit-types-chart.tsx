@@ -31,8 +31,11 @@ function typeLabel(t: ClassifiedCommitType): string {
 
 export function CommitTypesChart({
   points,
+  onSelectType,
 }: {
   points: CommitActivityPoint[];
+  /** A segment click opens the commit list pre-filtered to that type. */
+  onSelectType?: (type: ClassifiedCommitType) => void;
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -78,6 +81,10 @@ export function CommitTypesChart({
                 ? [3, 3, 0, 0]
                 : undefined
             }
+            // The series' type is known here, so the handler needs nothing
+            // out of recharts' click payload.
+            onClick={onSelectType ? () => onSelectType(t) : undefined}
+            style={onSelectType ? { cursor: "pointer" } : undefined}
           />
         ))}
       </BarChart>

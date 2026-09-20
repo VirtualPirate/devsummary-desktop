@@ -50,6 +50,8 @@ export * from "./requests/briefs.requests";
 export * from "./responses/briefs.responses";
 export * from "./responses/collaborators.responses";
 export * from "./responses/slack.responses";
+export * from "./requests/commits.requests";
+export * from "./responses/commits.responses";
 export * from "./requests/analytics.requests";
 export * from "./responses/analytics.responses";
 export * from "./responses/jobs.responses";

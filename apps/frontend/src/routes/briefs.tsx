@@ -5,6 +5,7 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  GitCommitHorizontal,
   Zap,
 } from "lucide-react";
 import type { BriefScopeType } from "@launchstack/api-interfaces";
@@ -33,6 +34,7 @@ import {
 } from "@/components/devsummary/briefs/brief-filters";
 import { useGetBriefs, type BriefListFilters } from "@/hooks/api/use-briefs";
 import { briefFilterPrefs, saveFilters } from "@/stores/filter-prefs-store";
+import { localDayBoundary } from "@/lib/day-boundary";
 import { cn } from "@/lib/utils";
 
 type FilterType = "all" | BriefScopeType;
@@ -53,24 +55,6 @@ const TYPE_OPTIONS: { value: FilterType; label: string }[] = [
   { value: "collaborator", label: "Collaborators" },
   { value: "repository", label: "Repositories" },
 ];
-
-/**
- * `<Input type="date">` yields a calendar date in the *viewer's* zone, so the
- * instant has to be built from local fields. String-concatenating a `Z` (or
- * `new Date("YYYY-MM-DD")`, which also parses as UTC) makes "from Aug 14" mean
- * Aug 14 10:00 local for a user at UTC+10, dropping briefs that ended that day.
- *
- * Both bounds are **exclusive local midnights**, because the server compares
- * them against a brief's exclusive `periodEnd` (`periodEnd > from`,
- * `periodEnd <= to`). A brief covering Aug 14 ends at Aug 15 00:00, so "to
- * Aug 14" has to send Aug 15 00:00 to include it, and "from Aug 14" has to send
- * Aug 14 00:00 to exclude the brief covering Aug 13 — which ends at exactly
- * that instant.
- */
-function localDayBoundary(date: string, end: boolean): string {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(y, m - 1, d + (end ? 1 : 0)).toISOString();
-}
 
 const EMPTY_FILTERS: BriefFiltersValue = {
   from: "",
@@ -218,6 +202,12 @@ export function BriefsPage() {
         description="Plain-English summaries of what your team shipped, in flight, and at risk."
         actions={
           <>
+            {/* Widens from the briefs' summaries to the raw commit history. */}
+            <Button asChild size="sm" variant="ghost">
+              <Link to="/commits" search={{ back: "/briefs" }}>
+                <GitCommitHorizontal className="size-3.5" /> All commits
+              </Link>
+            </Button>
             <Button asChild size="sm" variant="ghost">
               <Link to="/schedules">
                 <CalendarClock className="size-3.5" /> Manage schedules

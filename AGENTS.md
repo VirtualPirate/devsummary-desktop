@@ -64,6 +64,7 @@ All DevSummary endpoints are workspace-scoped via the global `OrgContextGuard` w
 Components live in `src/components/devsummary/`. Routes:
 
 - `/briefs` — dashboard with filters and pagination; `/briefs/$briefId` — detail with commit-type bar (`commit-type-bar.tsx`) and retry-on-failure; `/briefs/$briefId/commits` — granular commit list with analysis details and GitHub links
+- `/commits` — org-wide commits explorer: date range, type and repository filters, an "Analyzed only" toggle (on by default) and 50-per-page keyset pagination. No sidebar entry; it is reached from the home activity cards, the briefs list header and a brief's own commit list, each carrying a `back` path
 - `/schedules`, `/schedules/new`, `/schedules/$scheduleId` — schedule management (scope picker, cadence, delivery channels)
 - `/projects`, `/projects/$projectId` and `/teams`, `/teams/$teamId` — grouping management
 - `/integrations/github` — PAT connect form, connected account + repositories with their branch; banners a count of repositories that have no branch and therefore read nothing

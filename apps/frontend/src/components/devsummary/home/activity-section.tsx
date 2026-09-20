@@ -1,5 +1,5 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { GitBranch } from "lucide-react";
+import { ArrowUpRight, GitBranch } from "lucide-react";
 import { useMemo } from "react";
 import type { CommitActivityPoint } from "@launchstack/api-interfaces";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,13 @@ import {
   useGetCommitHours,
 } from "@/hooks/api/use-analytics";
 import { extractErrorMessage } from "@/lib/extract-error";
-import { periodDelta, resolveActivityWindow } from "@/lib/activity-window";
+import {
+  dateKey,
+  periodDelta,
+  resolveActivityWindow,
+} from "@/lib/activity-window";
+import { addDaysKey } from "@/lib/calendar-grid";
+import type { ClassifiedCommitType } from "@/components/devsummary/shared/commit-type-colors";
 import type { HomeSearch } from "@/router";
 import { homeFilterPrefs, saveFilters } from "@/stores/filter-prefs-store";
 import { ActivityFilters } from "./activity-filters";
@@ -107,6 +113,32 @@ export function ActivitySection() {
     totals.additions === 0 &&
     totals.deletions === 0;
 
+  // The doors onto /commits. `window.to` is exclusive, so the last day the
+  // cards actually show is the day before it; the explorer's `to` is a
+  // calendar date, inclusive.
+  const commitsSearch = {
+    from: dateKey(window.displayFrom),
+    to: addDaysKey(dateKey(window.to), -1),
+    repo: search.repo,
+    back: "/",
+  };
+
+  const viewAll = (label: string) => (
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className="h-auto px-2 py-1 text-xs font-normal text-muted-foreground hover:text-foreground"
+    >
+      <Link to="/commits" search={commitsSearch}>
+        {label} <ArrowUpRight className="size-3.5" />
+      </Link>
+    </Button>
+  );
+
+  const openType = (type: ClassifiedCommitType) =>
+    navigate({ to: "/commits", search: { ...commitsSearch, commitType: type } });
+
   if (installationsQuery.isSuccess && repos.length === 0) {
     return (
       <section className="mb-8">
@@ -190,6 +222,7 @@ export function ActivitySection() {
             delta={periodDelta(totals.commits, prevTotals.commits).pct}
             isLoading={isLoading}
             isEmpty={isEmpty}
+            action={viewAll("View all")}
           >
             <CommitsChart points={display} />
           </ChartCard>
@@ -199,9 +232,10 @@ export function ActivitySection() {
             subtitle="AI-classified · analyzed commits only"
             isLoading={isLoading}
             isEmpty={isEmpty}
+            action={viewAll("View all commits")}
             className="lg:col-span-2"
           >
-            <CommitTypesChart points={display} />
+            <CommitTypesChart points={display} onSelectType={openType} />
           </ChartCard>
 
           <ChartCard
