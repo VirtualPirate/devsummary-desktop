@@ -20,6 +20,7 @@ export const UpdateLocalCredentialsSchema = z
     desktopNotifications: z.boolean(),
     commitAnalysisModel: z.string().trim().max(100),
     briefModel: z.string().trim().max(100),
+    agentModel: z.string().trim().max(100),
   })
   .partial();
 

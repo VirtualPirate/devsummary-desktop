@@ -19,22 +19,29 @@ export const SECRET_KEYS = [
   // persists, so a choice made in settings has nowhere else to survive a
   // restart. `status()` reports the provider (the UI has to preselect it) but
   // never the models — those are answered as effective values by
-  // `LocalSettingsService`, and a model name is not a credential.
+  // `LocalSettingsService`, and a model name is not a credential. Three per
+  // provider: commit analysis, briefs and the agent each pick their own.
   'LLM_PROVIDER',
   'OPENAI_COMMIT_ANALYSIS_MODEL',
   'OPENAI_BRIEF_MODEL',
+  'OPENAI_AGENT_MODEL',
   'GEMINI_COMMIT_ANALYSIS_MODEL',
   'GEMINI_BRIEF_MODEL',
+  'GEMINI_AGENT_MODEL',
   // Agent CLIs have no key of their own — they use the login already held by
   // their local binary — so only their model overrides ride the bundle.
   'CLAUDE_CODE_COMMIT_ANALYSIS_MODEL',
   'CLAUDE_CODE_BRIEF_MODEL',
+  'CLAUDE_CODE_AGENT_MODEL',
   'OPENCODE_COMMIT_ANALYSIS_MODEL',
   'OPENCODE_BRIEF_MODEL',
+  'OPENCODE_AGENT_MODEL',
   'CURSOR_COMMIT_ANALYSIS_MODEL',
   'CURSOR_BRIEF_MODEL',
+  'CURSOR_AGENT_MODEL',
   'CODEX_COMMIT_ANALYSIS_MODEL',
   'CODEX_BRIEF_MODEL',
+  'CODEX_AGENT_MODEL',
 ] as const;
 
 export type SecretKey = (typeof SECRET_KEYS)[number];
