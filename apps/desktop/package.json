@@ -9,7 +9,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json && wait-on -t 120000 http://localhost:5173 && electron .",
+    "dev": "tsc -p tsconfig.json && wait-on -t 120000 http://localhost:5173 && electron . --no-sandbox",
     "dist": "electron-builder",
     "test:csp": "electron test/csp.js",
     "test:updater": "electron test/updater.js",

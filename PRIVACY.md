@@ -56,6 +56,17 @@ child processes before they start, so a model reading an untrusted diff cannot r
 channel and the brief's title and summary are sent. Slack is the only delivery destination
 that leaves the machine; desktop notifications are local. There is no email delivery.
 
+**Email verification** (`api.devsummary.com`) — only if you ask for a verification link.
+This is optional and nothing in the app depends on it; every feature works the same
+whether you verify or not. The only thing sent is the address you type, so that we can
+mail you a link. No
+credential, no installation identifier, no device identifier, no repository or commit
+data goes with it, and there is no account or password behind it. We record that the
+address was confirmed; we do not know which installation asked, and we do not count or
+enforce anything about your use. While a link is outstanding, the app asks every few
+seconds whether that address has been confirmed, and stops once it has. A verified
+installation makes no further requests to us. You can skip this entirely.
+
 **Install telemetry** — one anonymous record: a random install identifier generated when
 you accept the terms, the app version, your operating system's platform and version, and
 the launch timestamp. No repository names, no commit data, no file contents, no
@@ -65,7 +76,9 @@ In the current build the destination is unset, so no telemetry request is made a
 ## What is never sent to us
 
 Repository names, commit messages, code and diffs, brief contents, teammate names and
-email addresses, and your credentials. There is no crash reporter.
+email addresses, and your credentials. There is no crash reporter. The single exception
+is an email address you type yourself into the verification form, described above — that
+address is sent to us because mailing you a link is the point of it.
 DevSummary does not use advertising, does not profile you, and has nothing to sell to a
 third party because it collects nothing to sell.
 

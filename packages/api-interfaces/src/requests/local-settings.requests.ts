@@ -28,3 +28,11 @@ export interface UpdateLocalCredentialsRequest {
   commitAnalysisModel?: string;
   briefModel?: string;
 }
+
+/**
+ * Asks the DevSummary API to mail a magic link to this address. Repeating it is
+ * the Resend action; an already-verified address is a silent no-op upstream.
+ */
+export interface RequestEmailVerificationRequest {
+  email: string;
+}

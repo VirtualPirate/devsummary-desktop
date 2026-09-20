@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Download, FolderOpen, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/devsummary/shared/page-header";
+import { EmailVerificationCard } from "@/components/integrations/email-verification-card";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -246,6 +247,8 @@ export function SettingsPage() {
           enabled={status?.desktopNotifications ?? false}
           dataDir={status?.dataDir ?? ""}
         />
+
+        <EmailVerificationCard />
 
         <UpdatesSection />
 

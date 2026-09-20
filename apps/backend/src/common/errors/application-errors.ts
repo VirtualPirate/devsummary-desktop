@@ -394,6 +394,20 @@ export const AppError = sealRegistry({
     details: ({ timezone }) => ({ timezone }),
   }),
 
+  // --- Email verification (the magic-link gate that raises local caps) ---
+  EMAIL_VERIFICATION_RATE_LIMITED: defineError<{ retryAfterSeconds: number }>({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    message: ({ retryAfterSeconds }) =>
+      `Too many link requests; try again in ${retryAfterSeconds}s`,
+    details: ({ retryAfterSeconds }) => ({ retryAfterSeconds }),
+  }),
+  EMAIL_VERIFICATION_SEND_FAILED: defineError<{ reason: string }>({
+    status: HttpStatus.BAD_GATEWAY,
+    message: 'Could not send the email. Try again.',
+    // The upstream reason is for the log, not for the user — it names our
+    // mail provider's failure, which means nothing to the person reading it.
+    details: ({ reason }) => ({ reason }),
+  }),
   // --- Waitlist ---
   WAITLIST_RATE_LIMITED: defineError<{ retryAfterSeconds: number }>({
     status: HttpStatus.TOO_MANY_REQUESTS,

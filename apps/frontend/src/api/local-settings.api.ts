@@ -2,8 +2,10 @@ import type {
   AgentCliProviderName,
   AgentCliStatus,
   ApiResponse,
+  EmailVerificationStatus,
   LocalSettingsStatus,
   LocalSettingsTestResult,
+  RequestEmailVerificationRequest,
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
 import { axiosInstance } from "./axios-client";
@@ -39,6 +41,27 @@ export const LocalSettingsAPI = {
       params: refresh ? { refresh: "1" } : undefined,
     });
     return response.data as ApiResponse<AgentCliStatus[]>;
+  },
+
+  /** One poll of the magic-link gate. The backend talks to the API, not us. */
+  verification: async (): Promise<ApiResponse<EmailVerificationStatus>> => {
+    const response = await axiosInstance.request({
+      url: `${BASE}/verification`,
+      method: "GET",
+    });
+    return response.data as ApiResponse<EmailVerificationStatus>;
+  },
+
+  /** Mail a link. Resend is the same call with the same address. */
+  requestVerification: async (
+    payload: RequestEmailVerificationRequest,
+  ): Promise<ApiResponse<EmailVerificationStatus>> => {
+    const response = await axiosInstance.request({
+      url: `${BASE}/verification`,
+      method: "POST",
+      data: payload,
+    });
+    return response.data as ApiResponse<EmailVerificationStatus>;
   },
 
   testAgentCli: async (

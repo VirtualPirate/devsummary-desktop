@@ -72,3 +72,26 @@ export interface LocalSettingsTestResult {
   ok: true;
   detail: string;
 }
+
+/**
+ * Whether this install's email address has been confirmed. Served by
+ * `GET /api/local-settings/verification`.
+ *
+ * Optional, and nothing in the app is gated on it: the upstream API records that
+ * an address was confirmed and nothing else — it does not know which install
+ * asked, and there is no account, session or key behind it.
+ */
+export interface EmailVerificationStatus {
+  status: "unverified" | "pending" | "verified";
+  /** The normalized address, as the upstream API echoes it back. */
+  email: string | null;
+  /** ISO instant of the last link request. */
+  requestedAt: string | null;
+  verifiedAt: string | null;
+  /**
+   * The outstanding link is past its 24-hour life, so only a new one can change
+   * the answer. Computed on the backend: a renderer cannot read a clock during
+   * render without becoming impure, and this is the machine that mints the link.
+   */
+  linkExpired: boolean;
+}

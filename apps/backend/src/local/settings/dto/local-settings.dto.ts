@@ -41,3 +41,13 @@ export const AgentCliParamSchema = z.object({
 });
 
 export type AgentCliParam = z.infer<typeof AgentCliParamSchema>;
+
+/** Shape only. `EmailVerificationService` normalizes and re-validates, so the
+ *  address the API is asked about and the one we store are the same string. */
+export const RequestEmailVerificationSchema = z.object({
+  email: z.string().trim().min(1).max(254),
+});
+
+export type RequestEmailVerificationBody = z.infer<
+  typeof RequestEmailVerificationSchema
+>;

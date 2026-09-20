@@ -68,6 +68,24 @@ Slack is the **only** delivery destination. Email delivery is not available in t
 version (`docs/DELTAS.md` D-H), so no mail relay is ever contacted. Desktop notifications are
 the second delivery channel and are local only.
 
+## Email verification — only when the user asks for a link
+
+| Host | Port | What is sent | What comes back | Evidence |
+|---|---|---|---|---|
+| `api.devsummary.com` | 443 | One email address, typed by the user. No credential, no install id, no device id, no account, no repository or commit data | Whether that address is marked verified | `local/settings/email-verification.service.ts` |
+
+Optional, and nothing in the app is gated on the result
+(`docs/desktop-email-verification.md` is the contract). Nothing is sent until the user
+submits an address on Settings → Email. After that the backend polls the same host every
+4 seconds while a link is outstanding, and stops on the first verified answer — the status
+is stored locally and re-asking would only cost a request. A verified install makes no
+further calls.
+
+The request is made by the **backend**, in Node, not by the renderer: the renderer's CSP
+allows `connect-src` to loopback only, and it stays that way. The magic link itself is
+opened by the user in their own browser; the app never sees the token and never requests
+`/api/desktop/verify`.
+
 ## Telemetry
 
 One anonymous record per launch: a random install id minted at consent, app version, OS
