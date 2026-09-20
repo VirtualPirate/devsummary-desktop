@@ -4,27 +4,28 @@ import type { BriefCommitResponse } from "@launchstack/api-interfaces";
 import { cn } from "@/lib/utils";
 import { CommitTypeChip } from "./commit-type-chip";
 
-// Relative label ("just now", "5m", "3h", "2d") with the full timestamp on hover.
-function formatRelative(iso: string | null): { label: string; title: string } {
-  if (!iso) return { label: "—", title: "Unknown date" };
+// The exact instant the commit was authored, in the viewer's own zone —
+// `authoredAt` is an instant, so no other zone applies. Locale decides the
+// field order and 12/24h ("19 Sep 2026, 14:02" vs "Sep 19, 2026, 02:02 PM").
+// The title keeps the full string, seconds included.
+function formatAuthoredAt(iso: string | null): { label: string; title: string } {
+  if (!iso) return { label: "\u2014", title: "Unknown date" };
   const date = new Date(iso);
-  const title = date.toLocaleString();
-  const diffMs = Date.now() - date.getTime();
-  const min = Math.round(diffMs / 60000);
-  const hr = Math.round(diffMs / 3600000);
-  const day = Math.round(diffMs / 86400000);
-  let label: string;
-  if (diffMs < 60000) label = "just now";
-  else if (min < 60) label = `${min}m`;
-  else if (hr < 24) label = `${hr}h`;
-  else if (day < 30) label = `${day}d`;
-  else label = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return { label, title };
+  return {
+    label: date.toLocaleString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    title: date.toLocaleString(),
+  };
 }
 
 export function CommitRow({ commit }: { commit: BriefCommitResponse }) {
   const [open, setOpen] = useState(false);
-  const time = formatRelative(commit.authoredAt);
+  const time = formatAuthoredAt(commit.authoredAt);
   const author = commit.authorLogin ?? commit.authorName ?? "unknown";
 
   return (
@@ -43,7 +44,9 @@ export function CommitRow({ commit }: { commit: BriefCommitResponse }) {
           {author}
         </span>
         {commit.repositoryFullName ? (
-          <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground md:inline">
+          // The timestamp is ~60px wider than the relative label it replaced,
+          // so the repository column gives way a breakpoint earlier.
+          <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground lg:inline">
             {commit.repositoryFullName}
           </span>
         ) : null}
@@ -51,7 +54,7 @@ export function CommitRow({ commit }: { commit: BriefCommitResponse }) {
           {commit.sha.slice(0, 7)}
         </span>
         <span
-          className="shrink-0 text-[11px] text-muted-foreground"
+          className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
           title={time.title}
         >
           {time.label}

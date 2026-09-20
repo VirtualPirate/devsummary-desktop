@@ -132,12 +132,21 @@ export class CommitAnalysisActivities {
     repositoryId: string;
     branch: string;
     sinceISO: string;
+    /**
+     * True when this read is watching commits arrive rather than importing
+     * history — see `BackfillArgs.landedNow`. Only the incremental ingest path
+     * sets it; omitted everywhere else, and omitted is the old behaviour.
+     */
+    landedNow?: boolean;
   }): Promise<{ inserted: number }> {
     const r = await this.backfill.run(
       {
         repositoryId: input.repositoryId,
         branch: input.branch,
         sinceISO: input.sinceISO,
+        // Optional, defaulting to the import semantics, so a job row enqueued
+        // before this field existed resumes as it always did.
+        landedNow: input.landedNow ?? false,
       },
       (progress) => this.heartbeat(progress),
     );

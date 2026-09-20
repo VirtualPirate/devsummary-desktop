@@ -546,6 +546,7 @@ describe('claude-code as a provider', () => {
     expect(DEFAULT_MODELS['claude-code']).toEqual({
       commitAnalysis: 'haiku',
       brief: 'sonnet',
+      agent: 'sonnet',
     });
     expect(
       loadLlmSettings(
@@ -555,14 +556,18 @@ describe('claude-code as a provider', () => {
     ).toMatchObject({ model: 'haiku' });
   });
 
-  it('keeps one value in both slots for the key providers', () => {
+  it('keeps one value in both one-shot slots for the key providers', () => {
     expect(DEFAULT_MODELS.openai).toEqual({
       commitAnalysis: 'gpt-4o-mini',
       brief: 'gpt-4o-mini',
+      // The agent picks tools in a loop, where the other two are one shot at
+      // one diff, so it is the one slot that differs on a key provider.
+      agent: 'gpt-4o',
     });
     expect(DEFAULT_MODELS.gemini).toEqual({
       commitAnalysis: 'gemini-3.1-flash-lite',
       brief: 'gemini-3.1-flash-lite',
+      agent: 'gemini-3.6-flash',
     });
   });
 
@@ -615,6 +620,7 @@ describe('opencode as a provider', () => {
     expect(DEFAULT_MODELS.opencode).toEqual({
       commitAnalysis: 'openai/gpt-5.6-luna',
       brief: 'openai/gpt-5.6-terra',
+      agent: 'openai/gpt-5.6-terra',
     });
     expect(Object.values(DEFAULT_MODELS.opencode)).not.toContainEqual(
       expect.stringMatching(/^opencode\//),
@@ -656,6 +662,7 @@ describe('cursor as a provider', () => {
     expect(DEFAULT_MODELS.cursor).toEqual({
       commitAnalysis: 'composer-2.5-fast',
       brief: 'composer-2.5',
+      agent: 'composer-2.5',
     });
     expect(
       loadLlmSettings(cfg({ LLM_PROVIDER: 'cursor' }), opts('commitAnalysis')),

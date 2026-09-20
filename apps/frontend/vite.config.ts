@@ -78,6 +78,7 @@ const cspPlugin: Plugin = {
   },
 }
 
+
 // https://vite.dev/config/
 export default defineConfig({
   // The packaged app loads index.html off disk with `win.loadFile`, so absolute
@@ -87,8 +88,8 @@ export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss(), cspPlugin],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: /^@\//, replacement: `${path.resolve(__dirname, "./src")}/` },
+    ],
   },
 })

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Also see the root [AGENTS.md](../../AGENTS.md) for monorepo-wide commands and the **DevSummary product spec** (user flows, AI usage, frontend screens), and `docs/MIGRATION-PLAN.md` + `docs/DELTAS.md` for how this backend got here from the cloud original. This file covers the backend implementation.
+Also see the root [AGENTS.md](../../AGENTS.md) for monorepo-wide commands and the **DevSummary product spec** (user flows, AI usage, frontend screens), and its "Deviations from the cloud original" list for how this backend differs from the cloud original. This file covers the backend implementation.
 
 ## Commands
 
@@ -56,6 +56,7 @@ AppModule (RequestIdMiddleware + LocalSessionMiddleware on all routes)
 ├── GithubCollaboratorsModule ─ repo collaborator sync
 ├── BriefsModule ───────────── projects, teams, schedules, generation, delivery
 ├── AnalyticsModule ────────── dashboard activity buckets
+├── AgentsModule ───────────── the /agents chat: threads, tools, the LangGraph run
 ├── JobActivityModule ──────── the background-jobs toast, backed by the jobs table
 └── HealthModule ──────────── readiness (PGlite ping) + liveness
 ```
@@ -109,21 +110,22 @@ Every LLM call goes through the abstract `LlmClient`: `parse(zodSchema, schemaNa
 - **Every agent CLI reads its working directory into the prompt, so none of them runs in the process cwd.** `AgentCliLlmClient` spawns the child *in* `adapter.workspaceDir` (an empty directory under `DATA_DIR`, built by the shared `scratchDir` helper) rather than merely creating it — Cursor's `--workspace` and Codex's `-C` only close the half those flags cover, and `claude` has no such flag at all, so the cwd was the only lever. Measured on the real `CommitAnalyzerService` over commit `073b8e5` (26 files, 57 062 diff chars, `haiku`): **44 228** prompt tokens with cwd on `apps/backend`, **23 708** in the empty directory. This backend's own `AGENTS.md` was being prefixed to every commit analysed — half the prompt, on every commit, describing code the commit is not about. What survives is the user's own `~/.claude/CLAUDE.md`, for which there is no flag. `--strict-mcp-config` and `--disable-slash-commands` were measured too and changed nothing (`--tools ''` already leaves nothing to load), so neither is passed.
 - **The concurrency cap is derived from the machine — half the cores, 2 to 5** (`DEFAULT_MAX_CONCURRENT`). It was a flat two, carried over from the key providers, where a fan-out spends one metered quota and the cap is about the quota; a CLI spawns a whole agent runtime per call, so the laptop is the constraint. Measured on an M3 (8 cores, 16 GB) with `claude`, counting only our own children: one process peaks at **296 MB / 94 % of a core**, five at **1224 MB / 320 % of 800 %**, and five calls take 19 s where one alone takes 14 — throughput ×3.7, with the cost concentrated in each CLI's startup rather than the wait that follows. Five is the ceiling because `BATCH` in `commit-analysis.jobs.ts` is five and a higher cap would never be reached; **the floor of two is the point of the formula** — this is a desktop app the user is looking at, half the cores is what leaves the other half for them, and a 4-core machine therefore gates exactly where it did before. Note brief generation has its own client and its own cap. OpenCode overrides it down to 2 (`maxConcurrent`): its default model is OpenCode Zen's free tier, where a spent quota is not an error but a silent internal retry loop until our 120 s timeout, so more processes buy nothing and lose the batch.
 - **Cursor is the `agent` binary, not the `cursor` editor launcher.** It takes the system prompt, schema and user prompt through stdin, and runs with `--mode ask` as the read-only lock plus `--trust` for headless execution — `-p` alone, in the CLI's own help, "has access to all tools, including write and shell", so ask mode is the whole boundary (verified: asked to write a file and run `id`, the workspace stayed empty). Never add `--force`, `--yolo`, `--auto-review` or `--approve-mcps`. `--workspace` points at an empty scratch directory so this repository's `AGENTS.md` never enters the model prompt, and it lives under **`DATA_DIR`, not `tmpdir()`** — on Linux `tmpdir()` is the shared `/tmp`, where a fixed path can be pre-created or symlinked by another local user and `mkdir(…, { recursive: true })` would follow it, handing Cursor a workspace of someone else's choosing. The directory must exist: `--workspace` on a missing path exits **2** with no envelope, which is why `AgentCliLlmClient` creates `adapter.workspaceDir` before spawning.
-- **Cursor's remaining ceilings**, both measured in `docs/receipts/AGENT-CLI-CURSOR.md`: every spawn carries **~14.5k input tokens** of Cursor's own preamble before our prompt, with no flag to strip it (the cost argument for packing 8 commits per spawn), and the user's global `~/.cursor` rules and `mcp.json` are still the CLI's own state — the empty workspace only closes the *project* half, exactly as OpenCode's global instruction file does.
+- **A CLI asked for JSON only still narrates, so the answer is dug out rather than parsed whole.** `parseAnswerJson` strips the fence, tries the body, then tries each balanced `{…}` span inside it. Measured on Cursor's composer-2.5 driving the `/agents` tool loop: it answered `Exploring the workspace for repositories since we should answer with the tool pattern you specified.\n{"text":…,"toolCalls":[]}` and the run died as `OPENAI_RESPONSE_INVALID` — one narration line ends a conversation, and a retry re-rolls the same dice. Cursor, OpenCode and Codex all parse free model text and all three use it; Claude Code does not (its envelope is already structured).
+- **Cursor's remaining ceilings**, both measured during the Cursor adapter spike: every spawn carries **~14.5k input tokens** of Cursor's own preamble before our prompt, with no flag to strip it (the cost argument for packing 8 commits per spawn), and the user's global `~/.cursor` rules and `mcp.json` are still the CLI's own state — the empty workspace only closes the *project* half, exactly as OpenCode's global instruction file does.
 - **`inputTokens` excludes cache, so Cursor's three usage fields are summed.** Measured on two identical calls: `{input: 14511, cacheRead: 4352}` then `{input: 15, cacheRead: 18848}`. This is the opposite of OpenCode's `output`/`reasoning` overlap and was measured rather than assumed — do the same for the next CLI.
 - **Codex is the one adapter whose model can still run a shell**, and the sandbox is the whole boundary. `codex exec -s read-only` refuses writes and has no network, but `exec` always has a shell tool and no config key removes it — `tools.shell`, `tools.local_shell` and `experimental_supported_tools` are all rejected by `--strict-config`. Reads are **not** confined to the workspace: an absolute path still works. Prefer Claude Code (`--tools ''`), OpenCode (`permission {"*": "deny"}`) or Cursor (`--mode ask`) when either will do. Never add `--dangerously-bypass-approvals-and-sandbox`, `--dangerously-bypass-hook-trust`, `--approve-for-me`, `--add-dir`, or `-s workspace-write` / `danger-full-access`.
-- **Codex needs `shell_environment_policy.inherit="none"` *and* `allow_login_shell=false`, and neither works alone — and both stay now that `childEnv` strips the bundle, because they deny the user's *own* profile secrets, which the login shell re-sources inside the child and which are not ours to strip.** `SecretsService` writes the decrypted bundle — OpenAI key, GitHub PAT, `DB_ENCRYPTION_KEY` — straight into `process.env`, and every command the model runs inherits it. The environment policy on its own is a placebo: codex runs commands through `/bin/zsh -lc`, and a login shell re-sources the user's profile and rebuilds what was just denied. Measured with a canary variable, three times, before the second key was found (`docs/receipts/AGENT-CLI-CODEX.md` row 5).
+- **Codex needs `shell_environment_policy.inherit="none"` *and* `allow_login_shell=false`, and neither works alone — and both stay now that `childEnv` strips the bundle, because they deny the user's *own* profile secrets, which the login shell re-sources inside the child and which are not ours to strip.** `SecretsService` writes the decrypted bundle — OpenAI key, GitHub PAT, `DB_ENCRYPTION_KEY` — straight into `process.env`, and every command the model runs inherits it. The environment policy on its own is a placebo: codex runs commands through `/bin/zsh -lc`, and a login shell re-sources the user's profile and rebuilds what was just denied. Measured with a canary variable, three times, before the second key was found (Codex adapter spike, canary run 5).
 - **Codex's schema goes in a file and its system prompt goes in a config override.** `--output-schema` takes a path, which is why the adapter has a `files` hook; `-c instructions=<TOML string>` **replaces** the base system prompt (14 082 input tokens per spawn before, 10 543 after) and is the only system-prompt slot `exec` has. The value is `JSON.stringify`'d because a `-c` value is parsed as TOML and JSON's escapes are a subset of TOML's — an unquoted prompt starting with `[` would be read as a table. `--skip-git-repo-check` is load-bearing (the scratch workspace is not a git repo), and a missing `-C` directory or schema file exits 1, so the client's `mkdir` and file write are required rather than defensive.
 - **Codex `input_tokens` is the total, and an `error` item is not a failure.** `cached_input_tokens` and `cache_write_input_tokens` are breakdowns of `input_tokens`, and `output_tokens` already includes reasoning — so nothing is summed, the opposite of Cursor. And codex reports "Model metadata not found" and "Skill descriptions were shortened" as `item.completed` events of type `error` on runs that answer perfectly; only `turn.failed` means the turn failed. Its remaining ceiling is the ~10.5k-token preamble of the user's skills and plugins, which `--ignore-user-config`, `--ignore-rules` and `--disable plugins` all fail to remove.
 - **The login probe reads stderr when stdout is empty** (`AgentCliDetector.authenticated`). `codex login status` writes its one line to stderr, and parsing stdout alone reported every logged-in user as signed out on the provider card. Fixed in the detector, not the adapter: `parseAuth` only ever receives one string.
 - **A failure reason is stored in `failure_reason` and rendered, so it is cleaned centrally.** Colour codes are stripped in `firstLine` (`agents/agent-cli.helpers.ts`) and the reason is clamped to 300 characters in `AgentCliLlmClient` — Cursor answers an unknown model with its entire 8 KB catalogue on one line, and answers a bad key in ANSI yellow. Neither belongs in a per-adapter fix.
-- **What the adapters share lives in `agents/agent-cli.helpers.ts`**: `firstLine`, `parseStdout`, `isEnvelope`, `stripFence`, `sumTokens`, `parseJsonLines`, `lastOfType`, `scratchDir` and `jsonContractPrompt`. That last one is the reason the file exists — it is the JSON-only contract the *model* reads, used by both OpenCode (as its inline agent prompt) and Cursor (prepended to stdin), and two hand-kept copies drift with nothing failing to compile. Anything that names one CLI's fields stays in that CLI's adapter. Nothing in the helpers imports `agent-cli.adapter`: a cycle back resolves to `any` in the type-aware lint pass and silently unchecks every call site.
+- **What the adapters share lives in `agents/agent-cli.helpers.ts`**: `firstLine`, `parseStdout`, `isEnvelope`, `stripFence`, `parseAnswerJson`, `sumTokens`, `parseJsonLines`, `lastOfType`, `scratchDir` and `jsonContractPrompt`. That last one is the reason the file exists — it is the JSON-only contract the *model* reads, used by both OpenCode (as its inline agent prompt) and Cursor (prepended to stdin), and two hand-kept copies drift with nothing failing to compile. Anything that names one CLI's fields stays in that CLI's adapter. Nothing in the helpers imports `agent-cli.adapter`: a cycle back resolves to `any` in the type-aware lint pass and silently unchecks every call site.
 - **OpenCode's exit code carries no information.** It exits **0** for a provider 401 (an `error` event on stdout) *and* for an unknown model (stdout empty, an ANSI-coloured Bun stack trace on stderr), so the events decide and stderr is read only when there were none. It also has no auth probe — credentials are per provider inside opencode, so `authenticated` stays `null` — and no event names the resolved model, so the client falls back to the configured string.
 - **A throttled provider is a silent retry loop inside opencode, not an error event.** OpenCode Zen answers `Rate limit exceeded` and opencode retries internally with backoff while emitting **no** JSON at all, so our side sees an empty stdout until the 120 s timeout. That is what the adapter's optional `stderrHint(stderr)` is for: `opencode` runs with `--print-logs --log-level ERROR` (the only level that is silent on a healthy call — WARN writes ~260 kB, INFO/DEBUG overflow the 16 MiB read buffer), and the hook lifts the reason out of the `service=session.processor` line. `AgentCliLlmClient` appends it as `; last CLI error: …` to the timeout reason. **Never widen that hook to "the first ERROR line"**: opencode's `service=llm` lines embed `requestBodyValues.messages`, i.e. the system prompt and the commit diff, and the reason string is stored in `failure_reason` and shown on screen.
 - **`--agent` failing to resolve is a trust-boundary failure, and `parseOutput` refuses the run.** If `OPENCODE_CONFIG_CONTENT` ever stops defining `devsummary` (a renamed env var, or a machine-managed config — that one merges *after* it), opencode prints `Falling back to default agent` to stderr and runs its default **build** agent: no system prompt, no schema, no `permission {"*": "deny"}`, tools live in the backend's own working directory, with a commit diff as the prompt. There are events in that case, so the stderr check has to come *before* stdout is trusted. Also note the agent `prompt` replaces only opencode's default *build* prompt: the `<env>` block and one global instruction file (`~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md`) are still appended **after** our JSON-only instruction, and 1.1.53 offers no way to suppress the global one — `instructions: []` is unioned, not replaced. `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1` at least keeps a personal Claude Code memory from being the file that wins.
 - **Two flags must never be passed to `claude`.** `--bare` drops the claude.ai login and every call answers `Not logged in`. `--disallowedTools "*"` blocks the internal `StructuredOutput` tool and the model answers in prose; `--tools ""` is how tools are removed.
 - **Detection executes, it does not just locate** (`agents/agent-cli.detector.ts`). An Electron GUI process inherits a minimal `PATH` with no `~/.local/bin` and no nvm, so the binary is resolved through `$SHELL -lic 'command -v <binary>'` when `PATH` misses — and then **run** with its version flag, because a path found on `PATH` can still fail `ENOENT` on spawn (the Codex case). The detector is a module singleton with a 60 s cache, not a Nest provider: `BriefsModule` and `CommitAnalysisModule` do not import `LocalSettingsModule`, and one cache beats three module graphs. `LocalSettingsModule` registers that same singleton under the class token purely so the settings service is testable. **On `win32` it does neither**: all four providers are reported absent with a hint saying so, because the whole resolve-and-spawn path is macOS/Linux only (`$SHELL -lic` has no Windows meaning, the binary is `claude.cmd` rather than `claude`, `X_OK` is not a Windows permission, and `execFile` refuses a `.cmd` since Node's CVE-2024-27980 fix) and no fix for it could be tested on a platform this app has never launched on.
-- **`DEFAULT_MODELS` is per provider *and* per job.** A CLI wants the cheap model for per-commit volume and a stronger one for the brief people read (Claude Code: `haiku` / `sonnet`; Cursor: `composer-2.5-fast` / `composer-2.5`; Codex: `gpt-5.6-luna` / `gpt-5.6-terra`); OpenAI and Gemini keep the same value in both slots. `loadLlmSettings` therefore takes a `job: 'commitAnalysis' | 'brief'`.
+- **`DEFAULT_MODELS` is per provider *and* per job.** A CLI wants the cheap model for per-commit volume and a stronger one for the brief people read (Claude Code: `haiku` / `sonnet`; Cursor: `composer-2.5-fast` / `composer-2.5`; Codex: `gpt-5.6-luna` / `gpt-5.6-terra`); OpenAI and Gemini keep the same value in those two slots. The third is `agent`, which is above both on *every* provider (`gpt-4o`, `gemini-3.6-flash`, `sonnet`, `openai/gpt-5.6-terra`, `composer-2.5`, `gpt-5.6-terra`): the agent picks tools in a loop and a wrong pick costs a whole extra turn, where per-commit analysis is one shot at one diff. `loadLlmSettings` therefore takes a `job: 'commitAnalysis' | 'brief' | 'agent'`.
 - **Error codes keep the `OPENAI_` prefix** (`OPENAI_NOT_CONFIGURED`, `OPENAI_API_FAILED`, `OPENAI_RESPONSE_INVALID`) so stored `failure_reason` values and any client matching on them stay valid; the *messages* are provider-neutral.
 
 ### Database (Kysely over PGlite)
@@ -140,20 +142,20 @@ constructor(@Inject(KYSELY_DB) private db: AppDatabase) {}
 - **`updatedAt` is NOT auto-touched** — every `updateTable().set({...})` on a table with `updatedAt` must include `updatedAt: new Date()` (including upsert `doUpdateSet`).
 - **jsonb columns** (`raw`, `changes`, `args`) are typed `Json<T>`: reads are parsed values, writes must be `JSON.stringify(...)` strings.
 - **int8/bigint columns** (GitHub ids) come back as JS `BigInt` (`parsers: { 20: BigInt }` on the PGlite instance); un-cast `count(*)` / `sum(int8)` aggregates do too — cast `::int` in SQL or wrap `Number()`.
-- **text[] columns** (`deliveredChannels`) are plain `string[]` both directions. `emailRecipients` and `deliveryEmails` still exist as columns but nothing reads or writes them — email delivery was removed (`docs/DELTAS.md` D-H) and the shipped migrations are frozen.
+- **text[] columns** (`deliveredChannels`) are plain `string[]` both directions. `emailRecipients` and `deliveryEmails` still exist as columns but nothing reads or writes them — email delivery was removed (deviation D-H) and the shipped migrations are frozen.
 - Row types keep the `*Select`/`*Insert` names (`ProjectSelect`, `BriefInsert`, …), exported from the same barrel.
 - **An upgrade migrates behind a backup** (plan risk R7). `openMigratedDatabase()` is the `KYSELY_DB` factory: on a boot with migrations pending against an *existing* database it closes PGlite, copies the data directory to `data.bak` (a sibling, so `userData/data.bak`), reopens and migrates; if any migration throws it removes the dirty directory, renames the snapshot back and rethrows, so the app refuses to start on a half-migrated database. A first launch and an up-to-date launch copy nothing — otherwise every launch would duplicate ~40 MB. The snapshot is kept after a successful upgrade (the user's only rollback) and overwritten by the next one. It lives in the provider factory rather than `onModuleInit` because the close/reopen is only possible before the handle every repository holds is handed out. `test/e2e/specs/migration-backup.e2e.spec.ts` is the vN → vN+1 → failure-restore test, and the only e2e spec that uses a real data directory.
 - **PGlite has exactly one connection.** A `db.transaction()` holds it for its whole lifetime, blocking the other job loop and every HTTP request — which is why `JobRunnerService` claims a job with a single `update … returning` statement instead of a transaction. Keep transactions short and never open one around a network call.
 
-PG schema namespaces: `public` (`demo`, `organizations`, `organization_members`, `organization_invites`, `jobs`, `local_settings`), `auth` (`user`, `session`, `account`, `verification` — Better Auth's tables, now holding one seeded user row; the shipped migrations are frozen so they stay), `github` (`installations`, `repositories`, `repository_branches`, `commits`, `commit_branches`, `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`), `slack` (`installations`), `briefs` (`briefs`, `brief_commits`, `brief_schedules`, `projects`, `project_repositories`, `teams`, `team_collaborators`), `marketing` (`waitlist`). Several of those tables are now unused (`organization_invites`, `webhook_events`, `marketing.waitlist`, most of `auth`) — the migrations that create them are shipped and **never edited**, so the tables stay and nothing reads them.
+PG schema namespaces: `public` (`demo`, `organizations`, `organization_members`, `organization_invites`, `jobs`, `local_settings`), `auth` (`user`, `session`, `account`, `verification` — Better Auth's tables, now holding one seeded user row; the shipped migrations are frozen so they stay), `github` (`installations`, `repositories`, `repository_branches`, `commits`, `commit_branches`, `commit_analyses`, `collaborators`, `repository_collaborators`, `webhook_events`), `slack` (`installations`), `briefs` (`briefs`, `brief_commits`, `brief_schedules`, `projects`, `project_repositories`, `teams`, `team_collaborators`), `agents` (`sessions`, `usage`, plus the four `checkpoint*` tables `PostgresSaver.setup()` creates for itself), `marketing` (`waitlist`). Several of those tables are now unused (`organization_invites`, `webhook_events`, `marketing.waitlist`, most of `auth`) — the migrations that create them are shipped and **never edited**, so the tables stay and nothing reads them.
 
-Migrations live in `migrations/`; `00001–00014` are copied verbatim from the cloud original and must never be edited. `00015_jobs.ts` adds the `jobs` and `local_settings` tables; `00016_seed_local_singleton.ts` seeds the one user row and the default workspace with the fixed UUIDs in `src/local/local-identity.ts`. Migrations must stay independent of application code: import only from `kysely` and write **literal snake_case** identifiers, since `CamelCasePlugin` is not installed on the migration connection.
+Migrations live in `migrations/`; `00001–00014` are copied verbatim from the cloud original and must never be edited. `00015_jobs.ts` adds the `jobs` and `local_settings` tables; `00016_seed_local_singleton.ts` seeds the one user row and the default workspace with the fixed UUIDs in `src/local/local-identity.ts`; `00017_commit_landed_at.ts` adds the landed clock; `00018_agents.ts` + `00019_agent_threads.ts` are the agents schema, ported as the same two files the cloud original had so the chains stay comparable — the second drops a column the first adds. Migrations must stay independent of application code: import only from `kysely` and write **literal snake_case** identifiers, since `CamelCasePlugin` is not installed on the migration connection.
 
 Domain tables use UUID PKs, `created_at`/`updated_at`, and **soft deletes** (`deleted_at`) almost everywhere — repository queries must filter `deletedAt IS NULL`.
 
 ### Workspaces (`organizationId`)
 
-Multi-tenancy survives the desktop port as local **workspaces** (`docs/DELTAS.md` D-A). `organizationId` is threaded through every table, query, guard and DTO; only its *source* changed.
+Multi-tenancy survives the desktop port as local **workspaces** (deviation D-A). `organizationId` is threaded through every table, query, guard and DTO; only its *source* changed.
 
 - Org-scoped requests carry the **`x-organization-id` header**. `OrgContextGuard` (a global `APP_GUARD`) activates on routes decorated with `@RequireOrgRole(level)`: validates the header as a UUID, **falls back to `LOCAL_ORG_ID` when it is absent**, verifies membership and role rank, then attaches the membership to the request.
 - Role levels for `@RequireOrgRole`: `'owner' | 'admin' | 'member'` — `member` means *any* role. DB roles are `owner | admin | viewer`. The seeded local user is `owner` of the default workspace and of every workspace it creates, so the checks are real but never fail in practice.
@@ -278,6 +280,7 @@ Every route except `/api/health*` requires the `x-desktop-token` header. Org-sco
 | `api/integrations/github/repositories/:repoId/commits` | github/commit-analysis | commit/analysis endpoints, backfill triggers |
 | `api/integrations/slack/installations` | slack | `GET`, `POST /token` (paste a bot token), `GET /scopes`, `DELETE /:id` (revokes) |
 | `api/integrations/slack` | slack | `GET /channels`, `GET /members`, `POST /messages` |
+| `api/agents/threads` | agents | thread CRUD, `GET /:id/messages` (history), `POST /:id/stream` (SSE run) |
 | `api/local-settings` | local/settings | `GET` status (booleans + dataDir + effective models), `GET /usage` (token totals), `GET /agents` (installed agent CLIs, `?refresh=1` forces a re-detect), `PUT /credentials`, `POST /agents/:id/test` |
 | `api/health` | health | public; `GET /` readiness (PGlite ping, 200/503), `GET /live` liveness |
 
@@ -310,7 +313,7 @@ A **repository** scope is validated against the tracked set at the boundary — 
 3. **Generate** — the `briefs.generate` handler runs `markGenerating` then `generateContent` (`BriefActivities`, backed by `BriefGeneratorService`) → `BriefScopeResolver` (scope → repo IDs + optional author filter) → fetch commits + their analyses → `buildBriefUserPrompt()` (truncates to `BRIEFS_MAX_PROMPT_CHARS`, default 30k) → `LlmClient.parse()` with Zod `BriefOutputSchema` → `{ title, summary }` (provider per `BRIEFS_LLM_PROVIDER`/`LLM_PROVIDER`; model `OPENAI_BRIEF_MODEL` / `GEMINI_BRIEF_MODEL`). Stores title/summary/token counts and links commits via `brief_commits` (`BriefCommitsRepository.replaceForBrief()`). Zero-commit periods produce "no activity" briefs without an LLM call.
 
    **`delivered` is the only status `markGenerating` refuses.** Durability is whole-handler retry now, not Temporal replay, so the deduped `brief:<id>` job row is the single execution authority — a row that still exists means no run of the handler has finished. Refusing on `generating` wedged every brief whose process died mid-generation: the handler "succeeded", the row was deleted, and `reapStalePending` only ever looks at `pending`. `generated` is the same wedge one step later — a crash between the generator's write and `deliver` dropped the send for good, and an on-demand brief has no schedule to re-fire it — so it returns `alreadyGenerated: true` and `BriefJobs.generate` **resumes at `deliver`, skipping `generateContent`** rather than re-spending the LLM call. It must not flip the status to `generating` on that path, or a brief whose org configured no delivery channel never leaves it.
-4. **Deliver** (`delivery/`) — `BriefDelivererService` posts to Slack (Block Kit via `BriefRenderService` + `SlackMessagesService`) and, when enabled, fires a desktop notification, in parallel; then sets brief status `delivered`/`failed` (+ `failureReason`) and `schedule.lastSentAt`. Backfilled briefs skip delivery. **There is no email channel** — see `docs/DELTAS.md` D-H.
+4. **Deliver** (`delivery/`) — `BriefDelivererService` posts to Slack (Block Kit via `BriefRenderService` + `SlackMessagesService`) and, when enabled, fires a desktop notification, in parallel; then sets brief status `delivered`/`failed` (+ `failureReason`) and `schedule.lastSentAt`. Backfilled briefs skip delivery. **There is no email channel** — see deviation D-H in the root AGENTS.md.
 
 Brief listing uses base64url cursor pagination with filters (scheduleId, scopeType, period, excludeNoActivity).
 
@@ -318,11 +321,17 @@ Brief listing uses base64url cursor pagination with filters (scheduleId, scopeTy
 
 `BriefReportRepository` takes days as **instant ranges** and names no zone in SQL at all (`ReportDay { key, from, to }`, resolved in `BriefReportService`). Keep it that way: a schedule may hold a legacy alias like `Asia/Calcutta`, which every JS runtime accepts and a Postgres without `tzdata-legacy` rejects outright, taking the whole report down.
 
-**A brief covers what *landed* on the tracked branch during the period**, so commit selection runs on **`committed_at`** — the same clock the ingest high-water mark uses (`findNewestCommittedAtOnBranch`; GitHub's `since` filters on commit date). Keep both halves on one clock. When they disagreed, a rebased branch was fetched, stored and analyzed on its committer date and then failed selection on its stale author date, landing in *no* brief at all: the period it belonged to was closed, `briefs_schedule_period_active_unique` blocks a second brief for it, and `claimDue` only walks forward.
+**A brief covers what *arrived* on the tracked branch during the period**, so commit selection runs on **`github.commits.landed_at`** — stamped by ingestion when it first sees a commit on the branch, not carried by the commit. Neither git date can do this job. Selection used to run on `authored_at`, and a rebased branch was fetched, stored and analyzed on its committer date and then failed selection on its stale author date, landing in *no* brief at all: the period it belonged to was closed, `briefs_schedule_period_active_unique` blocks a second brief for it, and `claimDue` only walks forward. Moving to `committed_at` fixed that for rebase and squash merges, which rewrite the committer date to the merge — and not for `git merge --no-ff`, GitHub's default merge button, which rewrites neither, so the same commits fell into the same hole. `landed_at` is the observed arrival, which is the only clock a merge commit cannot backdate.
 
-`briefs.briefs.commit_clock` snapshots which clock a brief was generated under (`'authored'` for everything predating the switch, `'committed'` since). `BriefReportService` reads it and threads it into every period-bounded query. **It is a fixed identifier, never an interpolated string** — map the union to `sql.ref(...)` through a lookup that throws on anything unexpected. Without the snapshot, old reports would print totals contradicting the `commit_count` on their own brief, which is what the comment at `brief-report.repository.ts:115-120` guards.
+**Its value depends on what kind of read stored the commit**, and that split is the whole design (`BackfillArgs.landedNow`). A first read of a branch — the setup scan, an adoption, a manual backfill — is *importing* history, so it seeds `landed_at` from `committed_at`; stamping the read's own clock would collapse a backfilled year into the day the backfill ran. Only an incremental read is watching commits arrive, and only `CommitAnalysisJobs.ingestNewCommits`' `resume` branch passes `landedNow: true`. `CommitsRepository.upsertMany` leaves the column alone on conflict, so a commit re-offered by a later read keeps the timestamp of the read that first stored it — which matters because `planIngest` deliberately widens its window back past commits already stored.
 
-Two things deliberately left on author date: `analytics/` dashboard buckets (a live-queried surface where nothing can be lost, and switching would shift every historical chart), and, unavoidably, teams that merge with `--no-ff` — those branch commits keep their original committer dates, so their landing date is off by the branch's lifetime. The exact fix for that is a landing timestamp stored at ingest time, resolved differently for a historical read than an incremental one.
+The ingest high-water mark stays on `committed_at` (`findNewestCommittedAtOnBranch`), because that is what GitHub's `since` filters on. The two are no longer the same clock and do not need to be: one decides what to *fetch*, the other what to *report*.
+
+`briefs.briefs.commit_clock` snapshots which clock a brief was generated under (`'authored'`, then `'committed'`, `'landed'` for everything since `00017_commit_landed_at`). Adding a member is two changes, not one: the union and its two closed switches in `commit-clock.ts`, **and** the `briefs_commit_clock_check` constraint in a migration, or the value can be computed but never stored. `BriefReportService` reads it and threads it into every period-bounded query. **It is a fixed identifier, never an interpolated string** — map the union to `sql.ref(...)` through a lookup that throws on anything unexpected. Without the snapshot, old reports would print totals contradicting the `commit_count` on their own brief, which is what the comment at `brief-report.repository.ts:115-120` guards.
+
+One thing deliberately left on author date: `analytics/` dashboard buckets — a live-queried surface where nothing can be lost, and switching would shift every historical chart.
+
+`landed_at` is only as good as ingest is prompt: a commit picked up by the sweep rather than its push is stamped when the sweep saw it, up to a sweep interval late. That is a brief boundary at worst. The real limit is upstream of the clock — the sweep derives its window from the newest `committed_at` on the branch, and GitHub's `since` filters on the same date, so a merged-in commit older than that watermark is never returned at all. `landed_at` files a commit correctly; it cannot file one that was never fetched.
 
 
 ### GitHub integration (`src/integrations/github/`)
@@ -353,7 +362,7 @@ No OAuth. The user creates a Slack app, grants the bot scopes, and pastes the `x
 
 ### Brief delivery channels
 
-**Email delivery is not available in the desktop version** (`docs/DELTAS.md` D-H). Resend went with the cloud original and the SMTP replacement that followed it was removed too: there is no `BriefEmailService`, no `local/settings/smtp.ts`, no `nodemailer` / `@react-email/*` dependency, no `SMTP_*`/`EMAIL_FROM` secret and no `POST /api/local-settings/test-email`. Do not add one back without the user changing D-H.
+**Email delivery is not available in the desktop version** (deviation D-H). Resend went with the cloud original and the SMTP replacement that followed it was removed too: there is no `BriefEmailService`, no `local/settings/smtp.ts`, no `nodemailer` / `@react-email/*` dependency, no `SMTP_*`/`EMAIL_FROM` secret and no `POST /api/local-settings/test-email`. Do not add one back without the user changing D-H.
 
 **Slack** is the one remote channel. `BriefSlackService` renders Block Kit through `BriefRenderService` and posts via `SlackMessagesService` on the user's pasted bot token.
 
@@ -362,6 +371,127 @@ No OAuth. The user creates a Slack app, grants the bot scopes, and pastes the `x
 The manual re-send resolves its channel as `schedule?.slackChannelId ?? brief.deliverySlackChannelId`, so it covers an **on-demand** brief, which has no schedule and carries the channel on its own row. `BriefResponse.deliverySlackChannelId` exists so the frontend's button can gate on the same expression — keying it on the schedule alone hid the button from every one-off brief.
 
 `BriefDeliveryChannel` is still `'email' | 'slack' | 'desktop'` in both the DTO and the database types. `'email'` is **read-only history**: nothing writes it any more, but a `delivered_channels` row written before D-H still carries it.
+
+### Agents (`src/agents/`)
+
+The `/agents` chat: a conversational agent over this workspace's own commit
+history, running **in this process** — LangChain deep agents (`deepagents`) with
+seven read-only tools, checkpointing thread state to the app's PGlite under the
+`agents` schema. No separate service, no port, no shared secret. Ported from the
+cloud original with four deliberate differences, all recorded in
+`docs/UPSTREAM-DRIFT.md` §4.
+
+**There is no enable flag.** `AGENTS_ENABLED` and `VITE_AGENTS_ENABLED` are
+gone. The agent is available whenever an LLM provider is configured, and an
+unconfigured one surfaces as the same `OPENAI_NOT_CONFIGURED` every other LLM
+call raises, on the first run rather than as a menu item that is absent for
+reasons the user cannot see.
+
+**The provider is resolved per run, like briefs.** `loadAgentsConfig` returns an
+object whose `llm` is a getter over `ConfigService` (`AGENTS_LLM_PROVIDER`
+overriding `LLM_PROVIDER`, `AGENT_MODEL_VARS` for the override, job `'agent'`),
+so pasting a key or switching provider in settings takes effect on the next run
+instead of the next launch. `AgentGraphService` caches the built chat model keyed
+on `[provider, apiKey, model]`, exactly as `LiveLlmClient` caches its delegate —
+a model built once in the constructor is the bug that pattern exists to avoid.
+
+**All six providers are selectable, but they reach LangChain by two different
+routes.** OpenAI and Gemini are one `ChatOpenAI` — Gemini answers on an
+OpenAI-compatible endpoint, so the provider is a base URL and a key rather than a
+second SDK, and the key is passed explicitly or a Gemini-configured agent would
+silently bill OpenAI. The four agent CLIs are spawned binaries and cannot drive
+`ChatOpenAI` at all; they go through `createCliChatModel`.
+
+**The four agent CLIs reach LangChain through `createCliChatModel`**
+(`cli-chat-model.ts`), a `BaseChatModel` over this repo's `LlmClient.parse()`
+seam. A CLI has no chat API and no tool-calling protocol — one process, a prompt
+on stdin, one JSON object on stdout — so every turn is **one `parse()` call
+carrying the whole conversation** (the system messages plus a rendered `[user]` /
+`[assistant]` / `[tool …]` transcript, clamped to 30k chars by dropping the
+oldest middle turns), and the tool loop is emulated: the bound tools and their
+JSON schemas go in the system prompt, and the model answers
+`{ text, toolCalls: [{ name, argumentsJson }] }`, which becomes an `AIMessage`
+with `tool_calls` that LangGraph then executes. `argumentsJson` is a JSON
+*string* rather than an object because Codex runs the schema through OpenAI
+strict mode, which rejects an open object outright; an unparseable one is
+emitted as a `tool_call` with `args: {}` **and** an `invalid_tool_calls` entry,
+so the tool node hands the model its own error back instead of the loop ending
+on an empty answer. Nothing here spawns: detection, the concurrency gate,
+scratch files, the 120 s timeout, token accounting and the error mapping are all
+`AgentCliLlmClient`'s, and an `ApiException` from it (`OPENAI_NOT_CONFIGURED`
+for a missing binary) travels out untouched so the SSE error frame carries the
+install hint. **`_streamResponseChunks` is deliberately not overridden but must
+stay present on the prototype** — `langchain`'s `isBaseChatModel` probes
+`"_streamResponseChunks" in model` before it will call `bindTools`, and refusing
+there surfaces as `llm … must define bindTools method` rather than as anything
+about streaming. A CLI answers once at the end, so the `messages` stream mode
+emits nothing incremental on this path; `updates` carries the finished message,
+which is also where `AgentGraphService` accumulates `usage_metadata`. Two known
+ceilings: the abort signal does not reach the spawned CLI (`LlmClient.parse`
+takes none, so a disconnected run unwinds when the CLI returns or hits its
+timeout), and `createDeepAgent`'s built-in tools put ~9 kB of system prompt on
+every turn on top of each CLI's own preamble, so a CLI agent is pricier per turn
+than a keyed one.
+
+**The checkpointer runs on a `pg.Pool` shim** (`databases/kysely/pglite-pool.ts`).
+`PostgresSaver.fromConnString` is unusable here — PGlite is Postgres compiled to
+WASM with no wire protocol and there is no `DATABASE_URL` — but its other
+constructor takes a pool, and the whole surface it touches is `query`, `connect`
+→ a client with `query`/`release`, and `end`. Two things in that shim are
+load-bearing and both have a failure mode that is silent: `withoutPlugins()`,
+because `CamelCasePlugin` would rename the saver's own snake_case columns on the
+way back and every read would be `undefined`; and `connect()` borrowing **one**
+real Kysely connection, because PGlite has a single session and `PGliteDriver`'s
+mutex is the only thing keeping the saver's `BEGIN … COMMIT` from interleaving
+with an application transaction. `end()` is a no-op — `KyselyModule` owns the
+handle. `pglite-pool.spec.ts` drives the real `PostgresSaver` through
+`setup` / `put` / `getTuple` / `list` / `putWrites` / `deleteThread` against an
+in-memory PGlite with the plugin installed, which is what proves the `bytea`
+round-trip (PGlite returns `Uint8Array` where `pg` returns `Buffer`) and the
+`42P01` probe in `setup()`.
+
+**There is no daily cap.** The cloud original metered runs against
+`maxAgentMessagesPerDay`; a single-user install has nothing to meter — the key is
+the user's own — so `AgentUsageService` keeps only the token accounting, and
+`AGENT_DAILY_LIMIT_REACHED` does not exist. The row is still written *before* the
+run, so a stream that dies halfway leaves a record. `sessions.created_by` and
+`usage.user_id` are the seeded local identity, arriving the normal way through
+`@OrgMembership()`.
+
+**The workspace is bound once, in `buildAgentTools`, and is never a tool
+argument.** A model cannot name an organization, so it cannot name the wrong one;
+every query in `AgentDataRepository` joins commits → repositories → installations
+and filters on `installations.organization_id`, and raw diffs are never selected.
+A fresh agent is built per run for that reason — construction is free, and a graph
+shared between workspaces is one plumbing mistake away from answering with
+another's commits.
+
+**On Gemini the agent's HTTP client is wrapped** (`gemini-fetch.ts`). Gemini 3
+attaches a `thought_signature` to every function call it emits and answers the
+*next* turn with a 400 `INVALID_ARGUMENT` unless that signature comes back with
+the call — so a Gemini agent died the moment it used a tool. It rides on
+`tool_calls[].extra_content.google`, which is not OpenAI schema, so
+`@langchain/openai` drops it while parsing and rebuilds outgoing tool calls from
+the typed `tool_calls` alone; the seam has to be at the transport, where it is
+still on the wire. The wrapper also unwraps the single-element array Gemini
+returns errors in, which the `openai` SDK otherwise renders as the contentless
+`400 status code (no body)`. Briefs and commit analysis are one-shot calls with
+no second turn, so none of this touches them.
+
+**Nothing in `agent-wire.ts` may use `instanceof`.** pnpm resolves two copies of
+`@langchain/core` (deepagents pins its own peer set), so messages off the stream
+are built by different classes than the ones that file imports and every
+`instanceof` is false — silently: chunks came through labelled `ai`, so the
+client replaced the answer on every token instead of appending. `getType()` and
+property presence are the same across copies. Whether a message is a streaming
+delta is likewise not detectable — the checkpointer stores the accumulated answer
+as an `AIMessageChunk` too — so only the caller knows, and it says so.
+
+**The stream endpoint answers with `@Res()`, not `@Sse()`.** `@Sse` frames
+whatever you hand it and these frames are already SSE; piping through it produced
+the literal text `data: data: {...}`. Everything else is a normal
+`ApiResponse<T>`. Like every route outside `/api/health*`, all of them require
+`x-desktop-token`.
 
 ## Testing
 
@@ -414,6 +544,7 @@ See `.env.example` for the full template. In normal operation **the Electron mai
 - `LLM_PROVIDER` — `openai` (default), `gemini`, `claude-code`, `opencode`, `cursor` or `codex`. Written by the AI page; decides which key and which model vars are read. The four CLIs read no key at all.
 - `OPENAI_API_KEY` / `GEMINI_API_KEY` — the selected provider's key is the one that matters; each is shared by commit analysis and brief generation. Only one needs to be set, and a CLI provider needs neither.
 - `OPENAI_COMMIT_ANALYSIS_MODEL`, `OPENAI_BRIEF_MODEL` (default `gpt-4o-mini`), `GEMINI_COMMIT_ANALYSIS_MODEL`, `GEMINI_BRIEF_MODEL` (default `gemini-3.1-flash-lite`), `CLAUDE_CODE_COMMIT_ANALYSIS_MODEL` / `CLAUDE_CODE_BRIEF_MODEL` (defaults `haiku` / `sonnet` — aliases or full ids accepted by `claude --model`), `OPENCODE_COMMIT_ANALYSIS_MODEL` / `OPENCODE_BRIEF_MODEL` (both default `opencode/big-pickle` — always `provider/model`, as printed by `opencode models`), and `CURSOR_COMMIT_ANALYSIS_MODEL` / `CURSOR_BRIEF_MODEL` (defaults `composer-2.5-fast` / `composer-2.5` — ids as printed by `agent --list-models`; `auto` is valid). Read live, so a change applies to the next job. Not in the bundle and not settable from the app: `COMMIT_ANALYSIS_LLM_PROVIDER` / `BRIEFS_LLM_PROVIDER`, honoured from env only.
+- `OPENAI_AGENT_MODEL`, `GEMINI_AGENT_MODEL`, `CLAUDE_CODE_AGENT_MODEL`, `OPENCODE_AGENT_MODEL`, `CURSOR_AGENT_MODEL`, `CODEX_AGENT_MODEL` — the `/agents` chat's model per provider (defaults `gpt-4o`, `gemini-3.6-flash`, `sonnet`, `openai/gpt-5.6-terra`, `composer-2.5`, `gpt-5.6-terra`). Written by the AI page as `agentModel` alongside the other two. `AGENTS_LLM_PROVIDER` overrides `LLM_PROVIDER` for this workload, honoured from env only.
 - `SLACK_BOT_TOKEN` — mirrors the encrypted `slack.installations` row, same as `GITHUB_TOKEN`.
 
 **Process timezone:** `TZ`, defaulted to `UTC` by `process.env.TZ ??= 'UTC'` as the first statement of `src/main.ts`. The `auth` schema stores naive `timestamp` columns (see `migrations/00001_init.ts:39-41`), so the pin is the safety net for those; application logic does not depend on it — `CadenceService` is process-zone independent by construction.
@@ -422,4 +553,4 @@ See `.env.example` for the full template. In normal operation **the Electron mai
 
 **Logging:** `LOG_LEVEL` (info), `LOG_FILE_PATH` (`$DATA_DIR/logs/app.log`, or `../../logs/app.log` headless), `LOG_FILE_MAX_SIZE` (50M), `LOG_FILE_KEEP_FILES` (7). `pino-http` logs request headers, so `authorization`, `cookie`, `set-cookie` and `x-desktop-token` are redacted; request **bodies** are never serialized, which is what keeps a pasted credential out of the log.
 
-**Gone:** `DATABASE_URL`, `BETTER_AUTH_*`, `GOOGLE_*`, `RESEND_API_KEY`, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` (D-H), `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET`, `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_REDIRECT_URI`/`SLACK_SCOPES`, `TEMPORAL_*`, `INTERNAL_API_TOKEN`.
+**Gone:** `DATABASE_URL` (the agent checkpointer gets a `pg.Pool` shim over PGlite instead — see Agents), `AGENTS_ENABLED`, `BETTER_AUTH_*`, `GOOGLE_*`, `RESEND_API_KEY`, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` (D-H), `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET`, `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_REDIRECT_URI`/`SLACK_SCOPES`, `TEMPORAL_*`, `INTERNAL_API_TOKEN`.

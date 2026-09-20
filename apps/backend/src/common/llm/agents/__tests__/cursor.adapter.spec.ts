@@ -100,6 +100,21 @@ describe('cursorAdapter.parseOutput', () => {
     });
   });
 
+  it('digs the JSON out of a narrated result', () => {
+    // Measured live on composer-2.5: told "nothing before or after it", it
+    // still prefixes a line about what it is doing.
+    const stdout = JSON.stringify({
+      type: 'result',
+      is_error: false,
+      result:
+        'Exploring the workspace {the tool} first.\n{"text":"done","toolCalls":[]}',
+    });
+    expect(cursorAdapter.parseOutput(output(stdout))).toMatchObject({
+      ok: true,
+      raw: { text: 'done', toolCalls: [] },
+    });
+  });
+
   it('maps an envelope is_error to transport using its result', () => {
     const stdout = JSON.stringify({
       type: 'result',

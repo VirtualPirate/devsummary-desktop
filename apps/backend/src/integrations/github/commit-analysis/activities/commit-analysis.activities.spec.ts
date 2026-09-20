@@ -210,10 +210,33 @@ describe('CommitAnalysisActivities', () => {
           repositoryId: 'r1',
           branch: 'main',
           sinceISO: '2026-01-01T00:00:00Z',
+          // Import semantics unless the caller asks otherwise — a job row
+          // enqueued before the field existed resumes without it.
+          landedNow: false,
         },
         expect.any(Function),
       );
       expect(result).toEqual({ inserted: 3 });
+    });
+
+    // Only `CommitAnalysisJobs.ingestNewCommits`' resume branch sets this, and
+    // it is what stamps `landed_at` on commits that just arrived on the branch.
+    it('forwards landedNow when the caller is watching commits arrive', async () => {
+      const mocks = makeMocks();
+      mocks.backfill.run.mockResolvedValueOnce({ inserted: 1 });
+      const activities = makeActivities(mocks);
+
+      await activities.backfillCommits({
+        repositoryId: 'r1',
+        branch: 'main',
+        sinceISO: '2026-01-01T00:00:00Z',
+        landedNow: true,
+      });
+
+      expect(mocks.backfill.run).toHaveBeenCalledWith(
+        expect.objectContaining({ landedNow: true }),
+        expect.any(Function),
+      );
     });
   });
 

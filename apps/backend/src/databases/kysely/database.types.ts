@@ -54,10 +54,11 @@ export type BriefScopeType = 'project' | 'team' | 'collaborator' | 'repository';
 export type BriefStatus =
   'pending' | 'generating' | 'generated' | 'delivered' | 'failed';
 /**
- * Which of git's two dates a brief's commits were selected by. See
- * `BriefsTable.commitClock` and `commit-clock.ts`.
+ * Which commit timestamp a brief's commits were selected by. Two of the three
+ * are git's own dates; `'landed'` is ours. See `BriefsTable.commitClock` and
+ * `commit-clock.ts`.
  */
-export type BriefCommitClock = 'authored' | 'committed';
+export type BriefCommitClock = 'authored' | 'committed' | 'landed';
 /** Mirrors `BriefDeliveryChannel` in @launchstack/api-interfaces. */
 export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 /**
@@ -236,6 +237,28 @@ export interface GithubCommitsTable {
   committerEmail: string;
   authoredAt: Date;
   committedAt: Date;
+  /**
+   * When this commit was first seen on the branch its repository is read on —
+   * observed by ingestion, not carried by the commit.
+   *
+   * The distinction matters because git's own two dates answer a different
+   * question. A plain merge commit (`git merge --no-ff`, GitHub's default merge
+   * button) rewrites neither, so work written weeks ago arrives on the branch
+   * today still wearing its original dates and selects into a period whose
+   * brief has long since been generated and delivered. Only an observed arrival
+   * time files it under the period it actually shipped in.
+   *
+   * Seeded to `committedAt` for a first read of a branch's history (the setup
+   * scan, an adoption, a manual backfill) — that history is being imported, not
+   * watched arriving, and stamping the read's own clock would collapse a whole
+   * backfilled year into one brief. An incremental read stamps the clock. Never
+   * rewritten after the first insert: see `CommitsRepository.upsertMany`.
+   *
+   * Distinct from `createdAt`, which is the row's, not the commit's — a row
+   * rewritten by a later re-fetch keeps its `landedAt`, and rows written by the
+   * `00017` backfill share a `createdAt` with the rest of their import.
+   */
+  landedAt: GeneratedTimestamp;
   raw: Json<unknown>;
   createdAt: GeneratedTimestamp;
   updatedAt: GeneratedTimestamp;
@@ -430,11 +453,12 @@ export interface BriefsTable {
   periodTimezone: Generated<string>;
   /**
    * Which commit timestamp this brief's period was selected on, frozen at
-   * creation. New briefs are `'committed'` — a brief covers what *landed* on the
-   * tracked branch, the same clock ingestion resumes from. Rows predating the
-   * switch stay `'authored'` (the column default), which is exactly the
-   * semantics they were generated under, so their reports keep matching their
-   * own stored `commitCount`. Read it — never assume a clock.
+   * creation. New briefs are `'landed'` — a brief covers what arrived on the
+   * tracked branch during the period, which is the only clock a plain merge
+   * commit cannot backdate out of. Older rows keep `'committed'` or
+   * `'authored'`, which is exactly the semantics they were generated under, so
+   * their reports keep matching their own stored `commitCount`. Read it — never
+   * assume a clock.
    */
   commitClock: Generated<BriefCommitClock>;
   contributorCount: Generated<number>;
@@ -471,6 +495,34 @@ export interface BriefCommitsTable {
 export interface MarketingWaitlistTable {
   id: Generated<string>;
   email: string;
+  createdAt: GeneratedTimestamp;
+}
+
+// ---------------------------------------------------------------------------
+// agents schema
+// ---------------------------------------------------------------------------
+
+/** One chat thread with the workspace's agent; `id` is the LangGraph thread id. */
+export interface AgentSessionsTable {
+  id: Generated<string>;
+  organizationId: string;
+  createdBy: string;
+  title: string | null;
+  createdAt: GeneratedTimestamp;
+  updatedAt: GeneratedTimestamp;
+  deletedAt: Date | null;
+}
+
+/** One row per agent run. Inserted before the model runs, so a run that dies
+ *  halfway still leaves a record; the token counts are filled in on the way out. */
+export interface AgentUsageTable {
+  id: Generated<string>;
+  organizationId: string;
+  sessionId: string;
+  userId: string;
+  model: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
   createdAt: GeneratedTimestamp;
 }
 
@@ -548,6 +600,9 @@ export interface Database {
   'briefs.briefCommits': BriefCommitsTable;
 
   'marketing.waitlist': MarketingWaitlistTable;
+
+  'agents.sessions': AgentSessionsTable;
+  'agents.usage': AgentUsageTable;
 }
 
 // ---------------------------------------------------------------------------
@@ -648,3 +703,11 @@ export type JobUpdate = Updateable<JobsTable>;
 
 export type LocalSettingSelect = Selectable<LocalSettingsTable>;
 export type LocalSettingInsert = Insertable<LocalSettingsTable>;
+
+export type AgentSessionSelect = Selectable<AgentSessionsTable>;
+export type AgentSessionInsert = Insertable<AgentSessionsTable>;
+export type AgentSessionUpdate = Updateable<AgentSessionsTable>;
+
+export type AgentUsageSelect = Selectable<AgentUsageTable>;
+export type AgentUsageInsert = Insertable<AgentUsageTable>;
+export type AgentUsageUpdate = Updateable<AgentUsageTable>;

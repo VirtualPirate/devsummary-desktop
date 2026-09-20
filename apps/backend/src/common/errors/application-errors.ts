@@ -394,6 +394,15 @@ export const AppError = sealRegistry({
     details: ({ timezone }) => ({ timezone }),
   }),
 
+  // --- Agents ---
+  AGENT_SESSION_NOT_FOUND: defineError({
+    status: HttpStatus.NOT_FOUND,
+    message: 'Agent session not found',
+  }),
+  // The cloud original also had AGENT_DAILY_LIMIT_REACHED. There is no per-day
+  // cap on a single-user install — nothing meters the user's own provider key
+  // for them — so the code does not exist here either.
+
   // --- Email verification (the magic-link gate that raises local caps) ---
   EMAIL_VERIFICATION_RATE_LIMITED: defineError<{ retryAfterSeconds: number }>({
     status: HttpStatus.TOO_MANY_REQUESTS,

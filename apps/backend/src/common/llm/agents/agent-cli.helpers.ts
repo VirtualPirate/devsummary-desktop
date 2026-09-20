@@ -71,6 +71,64 @@ export function stripFence(text: string): string {
   return FENCE.exec(body)?.[1]?.trim() ?? body;
 }
 
+/**
+ * Every balanced `{…}` span in `text`, outermost first, left to right. Quoted
+ * braces do not count, because a preamble sentence can contain one and a JSON
+ * string very often does.
+ */
+function* objectSpans(text: string): Generator<string> {
+  for (
+    let start = text.indexOf('{');
+    start !== -1;
+    start = text.indexOf('{', start + 1)
+  ) {
+    let depth = 0;
+    let inString = false;
+    for (let i = start; i < text.length; i += 1) {
+      const char = text[i];
+      if (inString) {
+        if (char === '\\') i += 1;
+        else if (char === '"') inString = false;
+      } else if (char === '"') inString = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          yield text.slice(start, i + 1);
+          break;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The model's answer as JSON, for the three CLIs that have no structured-output
+ * mode and are only *asked* for JSON. Told "nothing before or after it" they
+ * still narrate: Cursor's composer-2.5 answers `Exploring the workspace…\n{…}`
+ * often enough to break a run outright, and a trailing "Hope this helps" is the
+ * same failure from the other end. So the fence comes off, the whole body is
+ * tried, and then each balanced object inside it — the first one that parses
+ * wins, and the caller's Zod schema is still what decides whether it was the
+ * answer.
+ *
+ * ponytail: O(n²) in the worst case (a body of nothing but `{`), on answers
+ * that are a few KB. Scan once if a CLI ever streams something big through it.
+ */
+export function parseAnswerJson(
+  text: string,
+): { ok: true; value: unknown } | { ok: false } {
+  const body = stripFence(text);
+  for (const candidate of [body, ...objectSpans(body)]) {
+    try {
+      return { ok: true, value: JSON.parse(candidate) };
+    } catch {
+      // Not JSON, or not the JSON — try the next candidate.
+    }
+  }
+  return { ok: false };
+}
+
 export interface ParsedStdout {
   /** stdout was JSON at all — an array and a number count. */
   parsed: boolean;

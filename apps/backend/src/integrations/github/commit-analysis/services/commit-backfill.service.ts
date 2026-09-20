@@ -17,6 +17,18 @@ export interface BackfillArgs {
   repositoryId: string;
   branch: string;
   sinceISO: string;
+  /**
+   * Whether this read is watching commits *arrive* on the branch, which is what
+   * `github.commits.landed_at` records.
+   *
+   * True only for an incremental read (a push, the nightly sweep): a commit it
+   * has not stored before is one that just showed up, whatever dates the commit
+   * itself carries. False — the default — for every read that *imports* history
+   * it already missed: the setup scan, an adoption, a manual backfill. Those
+   * stamp `committed_at` instead, because stamping the read's own clock would
+   * file a whole backfilled year under the day the backfill ran.
+   */
+  landedNow?: boolean;
 }
 
 export interface BackfillFromLatestArgs {
@@ -58,7 +70,12 @@ export class CommitBackfillService {
     onProgress?: BackfillProgress,
   ): Promise<{ inserted: number }> {
     const ctx = await this.resolveContext(args.repositoryId, args.branch);
-    const inserted = await this.pullAndUpsert(ctx, args.sinceISO, onProgress);
+    const inserted = await this.pullAndUpsert(
+      ctx,
+      args.sinceISO,
+      args.landedNow ?? false,
+      onProgress,
+    );
     return { inserted };
   }
 
@@ -79,7 +96,9 @@ export class CommitBackfillService {
       latest.getTime() - args.lookbackDays * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    const inserted = await this.pullAndUpsert(ctx, sinceISO, onProgress);
+    // Never `landedNow`: this is the lookback-bounded *first* read of a branch,
+    // so what it returns is history being imported rather than work arriving.
+    const inserted = await this.pullAndUpsert(ctx, sinceISO, false, onProgress);
     return { inserted, sinceISO };
   }
 
@@ -205,10 +224,16 @@ export class CommitBackfillService {
   private async pullAndUpsert(
     ctx: RepoContext,
     sinceISO: string,
+    landedNow: boolean,
     onProgress?: BackfillProgress,
   ): Promise<number> {
     let inserted = 0;
     let pages = 0;
+
+    // Read once, outside the page loop: a busy repository pages for minutes, and
+    // a per-page clock would spread one arrival across several timestamps and,
+    // on an unlucky boundary, across two brief periods.
+    const landedAt = landedNow ? new Date() : null;
 
     await this.client.listCommits(
       ctx.installationGithubId,
@@ -231,6 +256,10 @@ export class CommitBackfillService {
           committerEmail: c.committerEmail,
           authoredAt: c.authoredAt,
           committedAt: c.committedAt,
+          // Only reaches the row on an insert — `upsertMany` leaves `landedAt`
+          // alone on conflict, so a commit re-offered by a later read keeps the
+          // timestamp of the read that first stored it.
+          landedAt: landedAt ?? c.committedAt,
           raw: c.raw,
         }));
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useMatches } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useBootstrapActiveOrganization } from "@/hooks/use-bootstrap-active-organization";
@@ -11,6 +11,11 @@ import { UpdateBanner } from "./update-banner";
 export function AppShell() {
   useBootstrapActiveOrganization();
   const [open, setOpen] = useState(false);
+
+  // A full-bleed route (the agent workspace) manages its own height and scroll.
+  // Wrapping it in the padded, scrolling container gives it two scroll owners
+  // and forces it to guess the chrome's height.
+  const fullBleed = useMatches().some((m) => m.staticData.fullBleed === true);
 
   return (
     <div className="flex h-screen flex-col">
@@ -31,14 +36,22 @@ export function AppShell() {
         {open ? (
           <div className="fixed inset-0 z-[9] bg-black/40 md:hidden" onClick={() => setOpen(false)} />
         ) : null}
-        <main className="relative flex-1 overflow-y-auto">
+        <main
+          className={`relative flex-1 ${fullBleed ? "overflow-hidden" : "overflow-y-auto"}`}
+        >
           <div
             aria-hidden
             className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_55%_60%_at_50%_-25%,var(--brand),transparent_70%)] opacity-[0.05]"
           />
-          <div className="relative mx-auto w-full max-w-6xl px-6 py-6">
-            <Outlet />
-          </div>
+          {fullBleed ? (
+            <div className="relative h-full">
+              <Outlet />
+            </div>
+          ) : (
+            <div className="relative mx-auto w-full max-w-6xl px-6 py-6">
+              <Outlet />
+            </div>
+          )}
         </main>
       </div>
       <BackgroundJobsToast />

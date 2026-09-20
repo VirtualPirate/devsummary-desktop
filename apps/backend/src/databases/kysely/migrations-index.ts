@@ -16,6 +16,9 @@ import * as m00013 from '../../migrations/00013_marketing_waitlist';
 import * as m00014 from '../../migrations/00014_brief_delivered_channels';
 import * as m00015 from '../../migrations/00015_jobs';
 import * as m00016 from '../../migrations/00016_seed_local_singleton';
+import * as m00017 from '../../migrations/00017_commit_landed_at';
+import * as m00018 from '../../migrations/00018_agents';
+import * as m00019 from '../../migrations/00019_agent_threads';
 
 /**
  * Every migration, imported statically.
@@ -54,6 +57,9 @@ export const MIGRATIONS: Record<string, Migration> = {
   '00014_brief_delivered_channels': m00014,
   '00015_jobs': m00015,
   '00016_seed_local_singleton': m00016,
+  '00017_commit_landed_at': m00017,
+  '00018_agents': m00018,
+  '00019_agent_threads': m00019,
 };
 
 export const staticMigrationProvider: MigrationProvider = {

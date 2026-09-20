@@ -97,6 +97,12 @@ export class CommitsRepository {
    * `DO UPDATE` (rather than `DO NOTHING`) is what makes RETURNING cover the
    * conflicting rows too, which is how the caller can attribute an already-known
    * commit to an additional branch.
+   *
+   * The update list is deliberately short, and `landedAt` is deliberately not on
+   * it: an incremental read widens its window back past commits already stored
+   * (see `planIngest`), so the same commit is re-offered on every subsequent
+   * read. First write wins, which is what makes `landedAt` mean "first seen"
+   * rather than "last re-fetched".
    */
   async upsertMany(
     rows: GithubCommitUpsertRow[],
@@ -610,11 +616,15 @@ export class CommitsRepository {
   }
 
   /**
-   * `committedAt`, matching the clock every brief is now generated on. These two
-   * bound `planBackfill`'s range, and a bound on the other clock reintroduces
-   * exactly the bug the committer clock exists to kill: a scope whose newest
-   * work is all rebased has `max(authored_at) < max(committed_at)`, so
+   * `landedAt`, matching the clock every brief is now generated on. These two
+   * bound `planBackfill`'s range, and a bound on a slower clock reintroduces
+   * exactly the bug the landed clock exists to kill: a scope whose newest work
+   * all arrived by merge commit has `max(committed_at) < max(landed_at)`, so
    * `activeUpper` stops short and the trailing windows get no backfill brief.
+   *
+   * Safe to move: `landed_at` is seeded from `committed_at` for imported history
+   * and stamped at read time otherwise, so it is never the earlier of the two
+   * and the range can only widen.
    */
   async findOldestCommitTimestampForScope(input: {
     repositoryIds: string[];
@@ -627,9 +637,9 @@ export class CommitsRepository {
     if (this.selectsNoAuthors(input.collaboratorGithubUserIds)) return null;
     let query = this.exec(input.tx)
       .selectFrom('github.commits')
-      .select('committedAt')
+      .select('landedAt')
       .where('repositoryId', 'in', input.repositoryIds)
-      .where('committedAt', '>=', input.since)
+      .where('landedAt', '>=', input.since)
       .where('deletedAt', 'is', null)
       .where('parentCount', '=', 1);
     if (input.collaboratorGithubUserIds) {
@@ -641,10 +651,10 @@ export class CommitsRepository {
     }
     query = this.applyBranchFilter(query, input.branch);
     const row = await query
-      .orderBy('committedAt', 'asc')
+      .orderBy('landedAt', 'asc')
       .limit(1)
       .executeTakeFirst();
-    return row?.committedAt ?? null;
+    return row?.landedAt ?? null;
   }
 
   async findNewestCommitTimestampForScope(input: {
@@ -658,9 +668,9 @@ export class CommitsRepository {
     if (this.selectsNoAuthors(input.collaboratorGithubUserIds)) return null;
     let query = this.exec(input.tx)
       .selectFrom('github.commits')
-      .select('committedAt')
+      .select('landedAt')
       .where('repositoryId', 'in', input.repositoryIds)
-      .where('committedAt', '>=', input.since)
+      .where('landedAt', '>=', input.since)
       .where('deletedAt', 'is', null)
       .where('parentCount', '=', 1);
     if (input.collaboratorGithubUserIds) {
@@ -672,9 +682,9 @@ export class CommitsRepository {
     }
     query = this.applyBranchFilter(query, input.branch);
     const row = await query
-      .orderBy('committedAt', 'desc')
+      .orderBy('landedAt', 'desc')
       .limit(1)
       .executeTakeFirst();
-    return row?.committedAt ?? null;
+    return row?.landedAt ?? null;
   }
 }

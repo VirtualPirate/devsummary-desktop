@@ -8,14 +8,26 @@ Never take credit for a commit. No `Co-Authored-By` trailer for the agent, no "g
 
 ## Project Overview
 
-`devsummary-desktop` is a single-user Electron port of **DevSummary**, ported from the `launchstack` multi-tenant cloud monorepo (NestJS + Postgres + Temporal + React SPA). All data lives locally (PGlite instead of hosted Postgres, an in-process job runner instead of Temporal, pasted credentials instead of OAuth installs). See `docs/MIGRATION-PLAN.md` for the full target architecture, the decisions behind it, and the phase-by-phase execution plan, and `docs/DELTAS.md` for approved deviations from that plan. `docs/receipts/PHASE-*.md` record what each phase actually did.
+`devsummary-desktop` is a single-user Electron port of **DevSummary**, ported from the `launchstack` multi-tenant cloud monorepo (NestJS + Postgres + Temporal + React SPA). All data lives locally (PGlite instead of hosted Postgres, an in-process job runner instead of Temporal, pasted credentials instead of OAuth installs). The approved deviations from the cloud original are listed under "Deviations from the cloud original" below; `docs/UPSTREAM-DRIFT.md` tracks what upstream has shipped since and is not here yet.
 
-The product spec below (user flows, AI usage, module table, database schema) describes DevSummary's behavior and carries over to the desktop app unchanged except where a migration phase's receipt says otherwise.
+The product spec below (user flows, AI usage, module table, database schema) describes DevSummary's behavior and carries over to the desktop app unchanged except where a deviation below says otherwise.
+
+### Deviations from the cloud original
+
+Only the ids that the code and the other AGENTS.md files cite are kept; the rest are listed without one.
+
+- **D-A — workspaces kept.** Multi-tenancy survives as local workspaces; `organizationId` is threaded everywhere, only its source changed (a seeded default, no login).
+- **D-E — mocked-externals E2E.** E2E runs against an in-memory PGlite with GitHub/Slack/LLM stubbed; no Docker, no network.
+- **D-H — no email delivery.** No SMTP setting, no email recipient field, no email channel; `'email'` survives only as read-only history in old rows.
+- Single seeded user with a per-boot loopback token instead of sessions; no Google OAuth, no Better Auth.
+- Pasted credentials (GitHub PAT, Slack bot token, provider keys), encrypted locally; no App installs, no OAuth callbacks, no webhooks.
+- PGlite instead of hosted Postgres; a `jobs` table with a poll loop instead of Temporal; migrations imported statically.
+- Four coding-agent CLIs are LLM providers alongside OpenAI and Gemini; the cloud original has only the two keyed providers.
 
 ## Product Spec: DevSummary
 
 DevSummary is an AI-powered engineering activity reporter. It connects to a GitHub organization, ingests commit activity, and generates plain-English briefs aimed at non-technical stakeholders (founders, PMs, executives). Briefs are scoped to a project, team, collaborator, or repository, generated on a recurring schedule or on demand, and delivered to Slack and/or as a desktop
-notification. **Email delivery is not available in the desktop version** (`docs/DELTAS.md` D-H) —
+notification. **Email delivery is not available in the desktop version** (deviation D-H) —
 there is no SMTP setting and no email recipient field on any screen.
 
 ### Core User Flows
@@ -34,6 +46,7 @@ there is no SMTP setting and no email recipient field on any screen.
 - **Provider** (`src/common/llm/`): OpenAI, Gemini and the four agent CLIs (Claude Code, OpenCode, Cursor, Codex) are served by subclasses of one abstract `LlmClient`, which is also the DI token — callers never learn which one answered. The AI settings page writes `LLM_PROVIDER`, and the client re-resolves it on every call, so switching provider, pasting a key or installing a CLI needs no restart. Gemini is reached through its OpenAI-compatible endpoint, so those two share one SDK and one call shape. **An agent CLI is not an API key**: it spawns the `claude`, `opencode`, `agent` or `codex` binary already installed and logged in on the machine, with the prompt on stdin — Claude Code takes its schema and system prompt on argv, OpenCode takes both through an env var, Cursor takes both in stdin while `--mode ask` locks tools read-only, and Codex takes its schema as a file and its system prompt as a config override while `-s read-only` plus a stripped child environment is its boundary — see the backend AGENTS.md for the adapter seam and detection rules.
 - **Commit analysis** (`src/integrations/github/commit-analysis/`): each non-merge commit's message + diff (up to 60k chars) is classified by the configured provider (`gpt-4o-mini` / `gemini-3.1-flash-lite` / `haiku` / `openai/gpt-5.6-luna` / `composer-2.5-fast` / `gpt-5.6-luna` by default, `OPENAI_COMMIT_ANALYSIS_MODEL` / `GEMINI_COMMIT_ANALYSIS_MODEL` / `CLAUDE_CODE_COMMIT_ANALYSIS_MODEL` / `OPENCODE_COMMIT_ANALYSIS_MODEL` / `CURSOR_COMMIT_ANALYSIS_MODEL` / `CODEX_COMMIT_ANALYSIS_MODEL`) into a structured result: `commit_type` (one of `fix`, `feature`, `optimization`, `refactor`, `docs`, `test`, `chore`), summary, and changes list. Analyses are cached per commit.
 - **Brief generation** (`src/briefs/generation/`): scope label, date range, and per-commit analyses are assembled into a prompt (~30k char cap) and sent to the configured provider (`gpt-4o-mini` / `gemini-3.1-flash-lite` / `sonnet` / `openai/gpt-5.6-terra` / `composer-2.5` / `gpt-5.6-terra` by default, `OPENAI_BRIEF_MODEL` / `GEMINI_BRIEF_MODEL` / `CLAUDE_CODE_BRIEF_MODEL` / `OPENCODE_BRIEF_MODEL` / `CURSOR_BRIEF_MODEL` / `CODEX_BRIEF_MODEL`) with structured output (Zod) returning `{ title, summary }`. The system prompt mandates jargon-free, achievement/impact-oriented writing for executives.
+- **Assistant** (`src/agents/`): a conversational agent over this workspace's own data — repositories, collaborators, commits, projects, teams and activity stats, and nothing outside them. It runs on whichever provider is configured, all six: the keyed providers drive LangChain's OpenAI client, the four agent CLIs go through the same `LlmClient` seam every other AI call uses. Its model is the third override next to commit analysis and brief writing (`gpt-4o` / `gemini-3.6-flash` / `sonnet` / `openai/gpt-5.6-terra` / `composer-2.5` / `gpt-5.6-terra` by default, `OPENAI_AGENT_MODEL` / `GEMINI_AGENT_MODEL` / `CLAUDE_CODE_AGENT_MODEL` / `OPENCODE_AGENT_MODEL` / `CURSOR_AGENT_MODEL` / `CODEX_AGENT_MODEL`) — it picks tools in a loop, so a stronger model than the brief writer's is the usual choice.
 - Prompt/completion token counts are stored on every brief and commit analysis for cost tracking.
 
 ### Backend Modules (DevSummary)
@@ -50,6 +63,7 @@ there is no SMTP setting and no email recipient field on any screen.
 | LLM provider | `src/common/llm/` | Abstract `LlmClient` + one subclass per provider (OpenAI, Gemini, unconfigured) and the live per-call resolver |
 | Slack integration | `src/integrations/slack/` | Bot-token paste + message posting |
 | Jobs | `src/jobs/` | A `jobs` table plus an in-process poll loop (replaces Temporal): brief dispatch/generation/backfill, GitHub commit ingestion + analysis, collaborator sync, LOC-stats backfill (see backend AGENTS.md for the full job catalog) |
+| Agents | `src/agents/` | The `/agents` chat: threads, seven read-only tools over local data, and an in-process LangGraph run checkpointed to the `agents` schema (`/api/agents/threads*`) |
 | Local settings | `src/local/` | Seeded identity, the per-boot API token guard, the credential bundle, and the settings API |
 
 All DevSummary endpoints are workspace-scoped via the global `OrgContextGuard` with role checks (`RequireOrgRole('admin'|'member')`); the guard falls back to the seeded default workspace when the `x-organization-id` header is absent. Every request outside `/api/health*` must also carry the per-boot `x-desktop-token`.
@@ -64,9 +78,11 @@ All DevSummary endpoints are workspace-scoped via the global `OrgContextGuard` w
 Components live in `src/components/devsummary/`. Routes:
 
 - `/briefs` — dashboard with filters and pagination; `/briefs/$briefId` — detail with commit-type bar (`commit-type-bar.tsx`) and retry-on-failure; `/briefs/$briefId/commits` — granular commit list with analysis details and GitHub links
+- `/commits` — org-wide commits explorer: date range, type and repository filters, an "Analyzed only" toggle (on by default) and 50-per-page keyset pagination. No sidebar entry; it is reached from the home activity cards, the briefs list header and a brief's own commit list, each carrying a `back` path
 - `/schedules`, `/schedules/new`, `/schedules/$scheduleId` — schedule management (scope picker, cadence, delivery channels)
 - `/projects`, `/projects/$projectId` and `/teams`, `/teams/$teamId` — grouping management
 - `/integrations/github` — PAT connect form, connected account + repositories with their branch; banners a count of repositories that have no branch and therefore read nothing
+- `/agents` — the assistant: thread rail plus conversation (`components/devsummary/agents/`, over the vendored `components/assistant-ui/`). Full-bleed — the conversation owns the scroll — and always in the sidebar, since an unconfigured provider is a run-time error with a message, not a hidden menu item
 - `/settings` — local settings: desktop notifications, theme, data directory, workspace and links to the integrations pages (GitHub PAT, AI provider + its key + model overrides + token totals, Slack bot token). No SMTP card — email delivery is not available (D-H)
 - `/integrations/github/setup` — post-connect branch selection (`integrations-github-setup.tsx` + `components/integrations/branch-setup-list.tsx`, `branch-picker.tsx`, `history-window-picker.tsx`); admin-only, re-enterable, and the only place ingestion is started
 
@@ -123,11 +139,11 @@ pnpm lint                   # Lint all workspaces
 
 ## Desktop architecture
 
-This repo is being ported phase by phase per `docs/MIGRATION-PLAN.md` — read §0–§4 there before touching anything, plus `docs/DELTAS.md` for approved deviations (workspaces kept, auto-login single user, no Google OAuth, packaging deliverable scoped to dev-runnable, mocked-externals E2E, the 14-migration count, and the commit-per-phase-boundary rule). `docs/receipts/PHASE-*.md` are the append-only record of what each phase actually did, including deviations and out-of-scope defects found along the way. Do not relitigate a decision in the plan's §3 table without evidence from the Phase 0 spike (`docs/receipts/PHASE-0.md`).
+The port is complete and tracks the cloud original by hand: `docs/UPSTREAM-DRIFT.md` records what upstream shipped that is not here yet, and `CHECKPOINT.md` holds the upstream SHA this repo is level with. The deviations listed under "Deviations from the cloud original" above are decisions, not drift — do not "fix" them toward upstream. The planning documents and per-phase receipts that drove the port are gitignored working files (`.gitignore`, "Internal working documents") and are not part of this repo.
 
 ## Timezones
 
-Read this before writing anything that touches a date. Every rule below is here because the bug it prevents has already shipped once — see `docs/timezone-audit.md` for the findings and their fixes.
+Read this before writing anything that touches a date. Every rule below is here because the bug it prevents has already shipped once; the rules are the distilled findings of that audit.
 
 The model: **an instant and a calendar date are different types.** A `timestamptz` column, a JS `Date`, and an ISO string with an offset are instants. A brief's period, a chart bucket, and anything a user picks in a date input are calendar dates in some specific zone. Converting between them requires naming the zone, and there are exactly three legitimate zones to name — the schedule's (for a brief's period), the viewer's (for something the viewer themselves just picked), and UTC (for a calendar date that is already resolved and only needs printing). Anything else is a bug.
 

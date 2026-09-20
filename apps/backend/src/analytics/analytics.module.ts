@@ -8,5 +8,9 @@ import { AnalyticsService } from './services/analytics.service';
   imports: [GithubCollaboratorsModule],
   controllers: [AnalyticsController],
   providers: [AnalyticsService, CommitActivityRepository],
+  // AgentsModule's tools route their bucketing through the same service the
+  // dashboard uses — a second implementation is how a report came to disagree
+  // with its own brief.
+  exports: [AnalyticsService],
 })
 export class AnalyticsModule {}

@@ -516,6 +516,10 @@ describe('CommitAnalysisJobs — github.ingestNewCommits (was IngestNewCommitsWo
       repositoryId: 'r1',
       branch: 'main',
       sinceISO: '2026-08-13T16:04:00.000Z',
+      // The only read that stamps `landed_at` with its own clock: whatever it
+      // has not stored before arrived on the branch just now, whatever dates
+      // the commits carry.
+      landedNow: true,
     });
   });
 
@@ -640,6 +644,8 @@ describe('CommitAnalysisJobs — github.backfillCommits + loc', () => {
       sinceISO: '2026-01-01T00:00:00Z',
     });
 
+    // No `landedNow`, asserted by the exact shape: a manual backfill imports
+    // history, and stamping the read's clock would file the lot under today.
     expect(commits.backfillCommits).toHaveBeenCalledWith({
       repositoryId: 'r1',
       branch: 'main',

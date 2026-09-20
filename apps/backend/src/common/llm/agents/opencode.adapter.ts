@@ -3,9 +3,9 @@ import {
   firstLine,
   jsonContractPrompt,
   lastOfType,
+  parseAnswerJson,
   parseJsonLines,
   scratchDir,
-  stripFence,
 } from './agent-cli.helpers';
 
 /**
@@ -224,10 +224,8 @@ export const opencodeAdapter: AgentCliAdapter = {
 
     const answer = lastOfType(events, 'text')?.part?.text;
     if (typeof answer === 'string') {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(stripFence(answer));
-      } catch {
+      const parsed = parseAnswerJson(answer);
+      if (!parsed.ok) {
         // The process ran fine and the body cannot change on a retry, so this
         // is `invalid` — never transport.
         return { ok: false, kind: 'invalid', reason: 'answer was not JSON' };
@@ -236,7 +234,7 @@ export const opencodeAdapter: AgentCliAdapter = {
       const tokens = lastOfType(events, 'step_finish')?.part?.tokens;
       return {
         ok: true,
-        raw,
+        raw: parsed.value,
         // No event names the resolved model; the client falls back to the
         // configured string.
         model: null,

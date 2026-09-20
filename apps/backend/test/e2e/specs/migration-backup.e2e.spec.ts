@@ -27,7 +27,7 @@ import {
  * is one launch of a successive app version against the *same* directory, so
  * they run in order and share state — that sequence is the thing under test.
  *
- *   vN     16 shipped migrations, then the user generates data
+ *   vN     every shipped migration, then the user generates data
  *   vN+1   one new migration, applied behind a backup
  *   vN+2   a migration that throws after committing, so the migrator's own
  *          rollback cannot undo it and only the backup can
@@ -40,7 +40,7 @@ const provider = (
 
 const NEXT_MIGRATIONS: Record<string, Migration> = {
   ...MIGRATIONS,
-  '00017_r7_probe': {
+  '00020_r7_probe': {
     up: async (db: Kysely<unknown>) => {
       await db.schema
         .createTable('r7_probe')
@@ -56,7 +56,7 @@ const V_NEXT = provider(NEXT_MIGRATIONS);
 // a missing one as a corrupted history and refuses to run at all.
 const V_BROKEN = provider({
   ...NEXT_MIGRATIONS,
-  '00018_r7_boom': {
+  '00021_r7_boom': {
     up: async (db: Kysely<unknown>) => {
       // Kysely runs the whole batch in one transaction on Postgres, so a plain
       // `throw` would be undone by the rollback and prove nothing about the

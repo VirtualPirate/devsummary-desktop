@@ -13,6 +13,8 @@ import { CommitAnalysisModule } from './integrations/github/commit-analysis/comm
 import { GithubCollaboratorsModule } from './integrations/github/collaborators/collaborators.module';
 import { BriefsModule } from './briefs';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { AgentsModule } from './agents';
+import { CommitsModule } from './commits/commits.module';
 import { JobActivityModule } from './jobs-activity/job-activity.module';
 import { HealthModule } from './health/health.module';
 import { JobsModule } from './jobs';
@@ -37,6 +39,10 @@ import { LoggerModule, RequestIdMiddleware } from './logger';
     GithubCollaboratorsModule,
     BriefsModule,
     AnalyticsModule,
+    // After AnalyticsModule: it imports AnalyticsService and
+    // CollaboratorsRepository from their modules.
+    AgentsModule,
+    CommitsModule,
     JobActivityModule,
     HealthModule,
   ],

@@ -258,6 +258,14 @@ export class CommitAnalysisJobs implements OnModuleInit {
         repositoryId: input.repositoryId,
         branch: input.branch,
         sinceISO: plan.sinceISO,
+        // The one read that is watching commits arrive rather than importing
+        // history: anything this fetch has not stored before showed up on the
+        // branch just now, whatever dates it carries. That is what stamps
+        // `landed_at` and what keeps a merge commit's contents out of a period
+        // whose brief has already gone out. The `adopt` branch above
+        // deliberately does not — it is a first read of history nobody was
+        // watching.
+        landedNow: true,
       });
       sinceISO = plan.sinceISO;
     }

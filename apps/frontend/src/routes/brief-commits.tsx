@@ -1,5 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, GitCommitHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   ErrorState,
   extractErrorMessage,
@@ -57,6 +58,15 @@ export function BriefCommitsPage() {
               {brief.contributorCount} contributors · {brief.commitCount} commits
             </span>
           </span>
+        }
+        actions={
+          // Widens one brief's commits to the whole organization. Carries no
+          // date filter: the brief's period is not the explorer's period.
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/commits" search={{ back: `/briefs/${brief.id}/commits` }}>
+              <GitCommitHorizontal className="size-3.5" /> All commits
+            </Link>
+          </Button>
         }
       />
       <BriefCommitsList briefId={brief.id} />

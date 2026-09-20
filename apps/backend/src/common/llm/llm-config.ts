@@ -11,8 +11,8 @@ export const LLM_PROVIDERS = [
 ] as const;
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];
 
-/** The two calls the app makes, each with its own model. */
-export type LlmJob = 'commitAnalysis' | 'brief';
+/** The three calls the app makes, each with its own model. */
+export type LlmJob = 'commitAnalysis' | 'brief' | 'agent';
 
 /**
  * Gemini's OpenAI-compatible endpoint. Pointing the `openai` SDK at it is what
@@ -35,18 +35,27 @@ const API_KEY_VAR: Record<Exclude<LlmProvider, AgentProvider>, string> = {
  * Per provider **and** per job. Agent CLIs can use a cheap model for per-commit
  * volume and a stronger one for the brief people actually read, which one
  * string per provider cannot express; OpenAI and Gemini keep the same value in
- * both slots.
+ * the two one-shot slots.
+ *
+ * `agent` sits above both on every provider: the agent picks tools in a loop and
+ * a wrong pick costs a whole extra turn, where per-commit analysis is one shot
+ * at one diff.
  */
 export const DEFAULT_MODELS: Record<
   LlmProvider,
-  { commitAnalysis: string; brief: string }
+  { commitAnalysis: string; brief: string; agent: string }
 > = {
-  openai: { commitAnalysis: 'gpt-4o-mini', brief: 'gpt-4o-mini' },
+  openai: {
+    commitAnalysis: 'gpt-4o-mini',
+    brief: 'gpt-4o-mini',
+    agent: 'gpt-4o',
+  },
   gemini: {
     commitAnalysis: 'gemini-3.1-flash-lite',
     brief: 'gemini-3.1-flash-lite',
+    agent: 'gemini-3.6-flash',
   },
-  'claude-code': { commitAnalysis: 'haiku', brief: 'sonnet' },
+  'claude-code': { commitAnalysis: 'haiku', brief: 'sonnet', agent: 'sonnet' },
   // OpenCode ids are always `provider/model`, and the provider half has to be
   // one the user connected with `opencode auth login` — opencode holds its own
   // credentials and this app never sees them, so no default can be right for
@@ -64,14 +73,20 @@ export const DEFAULT_MODELS: Record<
   opencode: {
     commitAnalysis: 'openai/gpt-5.6-luna',
     brief: 'openai/gpt-5.6-terra',
+    agent: 'openai/gpt-5.6-terra',
   },
   cursor: {
     commitAnalysis: 'composer-2.5-fast',
     brief: 'composer-2.5',
+    agent: 'composer-2.5',
   },
   // Codex's own model notes: Luna is the nano-like tier, Terra the mid one,
   // "use Sol only if quality requires it".
-  codex: { commitAnalysis: 'gpt-5.6-luna', brief: 'gpt-5.6-terra' },
+  codex: {
+    commitAnalysis: 'gpt-5.6-luna',
+    brief: 'gpt-5.6-terra',
+    agent: 'gpt-5.6-terra',
+  },
 };
 
 /** Everything an `LlmClient` needs to talk to one provider. */

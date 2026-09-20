@@ -8,6 +8,7 @@ import type {
   LocalSettingsTestResult,
   UpdateLocalCredentialsRequest,
 } from '@launchstack/api-interfaces';
+import { AGENT_MODEL_VARS } from '../../agents/agents.config';
 import { BRIEF_MODEL_VARS } from '../../briefs/briefs-config';
 import {
   AGENT_ADAPTERS,
@@ -79,6 +80,9 @@ export class LocalSettingsService {
       briefModel:
         this.secrets.get(BRIEF_MODEL_VARS[llmProvider]) ??
         DEFAULT_MODELS[llmProvider].brief,
+      agentModel:
+        this.secrets.get(AGENT_MODEL_VARS[llmProvider]) ??
+        DEFAULT_MODELS[llmProvider].agent,
     };
   }
 
@@ -105,6 +109,8 @@ export class LocalSettingsService {
       overlay[COMMIT_ANALYSIS_MODEL_VARS[provider]] = body.commitAnalysisModel;
     if (body.briefModel !== undefined)
       overlay[BRIEF_MODEL_VARS[provider]] = body.briefModel;
+    if (body.agentModel !== undefined)
+      overlay[AGENT_MODEL_VARS[provider]] = body.agentModel;
 
     // A CLI provider is proved before it is stored, exactly like Slack. Not-logged-in is deliberately allowed: the card warns, and the fix
     // (`claude` then `/login`) is outside this app.

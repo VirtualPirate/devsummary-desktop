@@ -30,6 +30,7 @@ export function ChartCard({
   delta,
   isLoading,
   isEmpty,
+  action,
   children,
   className,
 }: {
@@ -40,15 +41,20 @@ export function ChartCard({
   delta?: number | null;
   isLoading: boolean;
   isEmpty: boolean;
+  /** Right-aligned on the title row — the card's way through to a full list. */
+  action?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <Card className={className}>
       <CardHeader className="gap-1.5">
-        <CardTitle className="font-mono text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
-          {title}
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="font-mono text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+            {title}
+          </CardTitle>
+          {action}
+        </div>
         {headline !== undefined ? (
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-semibold tabular-nums tracking-tight">

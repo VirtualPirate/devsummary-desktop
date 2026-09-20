@@ -27,6 +27,7 @@ export interface UpdateLocalCredentialsRequest {
    */
   commitAnalysisModel?: string;
   briefModel?: string;
+  agentModel?: string;
 }
 
 /**
