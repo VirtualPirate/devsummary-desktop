@@ -47,6 +47,15 @@ export const scratchDir = (name: string): string =>
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 /**
+ * Drop SGR codes. A catalogue listing needs this as much as an error line does:
+ * `pnpm` exports `FORCE_COLOR=1`, so a CLI spawned from the dev shell or the
+ * Electron shell colours output that is plain in a terminal — measured on
+ * `agent --list-models`, 11 151 chars plain against 15 454 coloured, which
+ * parsed to zero models because every id arrived wrapped in escapes.
+ */
+export const stripAnsi = (text: string): string => text.replace(ANSI, '');
+
+/**
  * The first line matching `pattern`, else the first non-blank line, else ''.
  * Without a pattern this is "the first line of the trimmed text" — leading
  * blank lines are stripped either way. Colour codes are always stripped.

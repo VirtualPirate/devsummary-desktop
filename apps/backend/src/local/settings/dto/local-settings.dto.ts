@@ -36,6 +36,14 @@ export const AgentCliQuerySchema = z.object({
 
 export type AgentCliQuery = z.infer<typeof AgentCliQuerySchema>;
 
+/** `?provider=` narrows the model catalogue to one provider; omitted means the
+ *  selected one, which is what the page asks for. */
+export const ProviderModelsQuerySchema = z.object({
+  provider: z.enum(LLM_PROVIDERS).optional(),
+});
+
+export type ProviderModelsQuery = z.infer<typeof ProviderModelsQuerySchema>;
+
 export const AgentCliParamSchema = z.object({
   id: z.enum(AGENT_PROVIDERS),
 });

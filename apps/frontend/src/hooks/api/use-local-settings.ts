@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AgentCliProviderName,
+  LlmProviderName,
   RequestEmailVerificationRequest,
   UpdateLocalCredentialsRequest,
 } from "@launchstack/api-interfaces";
@@ -14,6 +15,8 @@ export const localSettingsKeys = {
   // the active workspace.
   agents: ["local-settings", "agents"] as const,
   verification: ["local-settings", "verification"] as const,
+  models: (provider: LlmProviderName) =>
+    ["local-settings", "models", provider] as const,
 };
 
 export function useLocalSettings() {
@@ -44,6 +47,21 @@ export function useAgentClis() {
     staleTime: 60_000,
     // A detect can spawn a login shell; three retries would triple that for a
     // failure the page shows rather than hides.
+    retry: false,
+  });
+}
+
+/**
+ * What the model pickers offer. A CLI catalogue is a spawned process and a
+ * keyed one is an HTTP round-trip, so it is cached for the screen's lifetime
+ * rather than refetched per row — the three rows share one query. An error is
+ * the same as an empty list here: the picker falls back to a typed id.
+ */
+export function useProviderModels(provider: LlmProviderName) {
+  return useQuery({
+    queryKey: localSettingsKeys.models(provider),
+    queryFn: () => LocalSettingsAPI.models(provider),
+    staleTime: 5 * 60_000,
     retry: false,
   });
 }

@@ -22,6 +22,7 @@ import {
   DEFAULT_MODELS,
   LLM_PROVIDERS,
   isAgentProvider,
+  listProviderModels,
   type AgentProvider,
 } from '../../common/llm';
 import { resolveDataDir } from '../../databases/kysely/kysely.module';
@@ -34,6 +35,12 @@ import { SecretsService, type SecretBundle } from './secrets.service';
  * the JSON schema, the model and the envelope.
  */
 const AgentCliTestSchema = z.object({ ok: z.boolean() });
+
+/** The stored key each keyed provider's catalogue call authenticates with. */
+const API_KEY_BY_PROVIDER = {
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+} as const;
 
 @Injectable()
 export class LocalSettingsService implements OnModuleInit {
@@ -170,6 +177,23 @@ export class LocalSettingsService implements OnModuleInit {
    */
   agentClis(refresh: boolean): Promise<AgentCliStatus[]> {
     return this.detector.detectAll(refresh);
+  }
+
+  /**
+   * What the AI page offers in its model pickers, for the provider asked about
+   * or the selected one. Best effort: an empty list means nothing could be
+   * listed — no key, no binary, no catalogue command — and the picker still
+   * takes a typed model id, which is what a brand-new model needs anyway.
+   */
+  providerModels(provider?: LlmProviderName): Promise<string[]> {
+    const target = provider ?? this.provider();
+    return listProviderModels(
+      target,
+      isAgentProvider(target)
+        ? undefined
+        : this.secrets.get(API_KEY_BY_PROVIDER[target]),
+      this.detector,
+    );
   }
 
   /**

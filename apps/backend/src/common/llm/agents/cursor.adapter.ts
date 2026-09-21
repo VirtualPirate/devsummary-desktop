@@ -40,6 +40,17 @@ export const cursorAdapter: AgentCliAdapter = {
   binary: 'agent',
   installHint:
     'Install it with `curl https://cursor.com/install -fsS | bash`, then run `agent login`.',
+  // `agent --list-models` prints `<id> - <label>` under an "Available models"
+  // header. The id is everything before the separator; the header and the blank
+  // lines carry no separator and drop out.
+  models: {
+    args: ['--list-models'],
+    parse: (stdout) =>
+      stdout
+        .split('\n')
+        .map((line) => line.split(' - ')[0]?.trim() ?? '')
+        .filter((id) => id.length > 0 && !id.includes(' ')),
+  },
   versionArgs: ['--version'],
   authArgs: ['status', '--format', 'json'],
   workspaceDir,

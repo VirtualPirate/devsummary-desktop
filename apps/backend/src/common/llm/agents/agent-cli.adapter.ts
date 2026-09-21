@@ -106,6 +106,14 @@ export interface AgentCliAdapter {
     stdout: string;
     stderr: string;
   }): AgentCliOutput;
+  /**
+   * What the AI settings page offers in the model picker: argv that prints the
+   * CLI's own catalogue, or a fixed list for a CLI that has no such command.
+   * Never a closed set — the picker still accepts a model id the user types,
+   * because a catalogue command can be missing, stale or unauthenticated.
+   */
+  models:
+    readonly string[] | { args: string[]; parse(stdout: string): string[] };
   /** Argv that prints a version string on stdout. */
   versionArgs: string[];
   /** Optional login probe. Undefined = adapter has no separate login state. */

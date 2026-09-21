@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Check, CloudUpload, Key, Sparkles, TriangleAlert } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  CloudUpload,
+  Key,
+  Sparkles,
+  TriangleAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 import type {
   AgentCliProviderName,
@@ -31,12 +38,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAgentClis,
   useLocalSettings,
+  useProviderModels,
   useUpdateLocalCredentials,
 } from "@/hooks/api/use-local-settings";
 import { extractErrorMessage } from "@/lib/extract-error";
@@ -453,44 +474,57 @@ function ProviderCard({
 
 /**
  * The current model is shown, not implied by a placeholder: a blank field with
- * the live value greyed behind it reads as filled in when it is empty. `Change`
- * swaps the chip for an input prefilled with that value; `Cancel` sends nothing.
+ * the live value greyed behind it reads as filled in when it is empty. Opening
+ * the chip lists what the provider itself offers — the CLI's own catalogue or
+ * the account's `/models` listing — and **still accepts a typed id**, because a
+ * model released this morning is in no catalogue yet and a CLI that cannot list
+ * answers with nothing at all. Picking saves; there is no second confirm step.
  */
 function ModelRow({
   field,
   title,
   description,
   value,
+  models,
+  isLoading,
+  onOpenEmpty,
 }: {
   field: "commitAnalysisModel" | "briefModel" | "agentModel";
   title: string;
   description: string;
   value: string;
+  /** What the provider offers. Empty = nothing could be listed. */
+  models: string[];
+  isLoading: boolean;
+  /** Retry the catalogue. Opening an empty picker is the retry gesture. */
+  onOpenEmpty: () => void;
 }) {
   const update = useUpdateLocalCredentials();
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
-  const handleSave = async () => {
-    const next = (draft ?? "").trim();
-    if (!next) return;
-    setError(null);
+  const save = async (next: string) => {
+    const model = next.trim();
+    setOpen(false);
+    if (!model || model === value) return;
     try {
-      // Spelled out rather than `{ [field]: next }`: a computed key widens the
+      // Spelled out rather than `{ [field]: model }`: a computed key widens the
       // literal to an index signature, and the request type stops being checked.
       await update.mutateAsync(
         field === "briefModel"
-          ? { briefModel: next }
+          ? { briefModel: model }
           : field === "agentModel"
-            ? { agentModel: next }
-            : { commitAnalysisModel: next },
+            ? { agentModel: model }
+            : { commitAnalysisModel: model },
       );
-      setDraft(null);
       toast.success("Model saved");
     } catch (err) {
-      setError(extractErrorMessage(err));
+      toast.error(extractErrorMessage(err));
     }
   };
+
+  const typed = query.trim();
+  const custom = typed.length > 0 && !models.includes(typed);
 
   return (
     <div className="flex items-center justify-between gap-4 border-t py-3.5 first:border-t-0 first:pt-0 last:pb-0">
@@ -500,65 +534,103 @@ function ModelRow({
           {description}
         </div>
       </div>
-      {draft === null ? (
-        <div className="flex flex-none items-center gap-2.5">
-          <span className="max-w-[18rem] truncate rounded-sm border bg-muted px-2 py-[0.1875rem] font-mono text-[0.8125rem]">
-            {value}
-          </span>
-          <Button size="sm" variant="outline" onClick={() => setDraft(value)}>
-            Change
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          setQuery("");
+          // A catalogue that failed once — a CLI that was mid-update, a key
+          // that had not been pasted yet — would otherwise stay empty for the
+          // whole cache window with no way to ask again.
+          if (next && models.length === 0) onOpenEmpty();
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            role="combobox"
+            aria-expanded={open}
+            aria-label={`${title} model`}
+            disabled={update.isPending}
+            className="w-[18rem] flex-none justify-between gap-2 font-mono text-[0.8125rem]"
+          >
+            <span className="truncate">
+              {update.isPending ? "Saving…" : value}
+            </span>
+            <ChevronDown className="size-3.5 shrink-0 opacity-60" />
           </Button>
-        </div>
-      ) : (
-        <div className="flex flex-none flex-col items-end gap-1.5">
-          <div className="flex items-center gap-2.5">
-            <Input
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setError(null);
-              }}
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={!!error}
-              aria-label={`${title} model`}
-              className="w-[18rem] font-mono"
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-[--radix-popover-trigger-width] min-w-72 p-0"
+        >
+          <Command>
+            <CommandInput
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Filter or type a model id…"
             />
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!draft.trim() || update.isPending}
-            >
-              {update.isPending ? "Saving…" : "Save"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              onClick={() => {
-                setDraft(null);
-                setError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        </div>
-      )}
+            <CommandList>
+              <CommandEmpty>
+                {isLoading ? "Loading models…" : "Type a model id."}
+              </CommandEmpty>
+              {custom ? (
+                <CommandGroup heading="Use as typed">
+                  <CommandItem value={typed} onSelect={() => save(typed)}>
+                    <span className="truncate font-mono text-xs">{typed}</span>
+                  </CommandItem>
+                </CommandGroup>
+              ) : null}
+              {models.length > 0 ? (
+                <CommandGroup heading="Offered by this provider">
+                  {models.map((model) => (
+                    <CommandItem
+                      key={model}
+                      value={model}
+                      onSelect={() => save(model)}
+                      className="gap-2"
+                    >
+                      <Check
+                        className={cn(
+                          "size-3.5 shrink-0",
+                          model === value ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <span className="truncate font-mono text-xs">{model}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
 
+/**
+ * One catalogue query for the three rows: listing is a spawned CLI process or an
+ * HTTP round-trip, and asking for it three times would pay for it three times.
+ */
 function ModelsBlock({
+  provider,
   commitAnalysisModel,
   briefModel,
   agentModel,
 }: {
+  provider: LlmProviderName;
   commitAnalysisModel: string;
   briefModel: string;
   agentModel: string;
 }) {
+  const { data, isLoading, isFetching, refetch } = useProviderModels(provider);
+  const models = data?.data ?? [];
+  const retry = () => {
+    void refetch();
+  };
+
   return (
     <div className="border-t pt-1">
       <ModelRow
@@ -566,18 +638,27 @@ function ModelsBlock({
         title="Commit analysis"
         description="Runs once per commit at ingest. High volume — a small model is the usual choice."
         value={commitAnalysisModel}
+        models={models}
+        isLoading={isLoading || isFetching}
+        onOpenEmpty={retry}
       />
       <ModelRow
         field="briefModel"
         title="Brief writing"
         description="Runs once per schedule window, over the analysed commits. This is the text people read."
         value={briefModel}
+        models={models}
+        isLoading={isLoading || isFetching}
+        onOpenEmpty={retry}
       />
       <ModelRow
         field="agentModel"
         title="Assistant"
         description="The conversational agent. It picks tools in a loop, so a stronger model is the usual choice."
         value={agentModel}
+        models={models}
+        isLoading={isLoading || isFetching}
+        onOpenEmpty={retry}
       />
     </div>
   );
@@ -842,6 +923,7 @@ export function IntegrationsAiPage() {
   const heroModels =
     (isKeyProvider(provider) ? stored[provider] : Boolean(selectedCli)) ? (
       <ModelsBlock
+        provider={provider}
         commitAnalysisModel={status?.commitAnalysisModel ?? ""}
         briefModel={status?.briefModel ?? ""}
         agentModel={status?.agentModel ?? ""}

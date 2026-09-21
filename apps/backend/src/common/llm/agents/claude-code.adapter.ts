@@ -40,6 +40,10 @@ export const claudeCodeAdapter: AgentCliAdapter = {
   binary: 'claude',
   installHint:
     'Install it with `npm i -g @anthropic-ai/claude-code`, then run `claude` once and `/login`.',
+  // `claude` has no catalogue command — `--model` takes an alias or a full
+  // model name, and neither is printable. The aliases are what `claude --help`
+  // documents; a full id (`claude-fable-5`) is still accepted, typed.
+  models: ['haiku', 'sonnet', 'opus', 'fable'],
   versionArgs: ['--version'],
   authArgs: ['auth', 'status'],
 

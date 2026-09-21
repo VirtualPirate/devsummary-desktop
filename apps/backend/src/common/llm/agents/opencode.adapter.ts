@@ -93,6 +93,17 @@ export const opencodeAdapter: AgentCliAdapter = {
   binary: 'opencode',
   installHint:
     'Install it with `curl -fsSL https://opencode.ai/install | bash` (or `brew install sst/tap/opencode`), then run `opencode auth login` and connect the provider your model needs — OpenAI for the default `openai/gpt-5.6-luna`. OpenCode Zen (`opencode/*`) does not work here: it is refused outside the opencode TUI.',
+  // `opencode models` prints one `provider/model` id per line, and only for
+  // the providers the user connected with `opencode auth login` — which is
+  // exactly the set that can answer.
+  models: {
+    args: ['models'],
+    parse: (stdout) =>
+      stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.includes('/') && !line.includes(' ')),
+  },
   versionArgs: ['--version'],
 
   // No `authArgs`: credentials are per provider *inside* opencode

@@ -72,6 +72,10 @@ export const codexAdapter: AgentCliAdapter = {
   binary: 'codex',
   installHint:
     'Install it with `npm i -g @openai/codex` (or `brew install codex`), then run `codex login`.',
+  // No catalogue command either: `-m` takes whatever the account can reach,
+  // and codex prints no list. These three are the tiers its own model notes
+  // name.
+  models: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'],
   versionArgs: ['--version'],
   authArgs: ['login', 'status'],
   workspaceDir,

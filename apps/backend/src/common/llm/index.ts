@@ -6,4 +6,5 @@ export * from './gemini-llm.client';
 export * from './unconfigured-llm.client';
 export * from './live-llm.client';
 export * from './llm-client.factory';
+export * from './model-catalog';
 export { toGeminiJsonSchema } from './gemini-schema';

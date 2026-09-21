@@ -3,6 +3,7 @@ import type {
   AgentCliStatus,
   ApiResponse,
   EmailVerificationStatus,
+  LlmProviderName,
   LocalSettingsStatus,
   LocalSettingsTestResult,
   RequestEmailVerificationRequest,
@@ -41,6 +42,19 @@ export const LocalSettingsAPI = {
       params: refresh ? { refresh: "1" } : undefined,
     });
     return response.data as ApiResponse<AgentCliStatus[]>;
+  },
+
+  /** Model ids for one provider. Empty = nothing could be listed; the picker
+   *  still takes a typed id. */
+  models: async (
+    provider: LlmProviderName,
+  ): Promise<ApiResponse<string[]>> => {
+    const response = await axiosInstance.request({
+      url: `${BASE}/models`,
+      method: "GET",
+      params: { provider },
+    });
+    return response.data as ApiResponse<string[]>;
   },
 
   /** One poll of the magic-link gate. The backend talks to the API, not us. */

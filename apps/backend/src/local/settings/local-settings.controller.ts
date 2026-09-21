@@ -15,10 +15,12 @@ import { ZodValidationPipe } from '../../organizations/dto/zod-validation.pipe';
 import {
   AgentCliParamSchema,
   AgentCliQuerySchema,
+  ProviderModelsQuerySchema,
   RequestEmailVerificationSchema,
   UpdateLocalCredentialsSchema,
   type AgentCliParam,
   type AgentCliQuery,
+  type ProviderModelsQuery,
   type RequestEmailVerificationBody,
   type UpdateLocalCredentialsBody,
 } from './dto/local-settings.dto';
@@ -64,6 +66,21 @@ export class LocalSettingsController {
     @Query(new ZodValidationPipe(AgentCliQuerySchema)) q: AgentCliQuery,
   ): Promise<ApiResponse<AgentCliStatus[]>> {
     const data = await this.svc.agentClis(q.refresh === '1');
+    return { data, message: 'OK', success: true };
+  }
+
+  /**
+   * The model ids the picker offers for one provider — the CLI's own catalogue
+   * or the account's `/models` listing. Best effort: an empty array means
+   * nothing could be listed, and the picker still accepts a typed id.
+   */
+  @Get('models')
+  @RequireOrgRole('member')
+  async models(
+    @Query(new ZodValidationPipe(ProviderModelsQuerySchema))
+    q: ProviderModelsQuery,
+  ): Promise<ApiResponse<string[]>> {
+    const data = await this.svc.providerModels(q.provider);
     return { data, message: 'OK', success: true };
   }
 
