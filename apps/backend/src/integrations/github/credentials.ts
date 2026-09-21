@@ -15,8 +15,8 @@ export interface GithubCredentialRaw {
 }
 
 /**
- * The key is passed in, from `SecretsService.encryptionKey()` — the same seam
- * the Slack token uses. It used to be derived here from `DB_ENCRYPTION_KEY` with
+ * The key is passed in, from `SecretsService.encryptionKey()`. It used to be
+ * derived here from `DB_ENCRYPTION_KEY` with
  * a hardcoded `'devsummary-local-dev'` fallback, which is a key every install
  * shares: a stolen `installations.raw` row was decryptable by anyone whenever
  * the shell had not supplied a key. `SecretsService` generates an ephemeral

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -12,12 +13,14 @@ import { PageHeader } from "@/components/devsummary/shared/page-header"
 import { SkeletonList } from "@/components/devsummary/shared/skeleton-list"
 import { GithubPatForm } from "@/components/integrations/github-pat-form"
 import { GithubMark } from "@/components/integrations/provider-marks"
+import { GithubSetupGuide } from "@/components/integrations/github-setup-guide"
 import { InstallationRow } from "@/components/integrations/installation-row"
 import { IntegrationTabs } from "@/components/integrations/integration-tabs"
 import { useGithubInstallations } from "@/hooks/api/use-github-integrations"
 
 export function IntegrationsGithubPage() {
   const query = useGithubInstallations()
+  const [guideOpen, setGuideOpen] = useState(false)
 
   const installations = query.data?.data ?? []
   const totalRepos = installations.reduce((count, item) => {
@@ -59,21 +62,30 @@ export function IntegrationsGithubPage() {
     return (
       <>
         <IntegrationTabs active="github" />
-        <div className="flex min-h-[calc(100svh_-_14rem)] flex-col items-center justify-center gap-5">
-          <div className="flex size-16 items-center justify-center rounded-2xl border bg-card shadow-e1">
-            <GithubMark className="size-8" />
+        <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:gap-9">
+          <div className="flex flex-col items-start gap-5">
+            <div className="flex size-16 items-center justify-center rounded-2xl border bg-card shadow-e1">
+              <GithubMark className="size-8" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-xl font-semibold tracking-tight">
+                Connect GitHub
+              </h1>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Paste a fine-grained personal access token. DevSummary reads
+                commits through your own access — nothing is installed on your
+                account and nothing is ever written.
+              </p>
+            </div>
+            <GithubPatForm />
           </div>
-          <div className="space-y-2 text-center">
-            <h1 className="text-xl font-semibold tracking-tight">
-              Connect GitHub
-            </h1>
-            <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-              Paste a fine-grained personal access token. DevSummary reads
-              commits through your own access — nothing is installed on your
-              account and nothing is ever written.
-            </p>
+
+          <div>
+            <h2 className="mb-2.5 text-sm font-semibold">
+              What to select on GitHub
+            </h2>
+            <GithubSetupGuide />
           </div>
-          <GithubPatForm />
         </div>
       </>
     )
@@ -127,8 +139,24 @@ export function IntegrationsGithubPage() {
             and commits stay.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <GithubPatForm onConnected="stay" />
+        <CardContent className="space-y-4">
+          <GithubPatForm onConnected="stay" dense />
+          <div>
+            <button
+              type="button"
+              onClick={() => setGuideOpen((v) => !v)}
+              aria-expanded={guideOpen}
+              className="flex items-center gap-1.5 text-sm font-medium text-brand"
+            >
+              {guideOpen ? (
+                <ChevronDown className="size-4" />
+              ) : (
+                <ChevronRight className="size-4" />
+              )}
+              What to select on GitHub
+            </button>
+            {guideOpen ? <GithubSetupGuide className="mt-3" /> : null}
+          </div>
         </CardContent>
       </Card>
     </>

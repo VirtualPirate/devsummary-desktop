@@ -2,21 +2,20 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { JobQueueService } from '../../jobs';
 import { GithubInstallationsService } from '../../integrations/github/services/installations.service';
-import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
 
 /**
  * Releases everything an organization holds *outside* its own database rows,
  * before the row is deleted.
  *
  * `organizations` is hard-deleted and every child cascades, so by the time the
- * DELETE returns there is nothing left that names the Slack bot token or the
- * GitHub installation — the tokens stay live on the third party with no row to
- * find them from, and the job runner keeps retrying handlers against rows that
- * no longer exist. This has to run while those rows are still there.
+ * DELETE returns there is nothing left that names the GitHub installation — the
+ * token stays live on GitHub with no row to find it from, and the job runner
+ * keeps retrying handlers against rows that no longer exist. This has to run
+ * while those rows are still there.
  *
- * Every step is best-effort: a Slack or GitHub outage must not make an
- * organization undeletable. A failed step logs at `error` with the org id and
- * what was left live, so it can be cleaned up by hand.
+ * Every step is best-effort: a GitHub outage must not make an organization
+ * undeletable. A failed step logs at `error` with the org id and what was left
+ * live, so it can be cleaned up by hand.
  */
 @Injectable()
 export class OrganizationTeardownService {
@@ -28,31 +27,11 @@ export class OrganizationTeardownService {
   ) {}
 
   async run(organizationId: string): Promise<void> {
-    await this.revokeSlack(organizationId);
     await this.uninstallGithub(organizationId);
     // Last, not first: the GitHub disconnect above enqueues a collaborator-sync
     // job per repository it drops, and those would outlive the org just like the
     // ones already queued.
     await this.cancelJobs(organizationId);
-  }
-
-  private async revokeSlack(organizationId: string): Promise<void> {
-    try {
-      // Resolved through ModuleRef because SlackIntegrationsModule does not
-      // export this provider. Going through the service (rather than the
-      // exported repository + client) keeps its shared-workspace guard, which
-      // skips `auth.revoke` when another org still holds the same team_id.
-      const slack = this.moduleRef.get(SlackInstallationsService, {
-        strict: false,
-      });
-      for (const installation of await slack.listForOrg(organizationId)) {
-        await slack.disconnect(organizationId, installation.id);
-      }
-    } catch (err) {
-      this.logger.error(
-        `Slack teardown failed for org=${organizationId}; its bot token is still LIVE on the Slack workspace and must be revoked by hand: ${describe(err)}`,
-      );
-    }
   }
 
   private async uninstallGithub(organizationId: string): Promise<void> {

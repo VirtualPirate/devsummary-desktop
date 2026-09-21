@@ -183,7 +183,6 @@ describe('generating a brief on each provider', () => {
       'OPENAI_API_KEY',
       'GEMINI_API_KEY',
       'GITHUB_TOKEN',
-      'SLACK_BOT_TOKEN',
       'DB_ENCRYPTION_KEY',
     ]) {
       expect(spawned?.env[key]).toBeUndefined();

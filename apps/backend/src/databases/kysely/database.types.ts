@@ -60,6 +60,7 @@ export type BriefStatus =
  */
 export type BriefCommitClock = 'authored' | 'committed' | 'landed';
 /** Mirrors `BriefDeliveryChannel` in @launchstack/api-interfaces. */
+/** Only `'desktop'` is written; the other two are read-only history. */
 export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 /**
  * Structurally identical to `BriefHighlight` in @launchstack/api-interfaces,
@@ -328,7 +329,9 @@ export interface GithubRepositoryCollaboratorsTable {
 }
 
 // ---------------------------------------------------------------------------
-// slack schema
+// slack schema — DEAD. Slack was removed from the product (see the root
+// AGENTS.md, "Deliberately not included"); nothing reads or writes these, and
+// the shipped migrations that create them are never edited.
 // ---------------------------------------------------------------------------
 
 export interface SlackInstallationRaw {
@@ -413,6 +416,7 @@ export interface BriefSchedulesTable {
   paused: Generated<boolean>;
   nextRunAt: Date;
   lastSentAt: Date | null;
+  /** Dead: email (D-H) and Slack delivery were both removed. */
   emailRecipients: Generated<string[]>;
   slackInstallationId: string | null;
   slackChannelId: string | null;
@@ -468,6 +472,7 @@ export interface BriefsTable {
   model: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
+  /** Dead: email (D-H) and Slack delivery were both removed. */
   deliveryEmails: Generated<string[]>;
   deliverySlackChannelId: string | null;
   generatedAt: Date | null;

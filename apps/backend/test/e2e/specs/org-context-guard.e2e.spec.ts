@@ -135,10 +135,10 @@ describe('OrgContextGuard', () => {
   it('allows the owner on an owner-level route', async () => {
     // Runs last: this deletes the workspace the other tests rely on.
     //
-    // DELETE is not a bare row delete — OrganizationTeardownService revokes
-    // Slack, disconnects GitHub, and clears the workspace's queued jobs. Each
-    // step catches and logs its own failures, so the 204 holds with the
-    // integrations unconfigured.
+    // DELETE is not a bare row delete — OrganizationTeardownService
+    // disconnects GitHub and clears the workspace's queued jobs. Each step
+    // catches and logs its own failures, so the 204 holds with the
+    // integration unconfigured.
     await setRole('owner');
     const res = await api(testApp.server, scratchOrgId).delete(
       '/api/organizations/current',

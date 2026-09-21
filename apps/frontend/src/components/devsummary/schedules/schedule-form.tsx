@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import type {
   BriefScheduleResponse,
   CadenceInput,
-  DeliveryInput,
   ScopeInput,
 } from "@launchstack/api-interfaces";
 import { Button } from "@/components/ui/button";
@@ -16,13 +15,11 @@ import {
 } from "@/components/devsummary/shared/error-state";
 import { ScopePicker, deriveScopeName } from "./scope-picker";
 import { CadenceFields } from "./cadence-fields";
-import { DeliveryFields } from "./delivery-fields";
 import { useUpdateBriefSchedule } from "@/hooks/api/use-brief-schedules";
 import { useGetProjects } from "@/hooks/api/use-projects";
 import { useGetTeams } from "@/hooks/api/use-teams";
 import { useGetCollaborators } from "@/hooks/api/use-collaborators";
 import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
-import { useSlackAvailable } from "@/hooks/api/use-slack";
 
 function scopeFromExisting(existing: BriefScheduleResponse): ScopeInput {
   return existing.scope as ScopeInput;
@@ -44,10 +41,6 @@ function cadenceFromExisting(existing: BriefScheduleResponse): CadenceInput {
   };
 }
 
-function deliveryFromExisting(existing: BriefScheduleResponse): DeliveryInput {
-  return { slackChannelId: existing.delivery.slackChannelId ?? undefined };
-}
-
 /**
  * Edit form for an existing schedule — one screen, every field visible.
  * Creation is the staged flow in `schedule-wizard.tsx`: it has a backfill choice
@@ -64,7 +57,6 @@ export function ScheduleForm({
   const teamsQuery = useGetTeams();
   const collaboratorsQuery = useGetCollaborators();
   const installationsQuery = useGithubInstallations();
-  const slackAvailable = useSlackAvailable();
 
   const [scope, setScope] = useState<ScopeInput | null>(
     scopeFromExisting(existing),
@@ -73,9 +65,6 @@ export function ScheduleForm({
     cadenceFromExisting(existing),
   );
   const [timezone, setTimezone] = useState<string>(existing.timezone);
-  const [delivery, setDelivery] = useState<DeliveryInput>(
-    deliveryFromExisting(existing),
-  );
   const [name, setName] = useState(existing.name);
   const [nameDirty, setNameDirty] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -121,7 +110,6 @@ export function ScheduleForm({
         cadence,
         timezone,
         scope,
-        delivery: { slackChannelId: delivery.slackChannelId },
       });
       toast.success("Schedule updated");
     } catch (err) {
@@ -172,20 +160,6 @@ export function ScheduleForm({
           timezone={timezone}
           onCadenceChange={setCadence}
           onTimezoneChange={setTimezone}
-        />
-      </Card>
-
-      <Card className="block p-6">
-        <div className="mb-5">
-          <h2 className="text-lg font-semibold tracking-tight">Delivery</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Where each brief is sent once it&rsquo;s ready.
-          </p>
-        </div>
-        <DeliveryFields
-          delivery={delivery}
-          onChange={setDelivery}
-          slackAvailable={slackAvailable}
         />
       </Card>
 

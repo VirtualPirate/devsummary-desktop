@@ -67,7 +67,7 @@ describe('runCli', () => {
       'GITHUB_TOKEN',
       'OPENAI_API_KEY',
       'DB_ENCRYPTION_KEY',
-      'SLACK_BOT_TOKEN',
+      'GEMINI_API_KEY',
     ];
     const saved = new Map<string, string | undefined>();
 

@@ -18,8 +18,8 @@ per-user application data directory your operating system provides:
 - On Linux: `~/.config/DevSummary`
 
 That directory holds the repositories, branches, commits, commit analyses, briefs,
-teams and schedules you set up, plus `secrets.bin` — your GitHub token, AI provider key
-and Slack bot token, encrypted at rest. None of it is uploaded, backed up or
+teams and schedules you set up, plus `secrets.bin` — your GitHub token and AI provider
+key, encrypted at rest. None of it is uploaded, backed up or
 synchronised anywhere by DevSummary.
 
 Deleting the application does **not** delete this directory. To remove your data, delete
@@ -49,12 +49,11 @@ provider you selected, and the AI settings page names it at the moment you choos
   tools may also make their own update and telemetry requests, which DevSummary does not
   control.
 
-Your GitHub token, provider key and Slack token are removed from the environment of those
-child processes before they start, so a model reading an untrusted diff cannot read them.
+Your GitHub token and provider key are removed from the environment of those child
+processes before they start, so a model reading an untrusted diff cannot read them.
 
-**Slack** (`slack.com`) — only if you configure Slack delivery. The bot token, the target
-channel and the brief's title and summary are sent. Slack is the only delivery destination
-that leaves the machine; desktop notifications are local. There is no email delivery.
+**Delivery sends nothing off the machine.** A finished brief is a desktop notification and a
+page in the app. There is no email delivery and no Slack delivery.
 
 **Email verification** (`api.devsummary.com`) — only if you ask for a verification link.
 This is optional and nothing in the app depends on it; every feature works the same

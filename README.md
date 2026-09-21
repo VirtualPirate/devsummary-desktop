@@ -5,8 +5,8 @@ An AI-powered engineering activity reporter that runs entirely on your machine.
 It connects to GitHub with a personal access token, ingests commit activity from the branches you
 choose, classifies each commit with an LLM, and writes plain-English briefs for people who do not
 read diffs — founders, PMs, stakeholders. Briefs are scoped to a project, a team, a collaborator or
-a repository, generated on a schedule or on demand, and delivered to Slack or as a desktop
-notification. **Email delivery is not available in the desktop version** — see
+a repository, generated on a schedule or on demand, and delivered as a desktop notification.
+**Email and Slack delivery are not available in the desktop version** — see
 [Not in the desktop version](#not-in-the-desktop-version).
 
 It is a single-user Electron port of a multi-tenant cloud app. Nothing is hosted: the database is a
@@ -52,7 +52,7 @@ installed build do not share data**. The settings screen shows the exact path in
 | Credentials | `<userData>/secrets.bin` — encrypted with Electron `safeStorage`, i.e. the OS keychain |
 | Logs | `<userData>/logs/app.log.<n>` — `pino-roll` appends the number, so there is no plain `app.log`; the highest number is the live one. Rolled at 50 MB, 7 kept. `<repo-root>/logs/` only headless, where there is no `userData`; `LOG_FILE_PATH` overrides both |
 
-Nothing is sent anywhere except to GitHub, your chosen AI provider and Slack — each only once you
+Nothing is sent anywhere except to GitHub and your chosen AI provider — each only once you
 have given it a credential, and an agent CLI sends to whichever account that binary is logged into
 rather than to us. Host by host, with the payload and the credential that switches it on:
 `docs/EGRESS.md`. The backend listens on a random loopback port and every request needs a
@@ -77,8 +77,8 @@ purge — the settings screen prints the exact path, and its **Open** button rev
 manager. Two leftovers it does not cover: on macOS and Linux the OS credential store keeps the key
 that encrypted `secrets.bin` (an item named after the app, ending in `Safe Storage`), which is
 harmless once the file is gone but can be deleted from Keychain Access / your keyring; and nothing
-is revoked at the other end — your GitHub PAT and Slack bot token stay valid until you delete them
-where they were issued.
+is revoked at the other end — your GitHub PAT stays valid until you delete it where it was
+issued.
 
 ## Connecting things
 
@@ -98,19 +98,20 @@ supported. A repository with no branch stays completely inert.
 (`gpt-4o-mini` by default for both commit classification and brief writing) on the same screen, and
 it shows the running token totals so you can see what you are spending.
 
-**Slack (optional).** Create a Slack app, give the bot `chat:write`, `channels:read`, `groups:read`
-and `users:read`, install it to your workspace and paste the `xoxb-` token. Pick the channel per
-schedule. Invite the bot to private channels from inside Slack.
-
-**Desktop notifications (optional).** A toggle. With it on, a brief that reaches your machine counts
-as delivered even when Slack is unconfigured.
+**Desktop notifications (optional).** A toggle, on by default. It is the only delivery channel —
+a brief is otherwise read in the app.
 
 ## Not in the desktop version
 
 **Email delivery.** There is no SMTP configuration, no email recipients on a schedule or a
-one-off brief, and no "deliver by email" button — on any screen. A brief is delivered to Slack
-and/or a desktop notification, and it is always readable in the app itself. This is deliberate and
-permanent for the desktop build.
+one-off brief, and no "deliver by email" button — on any screen.
+
+**Slack delivery.** There is no Slack integration page, no bot token field, no channel picker on a
+schedule or a one-off brief, and no "deliver to Slack" button — on any screen. DevSummary makes no
+outbound connection to `slack.com`.
+
+A brief is delivered as a desktop notification, and it is always readable in the app itself. Both
+omissions are deliberate and permanent for the desktop build.
 
 ## Packaging
 
@@ -162,10 +163,9 @@ before touching anything that handles a date. `apps/backend/AGENTS.md` and
 
 ## License
 
-**PolyForm Shield 1.0.0** — see `LICENSE`. Source-available, not open source: run it, read it,
-change it, share it, use it at work on your employer's repositories. The single prohibition is
-competing — you may not use DevSummary (or a fork of it) to provide a product that competes with
-DevSummary. Reselling it is exactly that.
+**MIT** — see `LICENSE`. Open source: run it, read it, change it, share it, use it at work,
+fork it, sell it. Keep the copyright notice and the license text with any copy you distribute;
+there is no warranty.
 
 `LICENSE` is also the Terms of Use the app shows on first launch, and `PRIVACY.md` is the privacy
 policy; both ship inside the installer, so they are readable without a network connection.

@@ -12,7 +12,6 @@ import { GithubRepositoriesRepository } from '../../../integrations/github/repos
 import { RepositoryBranchesRepository } from '../../../integrations/github/repositories/repository-branches.repository';
 import { IngestStatusService } from '../../../integrations/github/services/ingest-status.service';
 import { CollaboratorsRepository } from '../../../integrations/github/collaborators/repositories/collaborators.repository';
-import { SlackInstallationsRepository } from '../../../integrations/slack/repositories/installations.repository';
 import { ProjectsRepository } from '../../projects/repositories/projects.repository';
 import { TeamsRepository } from '../../teams/repositories/teams.repository';
 import { BriefSchedulesRepository } from '../repositories/brief-schedules.repository';
@@ -35,7 +34,6 @@ export class BriefSchedulesService {
     private readonly repos: GithubRepositoriesRepository,
     private readonly trackedBranches: RepositoryBranchesRepository,
     private readonly ingestStatus: IngestStatusService,
-    private readonly slack: SlackInstallationsRepository,
     private readonly cadence: CadenceService,
     private readonly queue: JobQueueService,
     private readonly appConfig: ConfigService,
@@ -65,10 +63,6 @@ export class BriefSchedulesService {
     await this.assertScheduleCapacity(organizationId);
     await this.assertCommitsNotProcessing(organizationId);
     await this.assertScopeInOrg(organizationId, body.scope);
-    const slackInstallationId = await this.resolveSlackInstallationId(
-      organizationId,
-      body.delivery?.slackChannelId,
-    );
 
     const nextRunAt = this.cadence.computeNextRunAt(
       {
@@ -87,7 +81,6 @@ export class BriefSchedulesService {
       organizationId,
       createdByUserId,
       body,
-      slackInstallationId,
       nextRunAt,
     );
     const row = await this.schedules.create(insertable);
@@ -154,14 +147,6 @@ export class BriefSchedulesService {
         )
       : existing.nextRunAt;
 
-    let slackInstallationId = existing.slackInstallationId;
-    if (body.delivery?.slackChannelId !== undefined) {
-      slackInstallationId = await this.resolveSlackInstallationId(
-        organizationId,
-        body.delivery.slackChannelId ?? undefined,
-      );
-    }
-
     const patch: Record<string, unknown> = {
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.cadence
@@ -174,12 +159,6 @@ export class BriefSchedulesService {
         : {}),
       ...(body.timezone ? { timezone: newTimezone } : {}),
       ...(body.scope ? this.scopeColumns(body.scope) : {}),
-      ...(body.delivery?.slackChannelId !== undefined
-        ? {
-            slackInstallationId,
-            slackChannelId: body.delivery.slackChannelId ?? null,
-          }
-        : {}),
       ...(cadenceChanged ? { nextRunAt } : {}),
     };
 
@@ -247,7 +226,6 @@ export class BriefSchedulesService {
     organizationId: string,
     createdByUserId: string,
     body: CreateBriefScheduleRequest,
-    slackInstallationId: string | null,
     nextRunAt: Date,
   ) {
     return {
@@ -264,8 +242,6 @@ export class BriefSchedulesService {
       ...this.scopeColumns(body.scope),
       paused: false,
       nextRunAt,
-      slackInstallationId,
-      slackChannelId: body.delivery?.slackChannelId ?? null,
     };
   }
 
@@ -394,16 +370,6 @@ export class BriefSchedulesService {
     }
   }
 
-  private async resolveSlackInstallationId(
-    organizationId: string,
-    channelId: string | undefined,
-  ): Promise<string | null> {
-    if (!channelId) return null;
-    const install = await this.slack.findActiveByOrganizationId(organizationId);
-    if (!install) throw AppError.SLACK_INSTALLATION_NOT_FOUND();
-    return install.id;
-  }
-
   private toResponse(row: BriefScheduleSelect): BriefScheduleResponse {
     return {
       id: row.id,
@@ -442,9 +408,6 @@ export class BriefSchedulesService {
       paused: row.paused,
       nextRunAt: row.nextRunAt.toISOString(),
       lastSentAt: row.lastSentAt ? row.lastSentAt.toISOString() : null,
-      delivery: {
-        slackChannelId: row.slackChannelId,
-      },
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

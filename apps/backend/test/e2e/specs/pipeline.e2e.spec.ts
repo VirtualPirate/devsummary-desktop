@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../../src/databases/kysely/database.types';
+import { installShell, type ShellFake } from '../fakes/shell';
 import { api } from '../harness/api';
 import { createTestApp, type TestApp } from '../harness/create-test-app';
 import { createTestDatabase } from '../harness/database';
@@ -10,7 +11,7 @@ import { waitForJobs } from '../harness/wait-for-jobs';
  * The whole product, in one process, against the mocks D-E approves:
  * paste a PAT → repositories reconciled → pick a branch → the live job runner
  * scans, backfills and analyses → a project scope → a brief generated and
- * delivered to Slack.
+ * delivered as a desktop notification.
  *
  * This is the spec PHASE-11 concern 3 says did not exist. Every earlier e2e
  * file exercises one controller; this one exercises the seams *between* them —
@@ -18,7 +19,7 @@ import { waitForJobs } from '../harness/wait-for-jobs';
  * OpenAI callers sharing one mocked SDK.
  *
  * Nothing is stubbed at the DI layer. `vitest.e2e.config.ts` aliases
- * `@octokit/*`, `openai` and `@slack/web-api` to the unit suites' own mocks,
+ * `@octokit/*` and `openai` to the unit suites' own mocks,
  * so the app's client wiring, its token resolution and its retry profiles are
  * all under test; only the sockets are not real.
  */
@@ -72,6 +73,7 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
   let repositoryId: string;
   let projectId: string;
   let briefId: string;
+  let shell: ShellFake;
 
   beforeAll(async () => {
     // Set before the app is built: `SecretsService` reads env in its
@@ -173,11 +175,16 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
       return pages([]);
     });
 
+    // Delivery is a desktop notification, so the port has to exist or the only
+    // channel fails and the brief never reaches `delivered`.
+    shell = installShell();
+
     ({ db } = await createTestDatabase());
     testApp = await createTestApp(db);
   });
 
   afterAll(async () => {
+    shell.restore();
     await testApp.close();
   });
 
@@ -293,20 +300,10 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     expect(res.body.data.repositoryIds).toEqual([repositoryId]);
   });
 
-  it('connects Slack with a pasted bot token', async () => {
-    await api(testApp.server)
-      .post('/api/integrations/slack/installations/token')
-      .send({ token: 'xoxb-e2e' })
-      .expect(201);
-  });
-
-  it('generates a brief on demand and delivers it to Slack', async () => {
+  it('generates a brief on demand and delivers it to the desktop', async () => {
     const res = await api(testApp.server)
       .post('/api/organizations/current/briefs/generate')
-      .send({
-        scope: { type: 'project', projectId },
-        delivery: { slackChannelId: 'C-E2E' },
-      })
+      .send({ scope: { type: 'project', projectId } })
       .expect(202);
 
     briefId = res.body.data.briefId as string;
@@ -327,7 +324,7 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
     expect(brief.promptTokens).toBe(30);
     expect(brief.completionTokens).toBe(40);
     expect(brief.deliveredAt).not.toBeNull();
-    expect(brief.deliveredChannels).toEqual(['slack']);
+    expect(brief.deliveredChannels).toEqual(['desktop']);
 
     const linked = await db
       .selectFrom('briefs.briefCommits')
@@ -337,21 +334,10 @@ describe('full pipeline: connect → ingest → analyze → brief → deliver', 
       .execute();
     expect(linked.map((c) => c.sha)).toEqual(['sha-newer', 'sha-older']);
 
-    const { WebClient } = (await import('@slack/web-api')) as unknown as {
-      WebClient: {
-        __mockInstances: Array<{
-          chat: {
-            postMessage: {
-              mock: { calls: Array<[Record<string, unknown>]> };
-            };
-          };
-        }>;
-      };
-    };
-    const posted = WebClient.__mockInstances
-      .flatMap((c) => c.chat.postMessage.mock.calls)
-      .map(([arg]) => arg);
-    expect(posted.at(-1)?.channel).toBe('C-E2E');
+    expect(shell.messages.at(-1)).toMatchObject({
+      type: 'notification',
+      briefId,
+    });
   }, 30_000);
 
   it('drains the jobs table', async () => {

@@ -2,7 +2,6 @@ import { installAgentCli, type AgentCliFake } from './agent-cli';
 import { installGithub, type GithubFake } from './github';
 import { installLlm, type LlmFake } from './llm';
 import { installShell, type ShellFake } from './shell';
-import { installSlack, type SlackFake } from './slack';
 import { defineWorld, type World } from './world';
 
 export interface Fakes {
@@ -10,13 +9,12 @@ export interface Fakes {
   github: GithubFake;
   llm: LlmFake;
   agentCli: AgentCliFake;
-  slack: SlackFake;
   shell: ShellFake;
   teardown: () => Promise<void>;
 }
 
 /**
- * All five outbound seams at once, for a spec that needs the whole boundary.
+ * All four outbound seams at once, for a spec that needs the whole boundary.
  * A spec that needs two installs two — this is convenience, not ceremony.
  *
  * Call it in `beforeAll` **before** `createTestApp`, so nothing is constructed
@@ -28,7 +26,6 @@ export async function installFakes(
   const github = await installGithub(world);
   const llm = await installLlm();
   const agentCli = await installAgentCli();
-  const slack = await installSlack();
   const shell = installShell();
 
   return {
@@ -36,7 +33,6 @@ export async function installFakes(
     github,
     llm,
     agentCli,
-    slack,
     shell,
     teardown: async () => {
       shell.restore();

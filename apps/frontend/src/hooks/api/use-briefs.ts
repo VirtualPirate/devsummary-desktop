@@ -162,28 +162,6 @@ export function useDeleteBrief() {
   });
 }
 
-export function useDeliverBrief() {
-  const queryClient = useQueryClient();
-  const orgId = useActiveOrganizationStore((s) => s.activeOrganizationId);
-  return useMutation({
-    mutationFn: ({
-      briefId,
-      channel,
-    }: {
-      briefId: string;
-      channel: "slack";
-    }) => BriefsAPI.deliver(briefId, channel),
-    onSuccess: async (res, { briefId }) => {
-      // The response is the updated brief, so seed it rather than refetch —
-      // the status badge and the "Delivered:" footer flip immediately.
-      queryClient.setQueryData(briefsKeys.detail(orgId, briefId), res);
-      await queryClient.invalidateQueries({
-        queryKey: ["briefs", "list", orgId],
-      });
-    },
-  });
-}
-
 export function useGenerateBrief() {
   const queryClient = useQueryClient();
   const orgId = useActiveOrganizationStore((s) => s.activeOrganizationId);

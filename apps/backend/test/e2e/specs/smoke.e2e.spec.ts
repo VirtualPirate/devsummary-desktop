@@ -11,17 +11,13 @@ describe('outbound network isolation', () => {
   it('stubs every outbound network module at the unit-test seam', async () => {
     // `__reset` exists only on src/__mocks__/*, so this fails the moment an
     // alias in vitest.e2e.config.ts stops matching and a real client — able to
-    // reach github.com, api.openai.com or slack.com — is loaded into the app
+    // reach github.com or api.openai.com — is loaded into the app
     // instead.
-    const [octokit, slack, openai] = await Promise.all([
+    const [octokit, openai] = await Promise.all([
       import('@octokit/core'),
-      import('@slack/web-api'),
       import('openai'),
     ]);
     expect(typeof (octokit.Octokit as { __reset?: unknown }).__reset).toBe(
-      'function',
-    );
-    expect(typeof (slack.WebClient as { __reset?: unknown }).__reset).toBe(
       'function',
     );
     expect(typeof (openai as { __reset?: unknown }).__reset).toBe('function');
@@ -54,6 +50,8 @@ describe('in-memory PGlite', () => {
     `.execute(db);
     const names = rows.rows.map((r) => r.schemaName);
     expect(names).toEqual(
+      // `slack` is dead but its migration is shipped and never edited, so the
+      // schema is still created.
       expect.arrayContaining(['auth', 'github', 'slack', 'briefs']),
     );
   });

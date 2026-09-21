@@ -9,7 +9,6 @@ import { LlmClient, LiveLlmClient } from '../common/llm';
 import { GithubIntegrationsModule } from '../integrations/github';
 import { GithubCollaboratorsModule } from '../integrations/github/collaborators/collaborators.module';
 import { CommitAnalysisModule } from '../integrations/github/commit-analysis/commit-analysis.module';
-import { SlackIntegrationsModule } from '../integrations/slack';
 import { BRIEFS_CONFIG_TOKEN } from './tokens';
 import { loadBriefsConfig, type BriefsConfig } from './briefs-config';
 
@@ -39,8 +38,6 @@ import { BriefGeneratorService } from './generation/services/brief-generator.ser
 import { BriefActivities } from './generation/activities/brief.activities';
 import { BriefJobs } from './generation/activities/brief.jobs';
 
-import { BriefRenderService } from './delivery/services/brief-render.service';
-import { BriefSlackService } from './delivery/services/brief-slack.service';
 import { BriefDesktopService } from './delivery/services/brief-desktop.service';
 import { BriefDelivererService } from './delivery/services/brief-deliverer.service';
 
@@ -49,7 +46,6 @@ import { BriefDelivererService } from './delivery/services/brief-deliverer.servi
     GithubIntegrationsModule,
     GithubCollaboratorsModule,
     CommitAnalysisModule,
-    SlackIntegrationsModule,
   ],
   controllers: [
     ProjectsController,
@@ -95,8 +91,6 @@ import { BriefDelivererService } from './delivery/services/brief-deliverer.servi
     BriefActivities,
     BriefJobs,
 
-    BriefRenderService,
-    BriefSlackService,
     BriefDesktopService,
     BriefDelivererService,
   ],

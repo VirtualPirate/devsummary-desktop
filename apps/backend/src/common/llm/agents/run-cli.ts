@@ -42,7 +42,7 @@ export interface CliOptions {
  * The child's environment: the parent's, minus the credential bundle.
  *
  * `SecretsService` writes the decrypted bundle — the GitHub PAT, the provider
- * key, `DB_ENCRYPTION_KEY`, the Slack bot token — straight into this process's
+ * key, `DB_ENCRYPTION_KEY` — straight into this process's
  * `process.env`, because that is the seam every consumer reads through. Every
  * child forked here inherits that by default, and these children are agent CLIs
  * running a model whose prompt is an untrusted commit diff. Codex already

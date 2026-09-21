@@ -104,28 +104,6 @@ export class BriefSchedulesRepository {
   }
 
   /**
-   * Drops Slack delivery from every live schedule pointing at an installation
-   * (used when that installation is disconnected). Both columns must be nulled
-   * in the same statement: the `brief_schedules_slack_pair` check constraint
-   * requires both set or both null.
-   */
-  async clearSlackConfigForInstallation(
-    slackInstallationId: string,
-    tx?: AppDatabase,
-  ): Promise<void> {
-    await this.exec(tx)
-      .updateTable('briefs.briefSchedules')
-      .set({
-        slackInstallationId: null,
-        slackChannelId: null,
-        updatedAt: new Date(),
-      })
-      .where('slackInstallationId', '=', slackInstallationId)
-      .where('deletedAt', 'is', null)
-      .execute();
-  }
-
-  /**
    * Phase 1 of the dispatch claim: which schedules are due right now. Runs
    * outside a transaction, so the row locks it takes live only for the
    * statement — they exist purely to skip rows another dispatcher is already

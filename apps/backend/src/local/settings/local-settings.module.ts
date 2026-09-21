@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import * as express from 'express';
 import { AgentCliDetector, agentCliDetector } from '../../common/llm';
-import { SlackIntegrationsModule } from '../../integrations/slack';
 import { EmailVerificationService } from './email-verification.service';
 import { LocalSettingsController } from './local-settings.controller';
 import { LocalSettingsRepository } from './local-settings.repository';
@@ -15,12 +14,11 @@ import { SecretsService } from './secrets.service';
 
 /**
  * Global because the secret bundle is process-wide state, not a feature: the
- * Slack repository (token encryption) and the desktop notifier both need it,
- * and neither should have to import a settings module to send a message.
+ * GitHub credential store (token encryption) and the desktop notifier both need
+ * it, and neither should have to import a settings module to use it.
  */
 @Global()
 @Module({
-  imports: [SlackIntegrationsModule],
   controllers: [LocalSettingsController],
   providers: [
     SecretsService,

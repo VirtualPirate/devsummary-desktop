@@ -169,7 +169,7 @@ export class OrganizationsService {
     }
 
     // Before the row goes: the delete cascades to every child, so afterwards
-    // nothing names the Slack token, the GitHub installation, or the workflows
+    // nothing names the GitHub installation or the workflows
     // still running for this org. Best-effort — it never blocks the delete.
     await this.teardown.run(organizationId);
 

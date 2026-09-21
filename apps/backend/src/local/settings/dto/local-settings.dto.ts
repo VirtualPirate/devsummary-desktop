@@ -16,7 +16,6 @@ export const UpdateLocalCredentialsSchema = z
     llmProvider: z.enum(LLM_PROVIDERS),
     openaiApiKey: z.string().trim(),
     geminiApiKey: z.string().trim(),
-    slackBotToken: z.string().trim(),
     desktopNotifications: z.boolean(),
     commitAnalysisModel: z.string().trim().max(100),
     briefModel: z.string().trim().max(100),

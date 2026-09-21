@@ -50,7 +50,7 @@ membership row inside a scratch workspace — there is nobody else to be.
 
 Every outbound network module, aliased in `vitest.e2e.config.ts` to the same
 `src/__mocks__/` files Jest loads through `moduleNameMapper`:
-`@octokit/core`, `@octokit/plugin-paginate-rest`, `@slack/web-api`, `openai`,
+`@octokit/core`, `@octokit/plugin-paginate-rest`, `openai`,
 `openai/helpers/zod`. `node:child_process` is aliased too, to
 `test/e2e/fakes/child-process.ts` rather than a Jest mock — the agent CLIs
 spawn locally, not over the network. An alias is Vitest's equivalent
@@ -79,7 +79,6 @@ that returns seeding and failure knobs plus a recorder.
 | `github.ts` | `Octokit.request` / `paginate.iterator` | `createTestApp` |
 | `llm.ts` | the `openai` SDK — both providers share it | `createTestApp` |
 | `agent-cli.ts` | `node:child_process` + a temp PATH directory | `createTestApp` |
-| `slack.ts` | `@slack/web-api` `WebClient` | `createTestApp` |
 | `shell.ts` | `process.parentPort` | any time |
 
 `installFakes()` in `fakes/index.ts` installs all five at once.

@@ -22,7 +22,6 @@ import { CollaboratorsRepository } from '../../../integrations/github/collaborat
 import { GithubRepositoriesRepository } from '../../../integrations/github/repositories/repositories.repository';
 import { RepositoryBranchesRepository } from '../../../integrations/github/repositories/repository-branches.repository';
 import { IngestStatusService } from '../../../integrations/github/services/ingest-status.service';
-import { SlackInstallationsRepository } from '../../../integrations/slack/repositories/installations.repository';
 import { ProjectsRepository } from '../../projects/repositories/projects.repository';
 import { TeamsRepository } from '../../teams/repositories/teams.repository';
 import { BriefsRepository } from '../repositories/briefs.repository';
@@ -51,7 +50,6 @@ export class BriefsService {
     private readonly collaborators: CollaboratorsRepository,
     private readonly repos: GithubRepositoriesRepository,
     private readonly trackedBranches: RepositoryBranchesRepository,
-    private readonly slack: SlackInstallationsRepository,
     private readonly queue: JobQueueService,
     private readonly scopes: BriefScopeResolver,
     private readonly report: BriefReportRepository,
@@ -232,11 +230,6 @@ export class BriefsService {
     if (ingest.ingesting) throw AppError.BRIEF_COMMITS_PROCESSING();
 
     await this.assertScopeInOrg(organizationId, body.scope);
-    if (body.delivery?.slackChannelId) {
-      const install =
-        await this.slack.findActiveByOrganizationId(organizationId);
-      if (!install) throw AppError.SLACK_INSTALLATION_NOT_FOUND();
-    }
 
     const briefRow = await this.briefs.create({
       organizationId,
@@ -262,7 +255,6 @@ export class BriefsService {
       // merged today would select into a period already reported on.
       commitClock: 'landed',
       status: 'pending',
-      deliverySlackChannelId: body.delivery?.slackChannelId ?? null,
     });
 
     const jobId = await this.queue.enqueue(
@@ -282,22 +274,6 @@ export class BriefsService {
    * An in-flight brief needs no extra handling: every activity re-reads it
    * through `findById`, which filters `deleted_at`, so the workflow exits.
    */
-  /**
-   * Manual re-delivery for a brief that already exists. The org check is the
-   * point of this wrapper — `deliverOne` takes a bare brief id, and the tenant
-   * boundary must not depend on the caller remembering to scope it.
-   */
-  async deliverNow(
-    organizationId: string,
-    briefId: string,
-    channel: 'slack',
-  ): Promise<BriefResponse> {
-    const row = await this.briefs.findByIdScopedToOrg(briefId, organizationId);
-    if (!row) throw AppError.BRIEF_NOT_FOUND();
-    await this.deliverer.deliverOne(briefId, channel);
-    return this.get(organizationId, briefId);
-  }
-
   async delete(organizationId: string, briefId: string): Promise<void> {
     const row = await this.briefs.findByIdScopedToOrg(briefId, organizationId);
     if (!row) throw AppError.BRIEF_NOT_FOUND();
@@ -557,7 +533,6 @@ export class BriefsService {
       generatedAt: row.generatedAt ? row.generatedAt.toISOString() : null,
       deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
       deliveredChannels: row.deliveredChannels,
-      deliverySlackChannelId: row.deliverySlackChannelId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

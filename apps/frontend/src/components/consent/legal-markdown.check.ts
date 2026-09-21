@@ -18,7 +18,7 @@ import { plain } from "./legal-markdown.ts";
 
 assert.equal(plain("The **licensor** grants"), "The licensor grants");
 assert.equal(plain("***as is***, without"), "as is, without");
-assert.equal(plain("see [Noncompete](#noncompete) for"), "see Noncompete for");
+assert.equal(plain("see [the Software](#software) for"), "see the Software for");
 assert.equal(plain("a `Required Notice:` line"), "a Required Notice: line");
 assert.equal(plain("> Required Notice: Copyright"), "Required Notice: Copyright");
 assert.equal(plain("<https://example.com>"), "https://example.com");
@@ -31,7 +31,7 @@ const root = path.resolve(process.cwd(), "..", "..");
 for (const name of ["LICENSE", "PRIVACY.md"]) {
   const file = path.join(root, name);
   const blocks = readFileSync(file, "utf8").split(/\n{2,}/);
-  assert.ok(blocks.length > 5, `${name} did not read from ${root}`);
+  assert.ok(blocks.length > 2, `${name} did not read from ${root}`);
 
   for (const block of blocks) {
     // Headings and bullets are rendered as elements, not passed through plain().

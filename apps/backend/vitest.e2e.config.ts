@@ -29,7 +29,6 @@ export default defineConfig({
         find: /^@octokit\/plugin-paginate-rest$/,
         replacement: mock('@octokit/plugin-paginate-rest.ts'),
       },
-      { find: /^@slack\/web-api$/, replacement: mock('@slack/web-api.ts') },
       { find: /^openai$/, replacement: mock('openai.ts') },
       {
         find: /^openai\/helpers\/zod$/,

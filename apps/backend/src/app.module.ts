@@ -8,7 +8,6 @@ import { LocalSessionMiddleware, LocalTokenGuard } from './local';
 import { LocalSettingsModule } from './local/settings/local-settings.module';
 import { OrganizationsModule } from './organizations';
 import { GithubIntegrationsModule } from './integrations/github';
-import { SlackIntegrationsModule } from './integrations/slack';
 import { CommitAnalysisModule } from './integrations/github/commit-analysis/commit-analysis.module';
 import { GithubCollaboratorsModule } from './integrations/github/collaborators/collaborators.module';
 import { BriefsModule } from './briefs';
@@ -30,11 +29,10 @@ import { LoggerModule, RequestIdMiddleware } from './logger';
     // the migrations in its own.
     JobsModule,
     // @Global: SecretsService + LocalSettingsRepository resolve everywhere
-    // (SlackInstallationsRepository and BriefDesktopService both need them).
+    // (the GitHub credential store and BriefDesktopService both need them).
     LocalSettingsModule,
     OrganizationsModule,
     GithubIntegrationsModule,
-    SlackIntegrationsModule,
     CommitAnalysisModule,
     GithubCollaboratorsModule,
     BriefsModule,

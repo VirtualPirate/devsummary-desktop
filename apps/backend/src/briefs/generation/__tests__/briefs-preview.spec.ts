@@ -42,14 +42,13 @@ describe('BriefsService.preview', () => {
       ),
     };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, queue, scopes, report)
+    //        trackedBranches, queue, scopes, report, deliverer, ingestStatus)
     const service = new BriefsService(
       { findMostRecentForScope } as never,
       null as never,
       {
         findByIdScopedToOrg: jest.fn().mockResolvedValue({ id: 'p1' }),
       } as never,
-      null as never,
       null as never,
       null as never,
       null as never,

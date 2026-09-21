@@ -48,7 +48,6 @@ export interface LocalSettingsStatus {
   gemini: boolean;
   /** Which provider answers AI calls. The keys are independent of it. */
   llmProvider: LlmProviderName;
-  slack: boolean;
   desktopNotifications: boolean;
   /** Absolute path of the folder holding the database, logs and secrets. */
   dataDir: string;
@@ -60,14 +59,6 @@ export interface LocalSettingsStatus {
   briefModel: string;
   agentModel: string;
 }
-
-/** Bot scopes the Slack app must be granted, shown next to the token field. */
-export const SLACK_BOT_SCOPES = [
-  "chat:write",
-  "channels:read",
-  "groups:read",
-  "users:read",
-] as const;
 
 export interface LocalSettingsTestResult {
   ok: true;

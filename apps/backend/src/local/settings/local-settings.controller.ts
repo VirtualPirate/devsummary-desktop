@@ -28,7 +28,7 @@ import { LocalSettingsService } from './local-settings.service';
 /**
  * The settings screen's only backend surface. Credentials go **in** and never
  * come back out: `GET` answers with booleans, so a compromised renderer cannot
- * read the user's Slack token or provider key back off the wire.
+ * read the user's provider key back off the wire.
  */
 @Controller('api/local-settings')
 export class LocalSettingsController {

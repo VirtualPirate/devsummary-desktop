@@ -39,12 +39,6 @@ export const ScopeSchema = z.discriminatedUnion('type', [
 ]);
 export type ScopeInput = z.infer<typeof ScopeSchema>;
 
-/** Email delivery is not available in the desktop build — see docs/DELTAS.md D-H. */
-export const DeliveryInputSchema = z.object({
-  slackChannelId: z.string().min(1).optional(),
-});
-export type DeliveryInput = z.infer<typeof DeliveryInputSchema>;
-
 // Projects
 export const CreateProjectSchema = z.object({
   name: z.string().min(1).max(120),
@@ -97,7 +91,6 @@ export const CreateBriefScheduleSchema = z.object({
   cadence: CadenceSchema,
   timezone: z.string().min(1),
   scope: ScopeSchema,
-  delivery: DeliveryInputSchema.default({}),
   /**
    * Months of history to generate briefs for at creation time; `0` skips the
    * backfill entirely. Each generated brief is one OpenAI call, so this is the
@@ -118,7 +111,6 @@ export const UpdateBriefScheduleSchema = z.object({
   cadence: CadenceSchema.optional(),
   timezone: z.string().min(1).optional(),
   scope: ScopeSchema.optional(),
-  delivery: DeliveryInputSchema.optional(),
 });
 export type UpdateBriefScheduleRequest = z.infer<
   typeof UpdateBriefScheduleSchema
@@ -136,15 +128,8 @@ export const GenerateBriefSchema = z.object({
    * falls back to UTC.
    */
   timezone: z.string().optional(),
-  delivery: DeliveryInputSchema.optional(),
 });
 export type GenerateBriefRequest = z.infer<typeof GenerateBriefSchema>;
-
-// Briefs (manual re-delivery of one already-generated brief)
-export const DeliverBriefSchema = z.object({
-  channel: z.enum(['slack']),
-});
-export type DeliverBriefRequest = z.infer<typeof DeliverBriefSchema>;
 
 /**
  * Scope arrives flattened rather than as the nested `ScopeSchema` because this

@@ -11,7 +11,6 @@ import {
 import {
   BriefCommitsQuerySchema,
   BriefPreviewQuerySchema,
-  DeliverBriefSchema,
   GenerateBriefSchema,
   ListBriefsQuerySchema,
   type ApiResponse,
@@ -20,7 +19,6 @@ import {
   type BriefPreviewResponse,
   type BriefReportResponse,
   type BriefResponse,
-  type DeliverBriefRequest,
   type GenerateBriefEnqueueResponse,
   type GenerateBriefRequest,
   type ListBriefsQuery,
@@ -111,27 +109,6 @@ export class BriefsController {
     @Param(new ZodValidationPipe(BriefIdParamSchema)) params: BriefIdParam,
   ): Promise<void> {
     await this.briefs.delete(m.organizationId, params.briefId);
-  }
-
-  /**
-   * Re-send one channel for a brief that already exists. Synchronous on
-   * purpose: the caller is a person watching a button, and `not_in_channel`
-   * is only useful if it comes back in the response rather than landing on
-   * the row minutes later.
-   */
-  @Post(':briefId/deliver')
-  @RequireOrgRole('admin')
-  async deliver(
-    @OrgMembership() m: OrgMembershipContext,
-    @Param(new ZodValidationPipe(BriefIdParamSchema)) params: BriefIdParam,
-    @Body(new ZodValidationPipe(DeliverBriefSchema)) body: DeliverBriefRequest,
-  ): Promise<ApiResponse<BriefResponse>> {
-    const data = await this.briefs.deliverNow(
-      m.organizationId,
-      params.briefId,
-      body.channel,
-    );
-    return { data, message: 'Delivered', success: true };
   }
 
   @Post('generate')

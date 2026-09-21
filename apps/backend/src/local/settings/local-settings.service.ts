@@ -21,7 +21,6 @@ import {
 } from '../../common/llm';
 import { resolveDataDir } from '../../databases/kysely/kysely.module';
 import { COMMIT_ANALYSIS_MODEL_VARS } from '../../integrations/github/commit-analysis/commit-analysis.config';
-import { SlackInstallationsService } from '../../integrations/slack/services/installations.service';
 import { LocalSettingsRepository } from './local-settings.repository';
 import { SecretsService, type SecretBundle } from './secrets.service';
 
@@ -38,7 +37,6 @@ export class LocalSettingsService {
   constructor(
     private readonly secrets: SecretsService,
     private readonly settings: LocalSettingsRepository,
-    private readonly slackInstalls: SlackInstallationsService,
     // Imported as a value, not `import type`: this is the DI token, and an
     // `import type` erases the class and drops it from `design:paramtypes`.
     private readonly detector: AgentCliDetector,
@@ -87,9 +85,9 @@ export class LocalSettingsService {
   }
 
   /**
-   * Credentials are proved before they are stored — Slack with `auth.test`, an
-   * agent CLI by detecting its binary. Without that, a typo'd token surfaces
-   * days later as a failed brief instead of a red field.
+   * Credentials are proved before they are stored — an agent CLI by detecting
+   * its binary. Without that, a typo'd value surfaces days later as a failed
+   * brief instead of a red field.
    */
   async updateCredentials(
     orgId: string,
@@ -112,8 +110,9 @@ export class LocalSettingsService {
     if (body.agentModel !== undefined)
       overlay[AGENT_MODEL_VARS[provider]] = body.agentModel;
 
-    // A CLI provider is proved before it is stored, exactly like Slack. Not-logged-in is deliberately allowed: the card warns, and the fix
-    // (`claude` then `/login`) is outside this app.
+    // A CLI provider is proved before it is stored. Not-logged-in is
+    // deliberately allowed: the card warns, and the fix (`claude` then
+    // `/login`) is outside this app.
     if (body.llmProvider !== undefined && isAgentProvider(body.llmProvider)) {
       const cli = await this.detector.detect(body.llmProvider, { force: true });
       if (!cli.installed) {
@@ -121,17 +120,6 @@ export class LocalSettingsService {
           `${cli.displayName} is not installed. ${cli.installHint}`,
         );
       }
-    }
-
-    // Slack goes through the installation service so the encrypted row and the
-    // keychain bundle are written by one path — it validates with `auth.test`
-    // and throws before anything is stored.
-    if (body.slackBotToken) {
-      await this.slackInstalls.connectToken({
-        orgId,
-        token: body.slackBotToken,
-        userId: null,
-      });
     }
 
     if (Object.keys(overlay).length > 0) this.secrets.update(overlay);

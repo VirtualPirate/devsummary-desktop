@@ -20,7 +20,7 @@ describe('BriefsService.list filter mapping', () => {
       null as never,
       null as never,
       null as never,
-      null as never,
+      null,
     );
   }
 
@@ -73,11 +73,10 @@ describe('BriefsService.getCommits', () => {
         deps.listContributorsForBrief ?? jest.fn().mockResolvedValue([]),
     };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, queue, scopes, report)
+    //        trackedBranches, queue, scopes, report, deliverer, ingestStatus)
     return new BriefsService(
       briefs as never,
       briefCommits as never,
-      null as never,
       null as never,
       null as never,
       null as never,
@@ -250,7 +249,7 @@ describe('BriefsService commit type counts', () => {
       null as never,
       null as never,
       null as never,
-      null as never,
+      null,
     );
   }
 
@@ -350,7 +349,7 @@ describe('BriefsService.list cursor validation', () => {
       null as never,
       null as never,
       null as never,
-      null as never,
+      null,
     );
   }
 
@@ -411,7 +410,7 @@ describe('BriefsService.delete', () => {
       null as never,
       null as never,
       null as never,
-      null as never,
+      null,
     );
     return { service, briefs };
   }
@@ -465,13 +464,11 @@ describe('BriefsService.generateAdHoc timezone', () => {
         .mockResolvedValue({ repositories: [], ingesting: false }),
     };
     // ctor: (briefs, briefCommits, projects, teams, collaborators, repos,
-    //        trackedBranches, slack, queue, scopes, report, deliverer,
-    //        ingestStatus)
+    //        trackedBranches, queue, scopes, report, deliverer, ingestStatus)
     const service = new BriefsService(
       { create } as never,
       null as never,
       projects as never,
-      null as never,
       null as never,
       null as never,
       null as never,

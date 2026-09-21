@@ -14,7 +14,6 @@ export const SECRET_KEYS = [
   'OPENAI_API_KEY',
   'GEMINI_API_KEY',
   'DB_ENCRYPTION_KEY',
-  'SLACK_BOT_TOKEN',
   // Not secrets, but they ride the same bundle: it is the only thing the shell
   // persists, so a choice made in settings has nowhere else to survive a
   // restart. `status()` reports the provider (the UI has to preselect it) but
@@ -50,7 +49,7 @@ export type SecretBundle = Partial<Record<SecretKey, string>>;
 /** The credential half of `LocalSettingsStatus`; the rest is the DB and env. */
 export type CredentialStatus = Pick<
   LocalSettingsStatus,
-  'github' | 'openai' | 'gemini' | 'slack'
+  'github' | 'openai' | 'gemini'
 >;
 
 function blankToUndefined(value: string | undefined): string | undefined {
@@ -111,8 +110,8 @@ export class SecretsService {
   }
 
   /**
-   * The AES key protecting the stored GitHub PAT and Slack bot token. When the
-   * shell has not supplied one (headless dev, tests) a per-boot key is used
+   * The AES key protecting the stored GitHub PAT. When the shell has not
+   * supplied one (headless dev, tests) a per-boot key is used
    * rather than a fixed fallback: a rewritable credential is recoverable, a
    * hardcoded key on every install is not.
    */
@@ -134,7 +133,6 @@ export class SecretsService {
       github: Boolean(this.bundle.GITHUB_TOKEN),
       openai: Boolean(this.bundle.OPENAI_API_KEY),
       gemini: Boolean(this.bundle.GEMINI_API_KEY),
-      slack: Boolean(this.bundle.SLACK_BOT_TOKEN),
     };
   }
 }

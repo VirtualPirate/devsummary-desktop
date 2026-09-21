@@ -20,7 +20,6 @@ function makeService(env: Record<string, string> = {}) {
   const trackedBranches = {
     listByRepository: jest.fn().mockResolvedValue(['main']),
   };
-  const slack = { findActiveByOrganizationId: jest.fn() };
   // Default: nothing is being ingested, so the create gate passes.
   const ingestStatus = {
     forOrganization: jest
@@ -38,7 +37,6 @@ function makeService(env: Record<string, string> = {}) {
     repos as any,
     trackedBranches as any,
     ingestStatus as any,
-    slack as any,
     cadence,
     queue as any,
     appConfig as any,
@@ -52,7 +50,6 @@ function makeService(env: Record<string, string> = {}) {
     repos,
     trackedBranches,
     ingestStatus,
-    slack,
     queue,
     appConfig,
   };
@@ -67,8 +64,6 @@ async function createdRow(input: any) {
     deletedAt: null,
     lastSentAt: null,
     paused: false,
-    slackInstallationId: null,
-    slackChannelId: null,
   };
 }
 
@@ -90,8 +85,6 @@ function scheduleRow(overrides: Record<string, unknown> = {}) {
     scopeRepositoryId: 'r1',
     nextRunAt: new Date('2026-05-27T16:00:00Z'),
     lastSentAt: null,
-    slackInstallationId: null,
-    slackChannelId: null,
     createdByMemberId: 'u1',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -111,7 +104,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'Mars/Phobos',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({ code: 'BRIEF_SCHEDULE_INVALID_TIMEZONE' });
     });
@@ -127,7 +119,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: '+05:30',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({ code: 'BRIEF_SCHEDULE_INVALID_TIMEZONE' });
     });
@@ -143,7 +134,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone,
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         });
         expect(out.timezone).toBe(timezone);
       },
@@ -158,7 +148,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'weekly', time: '16:00' } as any,
           timezone: 'UTC',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({ code: 'BRIEF_SCHEDULE_INVALID_CADENCE' });
     });
@@ -172,7 +161,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'UTC',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({ code: 'PROJECT_NOT_FOUND' });
     });
@@ -187,7 +175,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'UTC',
           scope: { type: 'repository', repositoryId: 'r1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({
         code: 'GITHUB_REPOSITORY_BRANCH_NOT_CONFIGURED',
@@ -204,27 +191,11 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'UTC',
           scope: { type: 'repository', repositoryId: 'r1', branch: 'develop' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({
         code: 'GITHUB_REPOSITORY_BRANCH_NOT_TRACKED',
         details: { branch: 'develop' },
       });
-    });
-
-    it('rejects slack delivery without active installation', async () => {
-      const { svc, projects, slack } = makeService();
-      projects.findByIdScopedToOrg.mockResolvedValue({ id: 'p1' });
-      slack.findActiveByOrganizationId.mockResolvedValue(null);
-      await expect(
-        svc.create('org-1', 'user-1', {
-          name: 'Test',
-          cadence: { type: 'daily', time: '16:00' },
-          timezone: 'UTC',
-          scope: { type: 'project', projectId: 'p1' },
-          delivery: { slackChannelId: 'C123' },
-        }),
-      ).rejects.toMatchObject({ code: 'SLACK_INSTALLATION_NOT_FOUND' });
     });
 
     it('persists with computed next_run_at when valid', async () => {
@@ -238,8 +209,6 @@ describe('BriefSchedulesService', () => {
         deletedAt: null,
         lastSentAt: null,
         paused: false,
-        slackInstallationId: null,
-        slackChannelId: null,
       }));
       jest.useFakeTimers().setSystemTime(new Date('2026-05-26T10:00:00Z'));
       const out = await svc.create('org-1', 'user-1', {
@@ -247,7 +216,6 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: {},
       });
       expect(out.nextRunAt).toBe('2026-05-26T16:00:00.000Z');
       jest.useRealTimers();
@@ -264,8 +232,6 @@ describe('BriefSchedulesService', () => {
         deletedAt: null,
         lastSentAt: null,
         paused: false,
-        slackInstallationId: null,
-        slackChannelId: null,
       }));
       jest.useFakeTimers().setSystemTime(new Date('2026-05-26T10:00:00Z'));
       await svc.create('org-1', 'user-1', {
@@ -273,7 +239,6 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: {},
       });
       jest.useRealTimers();
       expect(queue.enqueue).toHaveBeenCalledWith(
@@ -299,7 +264,6 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: {},
         backfillMonths: 12,
       });
       expect(queue.enqueue).toHaveBeenCalledWith(
@@ -325,7 +289,6 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: {},
         backfillMonths: 0,
       });
       expect(queue.enqueue).not.toHaveBeenCalled();
@@ -346,7 +309,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'UTC',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({
         code: 'BRIEF_SCHEDULE_COMMITS_PROCESSING',
@@ -365,7 +327,6 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: {},
       });
       expect(schedules.create).toHaveBeenCalled();
     });
@@ -384,7 +345,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'UTC',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({
         code: 'BRIEF_SCHEDULE_LIMIT_REACHED',
@@ -407,7 +367,6 @@ describe('BriefSchedulesService', () => {
         cadence: { type: 'daily', time: '16:00' },
         timezone: 'UTC',
         scope: { type: 'project', projectId: 'p1' },
-        delivery: {},
       });
       expect(schedules.create).toHaveBeenCalled();
     });
@@ -422,7 +381,6 @@ describe('BriefSchedulesService', () => {
           cadence: { type: 'daily', time: '16:00' },
           timezone: 'UTC',
           scope: { type: 'project', projectId: 'p1' },
-          delivery: {},
         }),
       ).rejects.toMatchObject({
         code: 'BRIEF_SCHEDULE_LIMIT_REACHED',
@@ -505,8 +463,6 @@ describe('BriefSchedulesService', () => {
         scopeRepositoryId: null,
         nextRunAt: new Date('2026-05-20T16:00:00Z'),
         lastSentAt: null,
-        slackInstallationId: null,
-        slackChannelId: null,
         createdByMemberId: 'u1',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -529,8 +485,6 @@ describe('BriefSchedulesService', () => {
         scopeRepositoryId: null,
         nextRunAt: patch.nextRunAt,
         lastSentAt: null,
-        slackInstallationId: null,
-        slackChannelId: null,
         createdByMemberId: 'u1',
         createdAt: new Date(),
         updatedAt: new Date(),

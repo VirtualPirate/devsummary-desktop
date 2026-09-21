@@ -4,7 +4,7 @@
   "description": "",
   "author": "",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "main": "dist/main.js",
   "files": [
     "dist"
@@ -44,7 +44,6 @@
     "@nestjs/platform-express": "^11.1.6",
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-paginate-rest": "^14.0.0",
-    "@slack/web-api": "^7.16.0",
     "deepagents": "^1.14.0",
     "express": "^5.2.1",
     "kysely": "^0.28.17",
@@ -110,7 +109,6 @@
     "moduleNameMapper": {
       "^@octokit/core$": "<rootDir>/__mocks__/@octokit/core.ts",
       "^@octokit/plugin-paginate-rest$": "<rootDir>/__mocks__/@octokit/plugin-paginate-rest.ts",
-      "^@slack/web-api$": "<rootDir>/__mocks__/@slack/web-api.ts",
       "^openai$": "<rootDir>/__mocks__/openai.ts",
       "^openai/helpers/zod$": "<rootDir>/__mocks__/openai/helpers/zod.ts"
     },

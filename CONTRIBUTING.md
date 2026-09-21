@@ -6,9 +6,9 @@ and the handful of things that are settled and will be declined.
 
 ## License, before anything else
 
-DevSummary is **source-available, not open source** — [PolyForm Shield 1.0.0](LICENSE). You may run,
-read, change and share it, including at work on your employer's repositories. You may not use it, or
-a fork of it, to offer a product that competes with DevSummary.
+DevSummary is **open source** — [MIT](LICENSE). You may run, read, change, share and sell it,
+including at work on your employer's repositories, as long as the copyright notice and the license
+text travel with any copy you distribute.
 
 By opening a pull request you agree that your contribution is licensed to the project under those
 same terms, and that you have the right to submit it (your own work, or work you are authorized to
@@ -67,7 +67,7 @@ prevent already shipped once. Skimming saves you a review round:
   section. Read Timezones before touching anything that handles a date. All nine rules are
   load-bearing.
 - **[apps/backend/AGENTS.md](apps/backend/AGENTS.md)** — module graph, the jobs table and its
-  handlers, the LLM provider seam, the briefs pipeline, the GitHub and Slack integrations.
+  handlers, the LLM provider seam, the briefs pipeline, the GitHub integration.
 - **[apps/frontend/AGENTS.md](apps/frontend/AGENTS.md)** — routing, API hooks, component layout.
 - **[docs/DELTAS.md](docs/DELTAS.md)** — deliberate deviations from the migration plan. If something
   looks missing, check here first; it may be missing on purpose.
@@ -134,7 +134,8 @@ These come up regularly and are decided. Open an issue to argue the decision —
 implementing the reversal.
 
 - **No email delivery.** No SMTP config, no recipients, no "deliver by email" anywhere
-  (`docs/DELTAS.md` D-H). Slack and desktop notifications are the channels.
+  (`docs/DELTAS.md` D-H), and neither is Slack delivery (see the root `AGENTS.md`). A desktop
+  notification is the one channel.
 - **No webhooks.** A desktop machine has no public URL; ingestion is the 15-minute sweep.
 - **No OAuth.** Credentials are pasted tokens, for the same reason.
 - **No date library in `CadenceService`.** Both candidates were measured against it and both lose on

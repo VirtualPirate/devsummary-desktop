@@ -25,14 +25,6 @@ const API_TOKEN = randomBytes(32).toString('hex');
 const DEV_URL = 'http://localhost:5173';
 
 /**
- * `FRONTEND_URL` is `getOrThrow` inside the Slack sender at send time, so it
- * must always be set or every delivery fails with an opaque config error. In dev it is the real dev server; packaged there is no HTTP origin at
- * all (the renderer is loaded from disk), so a placeholder stands in — the links
- * in a delivered brief point at a machine the recipient does not have anyway.
- */
-const PROD_FRONTEND_URL = 'app://local';
-
-/**
  * `backend/` and `frontend/` are siblings of this file's compiled location, but
  * one level closer once packaged. In the repo `__dirname` is `apps/desktop/dist`
  * and they live at `apps/backend` / `apps/frontend`; in the bundle `__dirname` is
@@ -79,8 +71,8 @@ function saveSecrets(bundle: SecretBundle): void {
 }
 
 /**
- * The DB encryption key protects the stored GitHub PAT and Slack bot token, so it
- * must be generated exactly once and then stay stable across launches — it lives
+ * The DB encryption key protects the stored GitHub PAT, so it must be
+ * generated exactly once and then stay stable across launches — it lives
  * in the same encrypted bundle as the credentials it protects.
  */
 function loadSecrets(): SecretBundle {
@@ -106,8 +98,8 @@ function loadSecrets(): SecretBundle {
  * `safeStorage` is only encryption where the OS has a keychain to hold the key.
  * On Linux without gnome-keyring/kwallet, and in headless setups,
  * `isEncryptionAvailable()` is false — `saveSecrets` then refuses to write, so
- * the GitHub token, provider key and Slack bot token are kept for this session
- * and asked for again next launch.
+ * the GitHub token and provider key are kept for this session and asked for
+ * again next launch.
  *
  * That silence is the problem: an app that forgets a pasted PAT every morning
  * reads as broken, and the alternative it is protecting the user from — a
@@ -121,7 +113,7 @@ function warnIfNoSafeStorage(): void {
     title: 'DevSummary',
     message: 'This system has no secure credential store.',
     detail:
-      'DevSummary encrypts your GitHub token, AI provider key and Slack bot token with the OS keychain — macOS Keychain, or a Linux keyring such as gnome-keyring or kwallet. None is available here.\n\nRather than write them to disk unprotected, DevSummary keeps them in memory for this session only. You will be asked for them again the next time you open the app.',
+      'DevSummary encrypts your GitHub token and AI provider key with the OS keychain — macOS Keychain, or a Linux keyring such as gnome-keyring or kwallet. None is available here.\n\nRather than write them to disk unprotected, DevSummary keeps them in memory for this session only. You will be asked for them again the next time you open the app.',
     buttons: ['Continue'],
   });
 }
@@ -255,7 +247,6 @@ function startBackend(): void {
       API_TOKEN,
       DATA_DIR: app.getPath('userData'),
       PORT: '0',
-      FRONTEND_URL: app.isPackaged ? PROD_FRONTEND_URL : DEV_URL,
       ...secrets,
     },
   });

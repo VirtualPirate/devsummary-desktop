@@ -20,14 +20,12 @@ function makeService(bundle: Record<string, string | undefined> = {}) {
       github: false,
       openai: false,
       gemini: false,
-      slack: false,
     }),
   };
   const settings = {
     desktopNotificationsEnabled: jest.fn().mockResolvedValue(false),
     setDesktopNotifications: jest.fn(),
   };
-  const slackInstalls = { connectToken: jest.fn() };
   const detector = {
     detect: jest.fn().mockResolvedValue(INSTALLED),
     detectAll: jest.fn().mockResolvedValue([INSTALLED]),
@@ -36,7 +34,6 @@ function makeService(bundle: Record<string, string | undefined> = {}) {
   const svc = new LocalSettingsService(
     secrets as never,
     settings as never,
-    slackInstalls as never,
     detector as never,
   );
   return { svc, secrets, settings, detector };

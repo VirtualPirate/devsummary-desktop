@@ -38,31 +38,35 @@ export const GITHUB_PAT_CREATE_URL =
   "https://github.com/settings/personal-access-tokens/new";
 
 /**
- * What the token must grant, for the settings screen to display verbatim.
+ * What the token must grant, for the connect screen to display verbatim.
  * Fine-grained token, scoped to the repositories the user wants briefed.
  *
  * Nothing here is a classic-token scope: `repo` would work but grants write
  * access, and DevSummary only ever reads.
+ *
+ * `reason` is row copy, not prose: it sits beside the name and the access chip
+ * in a column that can be 390px wide, so a sentence would push the whole row
+ * onto a third line. `permission` keeps the full path because it is the only
+ * thing telling the user *where* on GitHub's token page to look.
  */
 export const GITHUB_PAT_PERMISSIONS = [
   {
     permission: "Repository permissions → Contents",
     access: "Read-only",
     required: true,
-    reason: "Reads commits and diffs — without it nothing can be ingested.",
+    reason: "Commits and diffs.",
   },
   {
     permission: "Repository permissions → Metadata",
     access: "Read-only",
     required: true,
-    reason: "Lists repositories and branches. GitHub enables it automatically.",
+    reason: "Added by GitHub.",
   },
   {
     permission: "Organization permissions → Members",
     access: "Read-only",
     required: false,
-    reason:
-      "Only for collaborator sync on an organization's repositories. Briefs still work without it — collaborators are derived from commit authors.",
+    reason: "Org collaborators.",
   },
 ] as const;
 

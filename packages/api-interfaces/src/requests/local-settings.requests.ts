@@ -18,7 +18,6 @@ export interface UpdateLocalCredentialsRequest {
   llmProvider?: LlmProviderName;
   openaiApiKey?: string;
   geminiApiKey?: string;
-  slackBotToken?: string;
   desktopNotifications?: boolean;
   /**
    * Written for the provider this request selects (`llmProvider` when present,

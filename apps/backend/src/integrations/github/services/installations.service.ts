@@ -212,7 +212,7 @@ export class GithubInstallationsService {
         return row.id;
       });
 
-    // Same write Slack's `connectToken` makes: the bundle is what the Electron
+    // The bundle is what the Electron
     // shell persists to the keychain, so the token survives a wiped data
     // directory and `GET /api/local-settings` has one source for `github`.
     this.secrets.update({ GITHUB_TOKEN: token });

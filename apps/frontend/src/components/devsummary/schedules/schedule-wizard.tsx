@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import type {
   BriefScheduleResponse,
   CadenceInput,
-  DeliveryInput,
   ScopeInput,
 } from "@launchstack/api-interfaces";
 import { cn } from "@/lib/utils";
@@ -22,13 +21,11 @@ import { Label } from "@/components/ui/label";
 import { extractErrorMessage } from "@/components/devsummary/shared/error-state";
 import { ScopePicker } from "./scope-picker";
 import { CadenceFields } from "./cadence-fields";
-import { DeliveryFields } from "./delivery-fields";
 import { useCreateBriefSchedule } from "@/hooks/api/use-brief-schedules";
 import { useGetProjects } from "@/hooks/api/use-projects";
 import { useGetTeams } from "@/hooks/api/use-teams";
 import { useGetCollaborators } from "@/hooks/api/use-collaborators";
 import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
-import { useSlackAvailable, useSlackChannels } from "@/hooks/api/use-slack";
 import { useActiveOrganizationStore } from "@/stores/active-organization-store";
 import { useCommitsProcessing } from "@/hooks/use-commits-processing";
 import { SCHEDULE_BLOCKED_REASON } from "./new-schedule-button";
@@ -38,7 +35,7 @@ type Stage = 1 | 2 | 3;
 const STAGES: { n: Stage; label: string }[] = [
   { n: 1, label: "Cover" },
   { n: 2, label: "When" },
-  { n: 3, label: "Deliver & review" },
+  { n: 3, label: "History & review" },
 ];
 
 /**
@@ -215,10 +212,8 @@ export function ScheduleWizard() {
   const teamsQuery = useGetTeams();
   const collaboratorsQuery = useGetCollaborators();
   const installationsQuery = useGithubInstallations();
-  const slackAvailable = useSlackAvailable();
   // Named, not the raw `C0123ABCDEF` — the review row is the last thing read
   // before Create, and an id proves nothing about where the brief lands.
-  const slackChannels = useSlackChannels({ enabled: slackAvailable }).data?.data ?? [];
 
   const [stage, setStage] = useState<Stage>(1);
   const [created, setCreated] = useState<BriefScheduleResponse | null>(null);
@@ -230,7 +225,6 @@ export function ScheduleWizard() {
     dayOfWeek: 1,
   });
   const [timezone, setTimezone] = useState<string>(defaultTz());
-  const [delivery, setDelivery] = useState<DeliveryInput>({});
   const [backfillMonths, setBackfillMonths] = useState(3);
   const [name, setName] = useState("");
   const [nameDirty, setNameDirty] = useState(false);
@@ -329,7 +323,6 @@ export function ScheduleWizard() {
         cadence,
         timezone,
         scope,
-        delivery: { slackChannelId: delivery.slackChannelId },
         backfillMonths,
       });
       setCreated(response.data);
@@ -458,17 +451,12 @@ export function ScheduleWizard() {
         ) : (
           <>
             <StageHeading
-              title="Where should it go — and how far back?"
-              description="Briefs always appear on the dashboard. Everything here is an extra copy."
+              title="How far back should it go?"
+              description="Briefs appear on the dashboard, and land as a desktop notification when those are on."
               optional
             />
-            <DeliveryFields
-              delivery={delivery}
-              onChange={setDelivery}
-              slackAvailable={slackAvailable}
-            />
 
-            <div className="mt-6">
+            <div>
               <Label className="text-xs">Generate past briefs now</Label>
               <div className="mt-2 flex w-full gap-1 rounded-full border bg-card p-1">
                 {BACKFILL_CHOICES.map(({ months, label }) => (
@@ -511,17 +499,6 @@ export function ScheduleWizard() {
                   <span className="text-xs text-muted-foreground">
                     {shortZone(timezone)} time
                   </span>
-                </ReviewRow>
-                <ReviewRow label="Goes to">
-                  {delivery.slackChannelId ? (
-                    `#${
-                      slackChannels.find(
-                        (channel) => channel.id === delivery.slackChannelId,
-                      )?.name ?? delivery.slackChannelId
-                    }`
-                  ) : (
-                    <span className="text-muted-foreground">Dashboard only</span>
-                  )}
                 </ReviewRow>
                 <ReviewRow label="Past briefs">
                   {backfillMonths === 0

@@ -7,7 +7,7 @@ import { createTestApp, type TestApp } from '../harness/create-test-app';
 import { createTestDatabase } from '../harness/database';
 import { waitForJobs } from '../harness/wait-for-jobs';
 
-describe('delivering a brief to Slack and to the desktop', () => {
+describe('delivering a brief to the desktop', () => {
   let db: Kysely<Database>;
   let testApp: TestApp;
   let fakes: Fakes;
@@ -25,11 +25,6 @@ describe('delivering a brief to Slack and to the desktop', () => {
       .send({ name: 'Platform', repositoryIds: [ids['octo-e2e/api']] })
       .expect(201);
     projectId = project.body.data.id as string;
-
-    await api(testApp.server)
-      .post('/api/integrations/slack/installations/token')
-      .send({ token: 'xoxb-e2e' })
-      .expect(201);
   });
 
   afterAll(async () => {
@@ -37,15 +32,10 @@ describe('delivering a brief to Slack and to the desktop', () => {
     await testApp.close();
   });
 
-  async function generate(
-    delivery?: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+  async function generate(): Promise<Record<string, unknown>> {
     const res = await api(testApp.server)
       .post('/api/organizations/current/briefs/generate')
-      .send({
-        scope: { type: 'project', projectId },
-        ...(delivery ? { delivery } : {}),
-      })
+      .send({ scope: { type: 'project', projectId } })
       .expect(202);
     const briefId = res.body.data.briefId as string;
     await waitForJobs(db, 60_000);
@@ -56,22 +46,12 @@ describe('delivering a brief to Slack and to the desktop', () => {
       .executeTakeFirstOrThrow();
   }
 
-  it('lists the Slack channels the bot can post to', async () => {
-    const res = await api(testApp.server)
-      .get('/api/integrations/slack/channels')
-      .expect(200);
-    expect(res.body.data.length).toBeGreaterThan(0);
-  });
-
-  it('delivers to both channels and records both', async () => {
-    const brief = await generate({ slackChannelId: 'C-E2E' });
+  it('delivers to the desktop and records the channel', async () => {
+    const brief = await generate();
 
     expect(brief.status).toBe('delivered');
     expect(brief.deliveredAt).not.toBeNull();
-    expect(new Set(brief.deliveredChannels as string[])).toEqual(
-      new Set(['slack', 'desktop']),
-    );
-    expect(fakes.slack.posts.at(-1)?.channel).toBe('C-E2E');
+    expect(brief.deliveredChannels).toEqual(['desktop']);
 
     // The desktop channel actually reached a shell — the path that is dead in
     // every spec file that does not install this fake.
@@ -80,26 +60,13 @@ describe('delivering a brief to Slack and to the desktop', () => {
     expect(String(notification?.title)).not.toBe('');
   }, 60_000);
 
-  it('still counts as delivered when only one channel succeeds', async () => {
-    fakes.slack.failNextPost('channel_not_found');
-    const brief = await generate({ slackChannelId: 'C-GONE' });
-
-    // `status` is a whole-brief verdict; the channel list is what says where it
-    // actually landed.
-    expect(brief.status).toBe('delivered');
-    expect(brief.deliveredChannels).toEqual(['desktop']);
-    expect(String(brief.failureReason)).toContain('[slack]');
-  }, 60_000);
-
-  it('records both reasons and does not claim delivery when every channel fails', async () => {
-    fakes.slack.failNextPost('channel_not_found');
+  it('records the reason and does not claim delivery when the channel fails', async () => {
     fakes.shell.detach();
 
-    const brief = await generate({ slackChannelId: 'C-GONE' });
+    const brief = await generate();
 
     expect(brief.status).toBe('generated');
     expect(brief.deliveredAt).toBeNull();
-    expect(String(brief.failureReason)).toContain('[slack]');
     expect(String(brief.failureReason)).toContain('[desktop]');
 
     // `detach()` deletes the port and nothing else puts it back. Later tests
@@ -108,34 +75,11 @@ describe('delivering a brief to Slack and to the desktop', () => {
     fakes.shell.attach();
   }, 60_000);
 
-  it('re-sends one channel synchronously, answering with Slack’s own refusal', async () => {
-    const brief = await generate({ slackChannelId: 'C-GONE' });
-    fakes.slack.failNextPost('not_in_channel');
-
-    const res = await api(testApp.server)
-      .post(`/api/organizations/current/briefs/${brief.id as string}/deliver`)
-      .send({ channel: 'slack' });
-
-    // Synchronous on purpose: a person is watching a button, so the reason
-    // comes back in the response rather than landing on the row minutes later.
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(res.body)).toContain('not_in_channel');
-  }, 60_000);
-
-  it('re-sends successfully once the bot is back in the channel', async () => {
-    const brief = await generate({ slackChannelId: 'C-E2E' });
-    const res = await api(testApp.server)
-      .post(`/api/organizations/current/briefs/${brief.id as string}/deliver`)
-      .send({ channel: 'slack' })
-      .expect(201);
-    expect(res.body.data.deliveredChannels).toContain('slack');
-  }, 60_000);
-
   it('recovers delivery for a brief that crashed after generation', async () => {
     // The `1b00b7f` hole: a brief left `generated` with its job row requeued
     // must resume at the send rather than be dropped, and must not re-spend the
     // LLM call on content already written.
-    const brief = await generate({ slackChannelId: 'C-E2E' });
+    const brief = await generate();
     const briefId = brief.id as string;
 
     await db
@@ -145,7 +89,6 @@ describe('delivering a brief to Slack and to the desktop', () => {
       .execute();
 
     const before = fakes.llm.calls.length;
-    fakes.slack.reset();
 
     const queue = testApp.app.get(
       (await import('../../../src/jobs/job-queue.service')).JobQueueService,
@@ -165,7 +108,7 @@ describe('delivering a brief to Slack and to the desktop', () => {
       .executeTakeFirstOrThrow();
 
     expect(after.status).toBe('delivered');
-    expect(after.deliveredChannels).toContain('slack');
+    expect(after.deliveredChannels).toContain('desktop');
     // Resumed at the send: the content it already had was not regenerated.
     expect(fakes.llm.calls.length).toBe(before);
   }, 60_000);
@@ -174,7 +117,7 @@ describe('delivering a brief to Slack and to the desktop', () => {
     fakes.shell.attach();
     fakes.shell.messages.length = 0;
 
-    await generate({ slackChannelId: 'C-E2E' });
+    await generate();
     expect(fakes.shell.messages.at(-1)).toMatchObject({ type: 'notification' });
 
     await api(testApp.server)
@@ -183,7 +126,7 @@ describe('delivering a brief to Slack and to the desktop', () => {
       .expect(200);
 
     fakes.shell.messages.length = 0;
-    await generate({ slackChannelId: 'C-E2E' });
+    await generate();
     expect(fakes.shell.messages).toEqual([]);
 
     await api(testApp.server)

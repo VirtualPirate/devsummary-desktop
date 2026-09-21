@@ -36,7 +36,6 @@ import { HomePage } from "@/routes/home";
 import { IntegrationsAiPage } from "@/routes/integrations-ai";
 import { IntegrationsGithubPage } from "@/routes/integrations-github";
 import { IntegrationsGithubSetupPage } from "@/routes/integrations-github-setup";
-import { IntegrationsSlackPage } from "@/routes/integrations-slack";
 import { OrganizationSettingsPage } from "@/routes/organization-settings";
 import { SettingsPage } from "@/routes/settings";
 import {
@@ -300,13 +299,6 @@ const integrationsGithubSetupRoute = createRoute({
   component: IntegrationsGithubSetupPage,
 });
 
-const integrationsSlackRoute = createRoute({
-  getParentRoute: () => protectedRoute,
-  path: "/integrations/slack",
-  validateSearch: integrationsGithubSearchSchema,
-  component: IntegrationsSlackPage,
-});
-
 const integrationsAiRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/integrations/ai",
@@ -341,7 +333,6 @@ const routeTree = rootRoute.addChildren([
     organizationSettingsRoute,
     integrationsGithubRoute,
     integrationsGithubSetupRoute,
-    integrationsSlackRoute,
     integrationsAiRoute,
     agentsRoute,
   ]),

@@ -17,7 +17,6 @@ describe('the settings screen on a fresh install', () => {
     // failures (RELEASE-CHECKLIST).
     delete process.env.OPENAI_API_KEY;
     delete process.env.GEMINI_API_KEY;
-    delete process.env.SLACK_BOT_TOKEN;
     cli = await installAgentCli();
     ({ db } = await createTestDatabase());
     testApp = await createTestApp(db);
@@ -36,7 +35,6 @@ describe('the settings screen on a fresh install', () => {
       github: false,
       openai: false,
       gemini: false,
-      slack: false,
       llmProvider: 'openai',
       desktopNotifications: true,
       commitAnalysisModel: 'gpt-4o-mini',

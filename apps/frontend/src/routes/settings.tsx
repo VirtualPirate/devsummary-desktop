@@ -91,7 +91,8 @@ function NotificationsSection({
           <div>
             <div className="text-sm font-medium">Desktop notifications</div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              A delivered brief counts as landing here even when Slack fails.
+              How a finished brief reaches you — briefs are always readable on
+              the dashboard.
             </div>
           </div>
           <Switch
@@ -269,23 +270,19 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* GitHub, Slack and the OpenAI key all live on the integrations pages
+        {/* GitHub and the AI provider key both live on the integrations pages
             now — one place per provider, rather than a paste form here and a
             management page there. */}
         <Card>
           <CardHeader>
             <CardTitle>Integrations</CardTitle>
             <CardDescription>
-              GitHub, Slack and AI provider credentials are managed on their own
-              pages.
+              GitHub and AI provider credentials are managed on their own pages.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
               <Link to="/integrations/github">GitHub</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link to="/integrations/slack">Slack</Link>
             </Button>
             <Button asChild variant="outline">
               <Link to="/integrations/ai">AI</Link>

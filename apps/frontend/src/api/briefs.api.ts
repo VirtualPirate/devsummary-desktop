@@ -5,7 +5,6 @@ import type {
   BriefPreviewResponse,
   BriefReportResponse,
   BriefResponse,
-  DeliverBriefRequest,
   GenerateBriefEnqueueResponse,
   GenerateBriefRequest,
   ListBriefsQuery,
@@ -74,20 +73,6 @@ export const BriefsAPI = {
       params,
     });
     return response.data as ApiResponse<BriefPreviewResponse>;
-  },
-
-  /** Re-send a brief that already exists. Synchronous — the error
-   *  (`not_in_channel`) is the point. */
-  deliver: async (
-    briefId: string,
-    channel: DeliverBriefRequest["channel"],
-  ): Promise<ApiResponse<BriefResponse>> => {
-    const response = await axiosInstance.request({
-      url: `${BASE}/${briefId}/deliver`,
-      method: "POST",
-      data: { channel },
-    });
-    return response.data as ApiResponse<BriefResponse>;
   },
 
   generate: async (

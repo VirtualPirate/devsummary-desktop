@@ -27,7 +27,6 @@ describe('SecretsService', () => {
       github: false,
       openai: false,
       gemini: false,
-      slack: false,
     });
   });
 
@@ -63,26 +62,26 @@ describe('SecretsService', () => {
   });
 
   it('clears a credential when the update blanks it', () => {
-    const svc = withEnv({ SLACK_BOT_TOKEN: 'xoxb-old' });
-    svc.update({ SLACK_BOT_TOKEN: '' });
-    expect(svc.get('SLACK_BOT_TOKEN')).toBeUndefined();
-    expect(svc.status().slack).toBe(false);
+    const svc = withEnv({ GEMINI_API_KEY: 'gm-old' });
+    svc.update({ GEMINI_API_KEY: '' });
+    expect(svc.get('GEMINI_API_KEY')).toBeUndefined();
+    expect(svc.status().gemini).toBe(false);
   });
 
   it('never leaks a value through status()', () => {
     const svc = withEnv({
       GITHUB_TOKEN: 'ghp-secret',
       OPENAI_API_KEY: 'sk-secret',
-      SLACK_BOT_TOKEN: 'xoxb-secret',
+      GEMINI_API_KEY: 'gm-secret',
     });
     const serialized = JSON.stringify(svc.status());
-    for (const secret of ['ghp-secret', 'sk-secret', 'xoxb-secret']) {
+    for (const secret of ['ghp-secret', 'sk-secret', 'gm-secret']) {
       expect(serialized).not.toContain(secret);
     }
     expect(svc.status()).toMatchObject({
       github: true,
       openai: true,
-      slack: true,
+      gemini: true,
     });
   });
 

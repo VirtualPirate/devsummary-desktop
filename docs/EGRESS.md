@@ -54,19 +54,17 @@ and telemetry requests on their own schedule: DevSummary suppresses OpenCode's
 (`OPENCODE_DISABLE_AUTOUPDATE=1`) and can suppress no others.
 
 The child's environment is the backend's minus the credential bundle — the PAT, the
-provider key, `DB_ENCRYPTION_KEY` and the Slack bot token are stripped before the spawn
+provider key and `DB_ENCRYPTION_KEY` are stripped before the spawn
 (`common/llm/agents/run-cli.ts`), so none of them can be read by a model whose prompt is
 an untrusted diff.
 
-## Delivery — only for channels the user configures
+## Delivery — nothing leaves the machine
 
-| Host | Port | What is sent | Evidence |
-|---|---|---|---|
-| `slack.com` | 443 | Bot token, channel id, brief title and summary | `integrations/slack/slack.client.ts` (`@slack/web-api`, `chat.postMessage`) |
-
-Slack is the **only** delivery destination. Email delivery is not available in the desktop
-version (`docs/DELTAS.md` D-H), so no mail relay is ever contacted. Desktop notifications are
-the second delivery channel and are local only.
+Delivering a brief makes **no** outbound connection. The one channel is a desktop
+notification, posted over `process.parentPort` to the Electron shell
+(`briefs/delivery/services/brief-desktop.service.ts`). Email delivery is not available
+(`docs/DELTAS.md` D-H) and Slack delivery was removed (see the root `AGENTS.md`,
+"Deliberately not included"), so neither a mail relay nor `slack.com` is ever contacted.
 
 ## Email verification — only when the user asks for a link
 

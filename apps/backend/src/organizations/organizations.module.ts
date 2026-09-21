@@ -15,7 +15,7 @@ import { OrgContextGuard } from './guards/org-context.guard';
     OrganizationsRepository,
     OrganizationMembersRepository,
     OrganizationsService,
-    // No module imports for its Slack/GitHub dependencies: the two integration
+    // No module imports for its GitHub dependencies: the integration
     // services are resolved through ModuleRef because their modules do not
     // export them (see the service).
     OrganizationTeardownService,

@@ -3,6 +3,18 @@
 Notable changes per release. Dates are the tag date. Versions follow
 [semantic versioning](https://semver.org); until 1.0.0 the minor is the breaking one.
 
+## Unreleased
+
+### Removed
+
+- **Slack delivery.** The integration page, the bot token, the channel picker on schedules and
+  on-demand briefs, the "Deliver to Slack" button and the whole `/api/integrations/slack` surface
+  are gone, along with the `@slack/web-api` dependency. A brief is delivered as a desktop
+  notification and read in the app. This is deliberate and permanent — see the root `AGENTS.md`.
+  The `slack` schema and the Slack columns on `brief_schedules` / `briefs` stay: shipped
+  migrations are never edited. Nothing reads or writes them, and a `delivered_channels` row
+  written before this release still reads back its `'slack'` entry.
+
 ## 0.1.0 — 2026-09-19
 
 First version with a number. Everything before it was `0.0.1` across four `package.json`
@@ -53,7 +65,7 @@ storage, an in-process job runner, and pasted credentials instead of OAuth.
 
 ### Legal
 
-Source-available under **PolyForm Shield 1.0.0** — free to use and modify, including at work;
-the one prohibited purpose is building a competing product. `LICENSE` doubles as the terms the
+Open source under the **MIT License** — free to use, modify, fork and sell, as long as the
+copyright notice ships with any copy. `LICENSE` doubles as the terms the
 app asks you to accept, `PRIVACY.md` is the privacy policy, and `THIRD-PARTY-NOTICES.md`
 attributes 550 components. All three ship inside the binary; none of them needs a website.

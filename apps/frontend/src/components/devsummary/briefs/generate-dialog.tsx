@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import type {
   BriefPreviewQuery,
-  DeliveryInput,
   ScopeInput,
 } from "@launchstack/api-interfaces";
 import { Button } from "@/components/ui/button";
@@ -29,11 +28,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SectionLabel } from "@/components/devsummary/shared/section-label";
 import { extractErrorMessage } from "@/components/devsummary/shared/error-state";
 import { ScopePicker } from "@/components/devsummary/schedules/scope-picker";
-import { DeliveryFields } from "@/components/devsummary/schedules/delivery-fields";
 import { CommitTypeBar } from "@/components/devsummary/briefs/commit-type-bar";
 import { formatRange } from "@/components/devsummary/briefs/brief-utils";
 import { useBriefPreview, useGenerateBrief } from "@/hooks/api/use-briefs";
-import { useGithubInstallations } from "@/hooks/api/use-github-integrations";
 import { useGetProjects } from "@/hooks/api/use-projects";
 import { formatTimestamp } from "@/lib/cadence-label";
 import { cn } from "@/lib/utils";
@@ -130,7 +127,6 @@ export function GenerateDialog({
   const navigate = useNavigate();
   const activeOrgId = useActiveOrganizationStore((s) => s.activeOrganizationId);
   const projectsQuery = useGetProjects();
-  const installationsQuery = useGithubInstallations();
   const generateMutation = useGenerateBrief();
   // Mirrors the server's gate on the same flag (409 BRIEF_COMMITS_PROCESSING).
   const blocked = useCommitsProcessing();
@@ -145,7 +141,6 @@ export function GenerateDialog({
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [timezone, setTimezone] = useState<string>(browserTimezone);
-  const [delivery, setDelivery] = useState<DeliveryInput>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // A scope points at org-owned entities, so it can't outlive an org switch —
@@ -163,7 +158,6 @@ export function GenerateDialog({
     setPreset("7d");
     setSubmitError(null);
     setTimezone(browserTimezone());
-    setDelivery({});
     setCustomStart(toLocalIso(new Date(now - 7 * DAY_MS)));
     setCustomEnd(toLocalIso(new Date(now)));
     if (!scope) {
@@ -196,8 +190,6 @@ export function GenerateDialog({
   const preview = useBriefPreview(previewQuery);
   const previewData = preview.data?.data;
 
-  const slackAvailable = (installationsQuery.data?.data ?? []).length > 0;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
@@ -219,7 +211,6 @@ export function GenerateDialog({
       // "now" and quietly disagree with the number on the button.
       const res = await generateMutation.mutateAsync({
         scope,
-        delivery,
         periodStart: period.start,
         periodEnd: period.end,
         timezone,
@@ -377,15 +368,6 @@ export function GenerateDialog({
                   </span>
                 </div>
               ) : null}
-
-              <section>
-                <SectionLabel className="mb-2">Delivery</SectionLabel>
-                <DeliveryFields
-                  delivery={delivery}
-                  onChange={setDelivery}
-                  slackAvailable={slackAvailable}
-                />
-              </section>
             </div>
 
             <aside className="space-y-3 sm:border-l sm:pl-5">

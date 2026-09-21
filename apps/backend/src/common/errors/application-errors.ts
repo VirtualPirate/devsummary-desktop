@@ -256,22 +256,6 @@ export const AppError = sealRegistry({
     details: ({ reason }) => ({ reason }),
   }),
 
-  // --- Slack integration ---
-  SLACK_NOT_CONFIGURED: defineError({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
-    message:
-      'Slack is not configured on this server. Set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_REDIRECT_URI.',
-  }),
-  SLACK_INSTALLATION_NOT_FOUND: defineError({
-    status: HttpStatus.NOT_FOUND,
-    message: 'Slack installation not found',
-  }),
-  SLACK_API_FAILED: defineError<{ reason: string }>({
-    status: HttpStatus.BAD_GATEWAY,
-    message: ({ reason }) => `Slack API call failed: ${reason}`,
-    details: ({ reason }) => ({ reason }),
-  }),
-
   // --- Briefs: projects ---
   PROJECT_NOT_FOUND: defineError({
     status: HttpStatus.NOT_FOUND,
@@ -357,28 +341,6 @@ export const AppError = sealRegistry({
     status: HttpStatus.BAD_REQUEST,
     message: ({ reason }) => `Invalid period: ${reason}`,
     details: ({ reason }) => ({ reason }),
-  }),
-  BRIEF_NOT_DELIVERABLE: defineError({
-    status: HttpStatus.CONFLICT,
-    message:
-      "This brief hasn't been generated yet, so there is nothing to send",
-  }),
-  BRIEF_DELIVERY_CHANNEL_NOT_CONFIGURED: defineError<{ channel: string }>({
-    status: HttpStatus.BAD_REQUEST,
-    message: ({ channel }) =>
-      `No ${channel} recipient is configured for this brief`,
-    details: ({ channel }) => ({ channel }),
-  }),
-  // Surfaced synchronously to a human pressing a button, so the upstream
-  // reason (`not_in_channel`, a rejected recipient) is the whole value.
-  BRIEF_DELIVERY_FAILED: defineError<{ channel: string; reason: string }>({
-    status: HttpStatus.BAD_GATEWAY,
-    message: ({ channel, reason }) => `${channel} delivery failed: ${reason}`,
-    details: ({ channel, reason }) => ({ channel, reason }),
-  }),
-  SLACK_CHANNEL_REQUIRED: defineError({
-    status: HttpStatus.BAD_REQUEST,
-    message: 'A Slack channel id is required when Slack delivery is configured',
   }),
 
   // --- Analytics ---

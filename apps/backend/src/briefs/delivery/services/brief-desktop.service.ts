@@ -1,14 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LocalSettingsRepository } from '../../../local/settings/local-settings.repository';
 import { parentPort } from '../../../local/settings/parent-port';
-import type { RenderableBrief } from './brief-render.service';
+
+export interface RenderableBrief {
+  id: string;
+  title: string;
+  summary: string;
+}
 
 const BODY_MAX = 240;
 
 /**
- * The second delivery channel: a native notification on the machine the app is
- * running on. It is what makes a brief whose Slack post failed still visibly
- * land somewhere, and it is the only channel that needs no credential.
+ * The only delivery channel: a native notification on the machine the app is
+ * running on. It needs no credential and no network.
  */
 @Injectable()
 export class BriefDesktopService {

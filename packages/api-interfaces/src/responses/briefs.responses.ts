@@ -52,9 +52,6 @@ export interface BriefScheduleResponse {
   paused: boolean;
   nextRunAt: string;
   lastSentAt: string | null;
-  delivery: {
-    slackChannelId: string | null;
-  };
   createdAt: string;
   updatedAt: string;
 }
@@ -119,8 +116,9 @@ export const WORK_CATEGORY_LABEL: Record<WorkCategory, [string, string]> = {
 };
 
 /**
- * `'email'` is read-only history: the desktop build has no email channel (see
- * docs/DELTAS.md D-H), but a row written before it was removed still carries it.
+ * `'desktop'` is the only channel that is written. `'email'` and `'slack'` are
+ * read-only history — neither is available in this build (see the root
+ * AGENTS.md) — but a row written before they were removed still carries them.
  */
 export type BriefDeliveryChannel = 'email' | 'slack' | 'desktop';
 
@@ -176,15 +174,9 @@ export interface BriefResponse {
   /**
    * The channels this brief actually went out on. `status` is a whole-brief
    * verdict — one channel succeeding sets `delivered` — so anything asking
-   * "did this reach Slack?" reads this, never the status.
+   * "did this actually reach anyone?" reads this, never the status.
    */
   deliveredChannels: BriefDeliveryChannel[];
-  /**
-   * The Slack channel this brief carries itself — set only on an on-demand
-   * brief, which has no schedule to read one from. The manual re-send reads
-   * `schedule.delivery.slackChannelId ?? this`, exactly as the deliverer does.
-   */
-  deliverySlackChannelId: string | null;
   createdAt: string;
   updatedAt: string;
 }

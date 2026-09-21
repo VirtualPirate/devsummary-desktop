@@ -17,27 +17,52 @@ The product spec below (user flows, AI usage, module table, database schema) des
 Only the ids that the code and the other AGENTS.md files cite are kept; the rest are listed without one.
 
 - **D-A — workspaces kept.** Multi-tenancy survives as local workspaces; `organizationId` is threaded everywhere, only its source changed (a seeded default, no login).
-- **D-E — mocked-externals E2E.** E2E runs against an in-memory PGlite with GitHub/Slack/LLM stubbed; no Docker, no network.
-- **D-H — no email delivery.** No SMTP setting, no email recipient field, no email channel; `'email'` survives only as read-only history in old rows.
+- **D-E — mocked-externals E2E.** E2E runs against an in-memory PGlite with GitHub/LLM stubbed; no Docker, no network.
+- **D-H — no email delivery.** No SMTP setting, no email recipient field, no email channel; `'email'` survives only as read-only history in old rows. Slack delivery is likewise absent — see **Deliberately not included** below.
 - Single seeded user with a per-boot loopback token instead of sessions; no Google OAuth, no Better Auth.
-- Pasted credentials (GitHub PAT, Slack bot token, provider keys), encrypted locally; no App installs, no OAuth callbacks, no webhooks.
+- Pasted credentials (GitHub PAT, provider keys), encrypted locally; no App installs, no OAuth callbacks, no webhooks.
 - PGlite instead of hosted Postgres; a `jobs` table with a poll loop instead of Temporal; migrations imported statically.
 - Four coding-agent CLIs are LLM providers alongside OpenAI and Gemini; the cloud original has only the two keyed providers.
 
+### Deliberately not included
+
+Features the cloud original has that this build **does not**, and will not, ship. They are
+decisions, not gaps and not drift: do not add one back, do not "restore parity" with upstream,
+and do not treat their absence as a bug. Changing one is the user's call, not an agent's.
+
+- **Slack.** Removed entirely — no integration page, no bot token, no `SLACK_BOT_TOKEN` in the
+  secret bundle, no channel picker on a schedule or an on-demand brief, no "Deliver to Slack"
+  button, no `/api/integrations/slack/*` routes, no `@slack/web-api` dependency, and no outbound
+  connection to `slack.com` from any path. The whole remote-delivery idea went with it: a brief
+  is delivered as a desktop notification and read in the app, so `BriefDelivererService` fans out
+  to exactly one channel and there is no manual per-channel re-send (`POST /briefs/:id/deliver`
+  is gone — re-notifying the machine you are already looking at is not a retry).
+
+  **What stays, and why.** The `slack` schema, `brief_schedules.slack_installation_id` /
+  `slack_channel_id`, `briefs.delivery_slack_channel_id` and the `'slack'` member of
+  `BriefDeliveryChannel` all remain. Shipped migrations are never edited (same rule that keeps
+  `github.webhook_events` and the email columns), so the tables and columns stay and nothing
+  reads or writes them — `database.types.ts` marks each one dead. `'slack'` stays in the union
+  because a `delivered_channels` row written before this removal still contains it, exactly as
+  `'email'` does for D-H.
+
+- **Email delivery** — see D-H above. Same rule: the columns stay, nothing writes them.
+
 ## Product Spec: DevSummary
 
-DevSummary is an AI-powered engineering activity reporter. It connects to a GitHub organization, ingests commit activity, and generates plain-English briefs aimed at non-technical stakeholders (founders, PMs, executives). Briefs are scoped to a project, team, collaborator, or repository, generated on a recurring schedule or on demand, and delivered to Slack and/or as a desktop
-notification. **Email delivery is not available in the desktop version** (deviation D-H) —
-there is no SMTP setting and no email recipient field on any screen.
+DevSummary is an AI-powered engineering activity reporter. It connects to a GitHub organization, ingests commit activity, and generates plain-English briefs aimed at non-technical stakeholders (founders, PMs, executives). Briefs are scoped to a project, team, collaborator, or repository, generated on a recurring schedule or on demand, and delivered as a desktop
+notification. **Neither email nor Slack delivery is available in the desktop version** — see
+deviation D-H and **Deliberately not included** below. There is no SMTP setting, no email
+recipient field and no Slack channel field on any screen.
 
 ### Core User Flows
 
 1. **Connect GitHub** — The user pastes a fine-grained personal access token (`POST /api/integrations/github/token`; Contents + Metadata, read-only). Electron has no public callback URL, so there is no App install and no OAuth. Repositories are reconciled on connect, but ingest nothing yet: a repository is read only on the branch it is *tracked* on (`github.repository_branches`), and a fresh one tracks none. The token is encrypted at rest (AES-256-GCM).
 2. **Choose a branch** — Connecting leads to `/integrations/github/setup`, which lists every repository with no branch, pre-selects its GitHub default, and takes a history window (30/90 days). **One repository reads one branch.** Pressing Start writes that choice and is what begins commit ingestion + AI analysis — nothing is fetched or spent on the LLM provider before that. After that first read, new commits arrive from a **sweep** that runs on launch and every 15 minutes, fetching only what is not already stored on that branch; there are no webhooks, because a desktop machine has no public URL to deliver them to. **The choice is write-once**: a repository that already has a branch is frozen (no swapping, no second branch) until changing it is designed, so it never reappears in setup and the API answers 409. Repositories left unconfigured stay inert and are surfaced by a banner on the integrations page.
 3. **Organize** — Users create **projects** (groupings of repositories) and **teams** (groupings of GitHub collaborators) to scope briefs.
-4. **Schedule** — Users create a **brief schedule**: scope (project/team/collaborator/repo, optionally narrowed to one branch for a repository scope) + cadence (daily/weekly/monthly at a time in a timezone) + a delivery channel (a Slack channel; email is not available, see D-H). Schedules can be paused/resumed; creating one backfills up to 366 days of historical briefs.
+4. **Schedule** — Users create a **brief schedule**: scope (project/team/collaborator/repo, optionally narrowed to one branch for a repository scope) + cadence (daily/weekly/monthly at a time in a timezone). A schedule carries no delivery configuration — there is one channel and it is a machine-wide toggle. Schedules can be paused/resumed; creating one backfills up to 366 days of historical briefs.
 5. **Generate** — On schedule (an in-process scheduler enqueues a dispatch job every ~60s, which claims due schedules) or on demand, the backend gathers commits in the period, uses per-commit AI analyses, builds a prompt, and calls the configured LLM provider to produce a non-technical title + summary.
-6. **Deliver** — Briefs are sent to Slack (a pasted bot token) and/or as a desktop notification. At least one channel succeeding marks the brief `delivered`; per-channel failures accumulate on `failureReason`. There is no email channel (D-H).
+6. **Deliver** — A brief is delivered as a desktop notification, which is the only channel; it succeeding marks the brief `delivered`, and a failure is recorded on `failureReason` without touching `status`. There is no email channel (D-H) and no Slack channel (**Deliberately not included**). A brief is always readable in the app regardless.
 7. **Verify an email (optional)** — Settings → Email takes an address, `POST /api/local-settings/verification` asks `api.devsummary.com` to mail a magic link, and `GET` on the same path polls every 4s until that address is marked verified. There is no account, no session and no key, and **nothing in the app is gated on the result** — no repository limit, no feature flag; the status is recorded in `local_settings` for whatever is gated on it later. The app never sees the token and never opens the landing page. Contract: `docs/desktop-email-verification.md`.
 8. **View** — A dashboard lists briefs with filters (scope type, date range, collaborator, exclude no-activity periods) and pagination. A brief detail view shows the summary, a commit-type distribution bar, and links to a granular per-brief commit list.
 
@@ -54,14 +79,13 @@ there is no SMTP setting and no email recipient field on any screen.
 | Module | Path | Purpose |
 |--------|------|---------|
 | Brief generation | `src/briefs/generation/` | Generate briefs; list/get briefs and their commits (`/api/organizations/current/briefs*`) |
-| Brief delivery | `src/briefs/delivery/` | Slack + desktop-notification delivery (internal, invoked by job handlers) |
+| Brief delivery | `src/briefs/delivery/` | Desktop-notification delivery (internal, invoked by job handlers) |
 | Schedules | `src/briefs/schedules/` | CRUD + pause/resume for recurring brief configs; `CadenceService` computes `nextRunAt` in the user's timezone |
 | Projects | `src/briefs/projects/` | Repo groupings (org-scoped, soft-deleted) |
 | Teams | `src/briefs/teams/` | Collaborator groupings (org-scoped, soft-deleted) |
 | GitHub integration | `src/integrations/github/` | PAT connect + validate, repo reconcile, branch tracking, repo/commit sync (a periodic sweep drives ongoing ingestion — there are no webhooks) |
 | Commit analysis | `src/integrations/github/commit-analysis/` | AI classification of commits |
 | LLM provider | `src/common/llm/` | Abstract `LlmClient` + one subclass per provider (OpenAI, Gemini, unconfigured) and the live per-call resolver |
-| Slack integration | `src/integrations/slack/` | Bot-token paste + message posting |
 | Jobs | `src/jobs/` | A `jobs` table plus an in-process poll loop (replaces Temporal): brief dispatch/generation/backfill, GitHub commit ingestion + analysis, collaborator sync, LOC-stats backfill (see backend AGENTS.md for the full job catalog) |
 | Agents | `src/agents/` | The `/agents` chat: threads, seven read-only tools over local data, and an in-process LangGraph run checkpointed to the `agents` schema (`/api/agents/threads*`) |
 | Local settings | `src/local/` | Seeded identity, the per-boot API token guard, the credential bundle, and the settings API |
@@ -79,11 +103,11 @@ Components live in `src/components/devsummary/`. Routes:
 
 - `/briefs` — dashboard with filters and pagination; `/briefs/$briefId` — detail with commit-type bar (`commit-type-bar.tsx`) and retry-on-failure; `/briefs/$briefId/commits` — granular commit list with analysis details and GitHub links
 - `/commits` — org-wide commits explorer: date range, type and repository filters, an "Analyzed only" toggle (on by default) and 50-per-page keyset pagination. No sidebar entry; it is reached from the home activity cards, the briefs list header and a brief's own commit list, each carrying a `back` path
-- `/schedules`, `/schedules/new`, `/schedules/$scheduleId` — schedule management (scope picker, cadence, delivery channels)
+- `/schedules`, `/schedules/new`, `/schedules/$scheduleId` — schedule management (scope picker, cadence, backfill window). No delivery step: there is one channel and it is a setting, not a per-schedule choice
 - `/projects`, `/projects/$projectId` and `/teams`, `/teams/$teamId` — grouping management
 - `/integrations/github` — PAT connect form, connected account + repositories with their branch; banners a count of repositories that have no branch and therefore read nothing
 - `/agents` — the assistant: thread rail plus conversation (`components/devsummary/agents/`, over the vendored `components/assistant-ui/`). Full-bleed — the conversation owns the scroll — and always in the sidebar, since an unconfigured provider is a run-time error with a message, not a hidden menu item
-- `/settings` — local settings: desktop notifications, theme, data directory, workspace and links to the integrations pages (GitHub PAT, AI provider + its key + model overrides + token totals, Slack bot token). No SMTP card — email delivery is not available (D-H)
+- `/settings` — local settings: desktop notifications, theme, data directory, workspace and links to the integrations pages (GitHub PAT, AI provider + its key + model overrides + token totals). No SMTP card and no Slack card — neither channel exists (D-H, **Deliberately not included**)
 - `/integrations/github/setup` — post-connect branch selection (`integrations-github-setup.tsx` + `components/integrations/branch-setup-list.tsx`, `branch-picker.tsx`, `history-window-picker.tsx`); admin-only, re-enterable, and the only place ingestion is started
 
 Briefs covering periods with zero commits get a distinct "no activity" badge/treatment.

@@ -6,7 +6,7 @@
  */
 export function plain(markdown: string): string {
   return markdown
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [Noncompete](#noncompete)
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [the Software](#software)
     .replace(/<(https?:[^>]+)>/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*+/g, "") // **bold** and ***bold italic*** alike
