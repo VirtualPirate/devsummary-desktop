@@ -103,6 +103,9 @@ describe('repository discovery is the token grant set, not account affiliation',
   };
 
   beforeAll(async () => {
+    // Connecting is gated on a configured AI provider, and this file is about
+    // the grant filter rather than that gate.
+    process.env.OPENAI_API_KEY = 'sk-e2e';
     const created = await createTestDatabase();
     db = created.db;
     testApp = await createTestApp(db);

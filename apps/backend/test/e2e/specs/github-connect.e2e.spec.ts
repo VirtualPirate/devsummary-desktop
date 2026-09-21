@@ -31,6 +31,22 @@ describe('connecting GitHub with a fine-grained PAT', () => {
     expect(res.body.data).toEqual([]);
   });
 
+  it('refuses a PAT until an AI provider is configured', async () => {
+    const refused = await api(testApp.server)
+      .post('/api/integrations/github/token')
+      .send({ token: 'github_pat_e2e' })
+      .expect(400);
+    expect(refused.body.code).toBe('AI_NOT_CONFIGURED');
+
+    // Connecting is what starts ingest, and every commit it reads is analysed —
+    // so the rest of this file runs with a provider configured, as a real
+    // install does by the time it reaches this screen.
+    await api(testApp.server)
+      .put('/api/local-settings/credentials')
+      .send({ openaiApiKey: 'sk-e2e' })
+      .expect(200);
+  });
+
   it('refuses a token GitHub rejects, with the API reason attached', async () => {
     github.failNext('GET /user', 401, 'Bad credentials');
     const res = await api(testApp.server)

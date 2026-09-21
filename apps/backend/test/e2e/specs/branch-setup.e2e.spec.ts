@@ -40,6 +40,9 @@ describe('choosing the branch each repository is read on', () => {
   let webRepoId: string;
 
   beforeAll(async () => {
+    // Connecting is gated on a configured AI provider; this file is about the
+    // branch choice that follows it.
+    process.env.OPENAI_API_KEY = 'sk-e2e';
     github = await installGithub(world);
     ({ db } = await createTestDatabase());
     testApp = await createTestApp(db);

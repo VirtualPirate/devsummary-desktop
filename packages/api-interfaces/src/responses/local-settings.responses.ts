@@ -48,6 +48,14 @@ export interface LocalSettingsStatus {
   gemini: boolean;
   /** Which provider answers AI calls. The keys are independent of it. */
   llmProvider: LlmProviderName;
+  /**
+   * The selected provider has what it needs to answer — a key for `openai` /
+   * `gemini`, nothing more than being selected for a CLI, which is only stored
+   * once its binary has been detected. False means every AI call would fail, so
+   * the GitHub connect form refuses to start an ingest that could not be
+   * analysed.
+   */
+  aiConfigured: boolean;
   desktopNotifications: boolean;
   /** Absolute path of the folder holding the database, logs and secrets. */
   dataDir: string;

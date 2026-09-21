@@ -1,5 +1,10 @@
 import { dirname, resolve } from 'node:path';
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { z } from 'zod';
 import type {
   AgentCliStatus,
@@ -31,7 +36,7 @@ import { SecretsService, type SecretBundle } from './secrets.service';
 const AgentCliTestSchema = z.object({ ok: z.boolean() });
 
 @Injectable()
-export class LocalSettingsService {
+export class LocalSettingsService implements OnModuleInit {
   private readonly logger = new Logger(LocalSettingsService.name);
 
   constructor(
@@ -41,6 +46,35 @@ export class LocalSettingsService {
     // `import type` erases the class and drops it from `design:paramtypes`.
     private readonly detector: AgentCliDetector,
   ) {}
+
+  /**
+   * Not awaited: detection can spawn a login shell per CLI, and boot must not
+   * wait on it — nothing can be answered before the renderer has a provider
+   * anyway, and the settings screen reads the result on its next status call.
+   */
+  onModuleInit(): void {
+    void this.autoSelectAgentCli();
+  }
+
+  /**
+   * First launch with a coding-agent CLI already installed: pick it, so the app
+   * is usable without pasting a key. Only when the install has made no choice at
+   * all — a stored `LLM_PROVIDER` is the user's, and an OpenAI key with the
+   * default provider is a working configuration this must not move off.
+   */
+  private async autoSelectAgentCli(): Promise<void> {
+    if (this.secrets.get('LLM_PROVIDER') || this.secrets.aiConfigured()) return;
+
+    const installed = (await this.detector.detectAll()).find(
+      (c) => c.installed,
+    );
+    if (!installed) return;
+
+    this.secrets.update({ LLM_PROVIDER: installed.id });
+    this.logger.log(
+      `Auto-selected ${installed.displayName} as the AI provider`,
+    );
+  }
 
   /**
    * Unlike `resolveLlmProvider`, an unrecognised value falls back instead of

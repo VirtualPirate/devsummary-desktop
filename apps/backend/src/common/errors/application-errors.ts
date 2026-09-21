@@ -245,6 +245,14 @@ export const AppError = sealRegistry({
       args?.reason ??
       'No AI provider is configured. Paste a key for the selected provider on the AI page.',
   }),
+  // A precondition on a user action, not a failed AI call, so it is a 400 with
+  // its own code rather than `OPENAI_NOT_CONFIGURED`'s 500 — that one is what a
+  // job raises when it is already too late to ask.
+  AI_NOT_CONFIGURED: defineError({
+    status: HttpStatus.BAD_REQUEST,
+    message:
+      'Set up an AI provider first — DevSummary analyses every commit it reads. Choose an installed agent CLI or paste an API key on the AI page.',
+  }),
   OPENAI_API_FAILED: defineError<{ reason: string }>({
     status: HttpStatus.BAD_GATEWAY,
     message: ({ reason }) => `LLM request failed: ${reason}`,

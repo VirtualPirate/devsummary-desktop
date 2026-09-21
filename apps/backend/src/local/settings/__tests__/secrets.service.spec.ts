@@ -27,7 +27,27 @@ describe('SecretsService', () => {
       github: false,
       openai: false,
       gemini: false,
+      aiConfigured: false,
     });
+  });
+
+  // What the GitHub connect gate reads: only the *selected* provider counts,
+  // and a CLI provider counts with no key at all.
+  it('reports AI configured per selected provider', () => {
+    expect(withEnv({ OPENAI_API_KEY: 'sk-1' }).aiConfigured()).toBe(true);
+    expect(
+      withEnv({
+        LLM_PROVIDER: 'gemini',
+        OPENAI_API_KEY: 'sk-1',
+      }).aiConfigured(),
+    ).toBe(false);
+    expect(
+      withEnv({
+        LLM_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'gem-1',
+      }).aiConfigured(),
+    ).toBe(true);
+    expect(withEnv({ LLM_PROVIDER: 'claude-code' }).aiConfigured()).toBe(true);
   });
 
   // The two provider keys are independent: one can be stored while the other

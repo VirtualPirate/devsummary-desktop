@@ -106,6 +106,11 @@ export class GithubInstallationsService {
     connectedByUserId?: string | null;
   }): Promise<GithubInstallationWithRepos> {
     const { orgId } = input;
+    // Connecting is what starts ingest, and every commit it reads is analysed by
+    // the LLM. Without a provider the whole read would land as failed analyses,
+    // so the refusal belongs here rather than hours later in a job.
+    if (!this.secrets.aiConfigured()) throw AppError.AI_NOT_CONFIGURED();
+
     const token = input.token.trim();
     // A throwaway client bound to the candidate token: validation has to happen
     // before anything is stored, and the injected client only knows stored ones.

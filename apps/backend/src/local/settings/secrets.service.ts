@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { LocalSettingsStatus } from '@launchstack/api-interfaces';
 import { deriveKey } from '../../auth/crypto';
+// From the adapter file, not the `common/llm` barrel: the barrel re-exports
+// `run-cli`, which imports `SECRET_KEYS` from this file, and that back edge is a
+// require cycle. The adapter chain has none.
+import { isAgentProvider } from '../../common/llm/agents/agent-cli.adapter';
 import { parentPort } from './parent-port';
 
 /**
@@ -49,7 +53,7 @@ export type SecretBundle = Partial<Record<SecretKey, string>>;
 /** The credential half of `LocalSettingsStatus`; the rest is the DB and env. */
 export type CredentialStatus = Pick<
   LocalSettingsStatus,
-  'github' | 'openai' | 'gemini'
+  'github' | 'openai' | 'gemini' | 'aiConfigured'
 >;
 
 function blankToUndefined(value: string | undefined): string | undefined {
@@ -127,12 +131,31 @@ export class SecretsService {
     return deriveKey(secret);
   }
 
+  /**
+   * Whether an AI call can actually be made: the *selected* provider has what it
+   * needs. A CLI provider has no key — `updateCredentials` proved the binary was
+   * installed before storing it — so selecting one is enough. Same rule
+   * `loadLlmSettings` applies when it decides between a real client and the stub,
+   * which is what keeps this from claiming a readiness the next job disagrees
+   * with.
+   */
+  aiConfigured(): boolean {
+    const provider = this.bundle.LLM_PROVIDER ?? 'openai';
+    if (isAgentProvider(provider)) return true;
+    return Boolean(
+      provider === 'gemini'
+        ? this.bundle.GEMINI_API_KEY
+        : this.bundle.OPENAI_API_KEY,
+    );
+  }
+
   /** Booleans only. A value never leaves this process except to its provider. */
   status(): CredentialStatus {
     return {
       github: Boolean(this.bundle.GITHUB_TOKEN),
       openai: Boolean(this.bundle.OPENAI_API_KEY),
       gemini: Boolean(this.bundle.GEMINI_API_KEY),
+      aiConfigured: this.aiConfigured(),
     };
   }
 }

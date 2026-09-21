@@ -2,8 +2,8 @@ import {
   GITHUB_PAT_CREATE_URL,
   GITHUB_PAT_PERMISSIONS,
 } from "@launchstack/api-interfaces"
-import { useNavigate } from "@tanstack/react-router"
-import { AlertTriangle, ExternalLink } from "lucide-react"
+import { Link, useNavigate } from "@tanstack/react-router"
+import { AlertTriangle, ExternalLink, Sparkles } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useConnectGithubToken } from "@/hooks/api/use-github-integrations"
+import { useLocalSettings } from "@/hooks/api/use-local-settings"
 import { extractErrorMessage } from "@/lib/extract-error"
 import { cn } from "@/lib/utils"
 import { GithubMark } from "./provider-marks"
@@ -46,6 +47,7 @@ export function GithubPatForm({
 }) {
   const navigate = useNavigate()
   const connect = useConnectGithubToken()
+  const settings = useLocalSettings()
   const [token, setToken] = useState("")
   // The permission list below is the diagnosis for a rejected token, so the
   // server's message belongs above it and stays there — a toast is gone before
@@ -70,6 +72,30 @@ export function GithubPatForm({
     } catch (err) {
       setError(extractErrorMessage(err))
     }
+  }
+
+  // Connecting is what starts ingest, and every commit read is analysed by the
+  // LLM — so a token pasted with no provider buys a repository full of failed
+  // analyses. The backend refuses it too (`AI_NOT_CONFIGURED`); this is the half
+  // that says what to do instead. Gated here rather than on the page so every
+  // place the form appears is covered by the one check.
+  if (settings.data && !settings.data.data.aiConfigured) {
+    return (
+      <div className="w-full max-w-md space-y-3 rounded-xl border bg-muted/40 p-4 text-left">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Sparkles className="size-4" />
+          Set up AI first
+        </div>
+        <p className="text-sm text-muted-foreground">
+          DevSummary writes every brief with an AI provider, and reads nothing
+          until one is chosen. Pick a coding-agent CLI you already have installed,
+          or paste an API key.
+        </p>
+        <Button asChild size="sm">
+          <Link to="/integrations/ai">Choose a provider</Link>
+        </Button>
+      </div>
+    )
   }
 
   return (

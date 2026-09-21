@@ -106,6 +106,8 @@ function makeMocks() {
   const secrets = {
     update: jest.fn(),
     encryptionKey: jest.fn(() => KEY),
+    // Connecting is gated on it; these cases are about what happens after.
+    aiConfigured: jest.fn(() => true),
   } as unknown as SecretsService;
 
   return {
