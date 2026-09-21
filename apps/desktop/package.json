@@ -5,7 +5,7 @@
   "description": "Local-first daily engineering briefs from your GitHub activity.",
   "homepage": "https://github.com/VirtualPirate/devsummary-desktop",
   "author": "Artaza Sameen",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "GPL-3.0-or-later",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

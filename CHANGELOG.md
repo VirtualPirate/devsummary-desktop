@@ -65,7 +65,7 @@ storage, an in-process job runner, and pasted credentials instead of OAuth.
 
 ### Legal
 
-Open source under the **MIT License** — free to use, modify, fork and sell, as long as the
-copyright notice ships with any copy. `LICENSE` doubles as the terms the
+Free software under the **GNU GPL v3.0 or later** — use, modify, fork and sell it; anyone you
+distribute it to gets the source under the same license. `LICENSE` doubles as the terms the
 app asks you to accept, `PRIVACY.md` is the privacy policy, and `THIRD-PARTY-NOTICES.md`
 attributes 550 components. All three ship inside the binary; none of them needs a website.

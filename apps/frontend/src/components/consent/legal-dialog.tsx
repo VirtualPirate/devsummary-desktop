@@ -20,9 +20,10 @@ import privacyText from "../../../../../PRIVACY.md?raw"
  * the checkbox asked people to accept two documents they could not open. They ship
  * inside the app instead, so there is no website for the terms to depend on.
  *
- * "Terms of Use" is the license itself: MIT grants the right to run, modify and
- * redistribute the app, and carries the warranty and liability disclaimers. A
- * separate terms document would only restate it in worse prose.
+ * "Terms of Use" is the license itself: the GPL grants the right to run, modify
+ * and redistribute the app, states the copyleft condition on redistributing it,
+ * and carries the warranty and liability disclaimers. A separate terms document
+ * would only restate it in worse prose.
  */
 export const LEGAL_DOCS = {
   terms: { title: "Terms of Use", text: licenseText },

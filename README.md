@@ -163,9 +163,11 @@ before touching anything that handles a date. `apps/backend/AGENTS.md` and
 
 ## License
 
-**MIT** — see `LICENSE`. Open source: run it, read it, change it, share it, use it at work,
-fork it, sell it. Keep the copyright notice and the license text with any copy you distribute;
-there is no warranty.
+**GNU GPL v3.0 or later** — see `LICENSE`. Copyright (C) 2026 Artaza Sameen. Free software:
+run it, read it, change it, share it, use it at work, fork it, sell it. The condition is
+copyleft — anyone you give the program or a modified version to gets the same freedoms, which
+means you pass on the source (or a written offer for it) under the GPL as well. There is no
+warranty.
 
 `LICENSE` is also the Terms of Use the app shows on first launch, and `PRIVACY.md` is the privacy
 policy; both ship inside the installer, so they are readable without a network connection.

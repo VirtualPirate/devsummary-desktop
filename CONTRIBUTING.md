@@ -6,9 +6,9 @@ and the handful of things that are settled and will be declined.
 
 ## License, before anything else
 
-DevSummary is **open source** — [MIT](LICENSE). You may run, read, change, share and sell it,
-including at work on your employer's repositories, as long as the copyright notice and the license
-text travel with any copy you distribute.
+DevSummary is **free software** — [GNU GPL v3.0 or later](LICENSE). You may run, read, change,
+share and sell it, including at work on your employer's repositories. Copyleft is the condition: if
+you distribute it or a modified version, the recipient gets the source under the GPL too.
 
 By opening a pull request you agree that your contribution is licensed to the project under those
 same terms, and that you have the right to submit it (your own work, or work you are authorized to
