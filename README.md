@@ -16,6 +16,26 @@ directory on your disk, background work runs in-process, and every credential is
 [PGlite](https://pglite.dev/) (Postgres compiled to WASM) instead of a Postgres server, a `jobs`
 table plus a poll loop instead of Temporal, pasted credentials instead of OAuth installs.
 
+## Install
+
+Debian and Ubuntu, from the apt repository:
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://virtualpirate.github.io/devsummary-desktop/devsummary.asc \
+  | sudo tee /etc/apt/keyrings/devsummary.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/devsummary.asc] https://virtualpirate.github.io/devsummary-desktop ./" \
+  | sudo tee /etc/apt/sources.list.d/devsummary.list
+sudo apt update && sudo apt install devsummary
+```
+
+Upgrades come from `apt upgrade`. `docs/install-apt.md` has the key fingerprint to check against,
+and removal.
+
+Everything else — the AppImage, macOS, Windows — is on the
+[releases page](https://github.com/VirtualPirate/devsummary-desktop/releases). The mac build is not
+notarized yet; see [Packaging](#packaging).
+
 ## Getting started
 
 Node ≥ 22.12 and pnpm.
