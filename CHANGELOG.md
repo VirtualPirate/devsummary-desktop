@@ -3,7 +3,38 @@
 Notable changes per release. Dates are the tag date. Versions follow
 [semantic versioning](https://semver.org); until 1.0.0 the minor is the breaking one.
 
-## Unreleased
+## 0.2.0 — 2026-09-27
+
+### Added
+
+- **Assistant** (`/agents`). A chat over this workspace's own data — repositories,
+  collaborators, commits, projects, teams and activity stats — through seven read-only tools.
+  It runs on whichever provider is configured, the four agent CLIs included, with its own model
+  override next to commit analysis and brief writing.
+- **Commits explorer** (`/commits`). Every commit in the workspace, filtered by date range,
+  type and repository, analysed-only by default, reached from the home activity cards, the
+  briefs list and a brief's own commit list.
+- **Model picker.** The three model overrides on the AI page list what the provider actually
+  offers — a keyed provider's own `/models`, `agent --list-models`, `opencode models`, or a fixed
+  set for `claude` and `codex` — and still accept a typed id for a model no list has yet.
+- **Email verification, optional.** Settings → Email, and a "Not Verified" tag in the topbar
+  until an address is confirmed. Nothing is gated on it. The address is the one thing the app
+  sends to `api.devsummary.com`; `PRIVACY.md` and `docs/EGRESS.md` say so.
+- **GitHub token guide** beside the PAT form, showing which fine-grained permissions to grant.
+- **DevSummary Cloud** card in the sidebar footer, dismissible for the session.
+
+### Changed
+
+- **GitHub connect needs a working AI provider.** Connecting a PAT starts ingest and every
+  commit is analysed, so the form shows the set-up-AI panel until a key is pasted or the
+  selected agent CLI still runs. On first launch an installed agent CLI is selected
+  automatically when no provider has been chosen.
+- **Briefs select commits by when they landed** on the tracked branch, not by their git date.
+  Work merged today into a closed period used to fall into no brief at all. Briefs written
+  before this release keep the clock they were generated on, so they still agree with their
+  own commit count.
+- Commit rows show the exact date and time instead of a relative label.
+- **License: GPL-3.0-or-later.** The `v0.1.0` tag was cut with the MIT text.
 
 ### Removed
 
