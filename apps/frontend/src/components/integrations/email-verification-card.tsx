@@ -1,5 +1,5 @@
 import { CheckCircle2, Mail, RefreshCw } from "lucide-react"
-import { useState } from "react"
+import { useId, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,8 +31,28 @@ import { extractErrorMessage } from "@/lib/extract-error"
  * that it is optional.
  */
 export function EmailVerificationCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Email</CardTitle>
+        <CardDescription>
+          Optional. Confirm an address and we can reach you about this install —
+          there is no account, no password, and nothing here is required to use
+          DevSummary.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <EmailVerificationPanel />
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The flow itself, shared by the Settings card and the topbar's dialog. */
+export function EmailVerificationPanel() {
   const verification = useEmailVerification()
   const request = useRequestEmailVerification()
+  const inputId = useId()
   const [draft, setDraft] = useState("")
   // Pressing Resend is the same request; showing the form again is purely local
   // — a different address is only sent once the user submits it.
@@ -51,123 +71,94 @@ export function EmailVerificationCard() {
     }
   }
 
-  const header = (
-    <CardHeader>
-      <CardTitle>Email</CardTitle>
-      <CardDescription>
-        Optional. Confirm an address and we can reach you about this install —
-        there is no account, no password, and nothing here is required to use
-        DevSummary.
-      </CardDescription>
-    </CardHeader>
-  )
-
   if (verification.isPending) {
-    return (
-      <Card>
-        {header}
-        <CardContent>
-          <Skeleton className="h-9 w-full max-w-sm" />
-        </CardContent>
-      </Card>
-    )
+    return <Skeleton className="h-9 w-full max-w-sm" />
   }
 
   if (state?.status === "verified") {
     return (
-      <Card>
-        {header}
-        <CardContent className="flex items-center gap-2 text-sm">
-          <CheckCircle2 className="size-4 shrink-0 text-gb-status-shipped" />
-          <span>
-            <span className="font-medium">{state.email}</span> is verified.
-          </span>
-        </CardContent>
-      </Card>
+      <div className="flex items-center gap-2 text-sm">
+        <CheckCircle2 className="size-4 shrink-0 text-gb-status-shipped" />
+        <span>
+          <span className="font-medium">{state.email}</span> is verified.
+        </span>
+      </div>
     )
   }
 
   if (state?.status === "pending" && !editing) {
     return (
-      <Card>
-        {header}
-        <CardContent className="space-y-3">
-          <div className="flex items-start gap-2 text-sm">
-            <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <span>
-              {state.linkExpired ? (
-                <>
-                  The link sent to{" "}
-                  <span className="font-medium">{state.email}</span> has expired.
-                  Send a new one.
-                </>
-              ) : (
-                <>
-                  Click the link we sent to{" "}
-                  <span className="font-medium">{state.email}</span>. This screen
-                  updates on its own once you do.
-                </>
-              )}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={request.isPending || !state.email}
-              onClick={() => {
-                if (state.email) void send(state.email)
-              }}
-            >
-              <RefreshCw className="size-3.5" />
-              {request.isPending ? "Sending…" : "Resend link"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setDraft(state.email ?? "")
-                setEditing(true)
-              }}
-            >
-              Use a different address
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <div className="flex items-start gap-2 text-sm">
+          <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <span>
+            {state.linkExpired ? (
+              <>
+                The link sent to{" "}
+                <span className="font-medium">{state.email}</span> has expired.
+                Send a new one.
+              </>
+            ) : (
+              <>
+                Click the link we sent to{" "}
+                <span className="font-medium">{state.email}</span>. This screen
+                updates on its own once you do.
+              </>
+            )}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={request.isPending || !state.email}
+            onClick={() => {
+              if (state.email) void send(state.email)
+            }}
+          >
+            <RefreshCw className="size-3.5" />
+            {request.isPending ? "Sending…" : "Resend link"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDraft(state.email ?? "")
+              setEditing(true)
+            }}
+          >
+            Use a different address
+          </Button>
+        </div>
+      </div>
     )
   }
 
   return (
-    <Card>
-      {header}
-      <CardContent>
-        <form
-          className="flex w-full max-w-md flex-wrap items-end gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            const email = draft.trim()
-            if (email) void send(email)
-          }}
-        >
-          <div className="min-w-48 flex-1 space-y-1.5">
-            <Label htmlFor="verification-email">Email address</Label>
-            <Input
-              id="verification-email"
-              type="email"
-              autoComplete="email"
-              spellCheck={false}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="you@example.com"
-            />
-          </div>
-          <Button type="submit" disabled={!draft.trim() || request.isPending}>
-            <Mail className="size-4" />
-            {request.isPending ? "Sending…" : "Send link"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <form
+      className="flex w-full max-w-md flex-wrap items-end gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const email = draft.trim()
+        if (email) void send(email)
+      }}
+    >
+      <div className="min-w-48 flex-1 space-y-1.5">
+        <Label htmlFor={inputId}>Email address</Label>
+        <Input
+          id={inputId}
+          type="email"
+          autoComplete="email"
+          spellCheck={false}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="you@example.com"
+        />
+      </div>
+      <Button type="submit" disabled={!draft.trim() || request.isPending}>
+        <Mail className="size-4" />
+        {request.isPending ? "Sending…" : "Send link"}
+      </Button>
+    </form>
   )
 }
