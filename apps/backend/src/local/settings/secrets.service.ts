@@ -132,12 +132,13 @@ export class SecretsService {
   }
 
   /**
-   * Whether an AI call can actually be made: the *selected* provider has what it
-   * needs. A CLI provider has no key — `updateCredentials` proved the binary was
-   * installed before storing it — so selecting one is enough. Same rule
-   * `loadLlmSettings` applies when it decides between a real client and the stub,
-   * which is what keeps this from claiming a readiness the next job disagrees
-   * with.
+   * The credential half of "can an AI call be made": the *selected* provider has
+   * what the bundle can hold. A CLI provider has no key, so selecting one is
+   * enough here — whether its binary still runs is the other half, which lives in
+   * `LocalSettingsService.aiConfigured` because the detector cannot be imported
+   * from this file (`run-cli` imports `SECRET_KEYS` from it). Gate on that one.
+   * Same rule `loadLlmSettings` applies when it decides between a real client and
+   * the stub.
    */
   aiConfigured(): boolean {
     const provider = this.bundle.LLM_PROVIDER ?? 'openai';

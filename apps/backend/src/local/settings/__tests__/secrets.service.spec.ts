@@ -31,8 +31,9 @@ describe('SecretsService', () => {
     });
   });
 
-  // What the GitHub connect gate reads: only the *selected* provider counts,
-  // and a CLI provider counts with no key at all.
+  // The credential half of the GitHub connect gate: only the *selected*
+  // provider counts, and a CLI provider counts with no key at all (its binary is
+  // `LocalSettingsService.aiConfigured`'s half).
   it('reports AI configured per selected provider', () => {
     expect(withEnv({ OPENAI_API_KEY: 'sk-1' }).aiConfigured()).toBe(true);
     expect(

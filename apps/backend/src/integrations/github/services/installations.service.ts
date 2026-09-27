@@ -12,6 +12,7 @@ import type {
   GithubRepositorySelect,
 } from '../../../databases/kysely';
 import { JOB, JobQueueService } from '../../../jobs';
+import { LocalSettingsService } from '../../../local/settings/local-settings.service';
 import { SecretsService } from '../../../local/settings/secrets.service';
 import { sealGithubToken } from '../credentials';
 import { GithubAppClient } from '../github.client';
@@ -65,6 +66,7 @@ export class GithubInstallationsService {
     @Inject(KYSELY_DB) private readonly db: AppDatabase,
     private readonly queue: JobQueueService,
     private readonly secrets: SecretsService,
+    private readonly localSettings: LocalSettingsService,
   ) {}
 
   /**
@@ -109,7 +111,9 @@ export class GithubInstallationsService {
     // Connecting is what starts ingest, and every commit it reads is analysed by
     // the LLM. Without a provider the whole read would land as failed analyses,
     // so the refusal belongs here rather than hours later in a job.
-    if (!this.secrets.aiConfigured()) throw AppError.AI_NOT_CONFIGURED();
+    if (!(await this.localSettings.aiConfigured())) {
+      throw AppError.AI_NOT_CONFIGURED();
+    }
 
     const token = input.token.trim();
     // A throwaway client bound to the candidate token: validation has to happen

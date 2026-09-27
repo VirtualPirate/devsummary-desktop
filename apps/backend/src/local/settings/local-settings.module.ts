@@ -33,7 +33,14 @@ import { SecretsService } from './secrets.service';
   ],
   // Exported because the repository cap it gates is enforced in the GitHub
   // module — this module is @Global, so that stays one import-free injection.
-  exports: [SecretsService, LocalSettingsRepository, EmailVerificationService],
+  // `LocalSettingsService` for the same reason: GitHub connect is gated on its
+  // `aiConfigured()`.
+  exports: [
+    SecretsService,
+    LocalSettingsRepository,
+    LocalSettingsService,
+    EmailVerificationService,
+  ],
 })
 export class LocalSettingsModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

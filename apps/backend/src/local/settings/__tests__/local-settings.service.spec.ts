@@ -16,6 +16,7 @@ function makeService(bundle: Record<string, string | undefined> = {}) {
   const secrets = {
     get: jest.fn((key: string) => bundle[key]),
     update: jest.fn(),
+    aiConfigured: jest.fn().mockReturnValue(true),
     status: jest.fn().mockReturnValue({
       github: false,
       openai: false,
@@ -136,6 +137,56 @@ describe('LocalSettingsService.status with a CLI provider', () => {
       commitAnalysisModel: 'haiku',
       briefModel: 'sonnet',
     });
+  });
+});
+
+// The GitHub connect gate: a CLI proved at store time can be uninstalled since,
+// and every analysis would then fail with the gate still open.
+describe('LocalSettingsService.aiConfigured', () => {
+  it('is false once the selected CLI no longer runs', async () => {
+    const { svc, detector } = makeService({ LLM_PROVIDER: 'claude-code' });
+    await expect(svc.aiConfigured()).resolves.toBe(true);
+
+    detector.detect.mockResolvedValue({ ...INSTALLED, installed: false });
+    await expect(svc.aiConfigured()).resolves.toBe(false);
+    await expect(svc.status()).resolves.toMatchObject({ aiConfigured: false });
+    expect(detector.detect).toHaveBeenCalledWith('claude-code');
+  });
+
+  it('is false without the key, and never detects for a key provider', async () => {
+    const { svc, secrets, detector } = makeService();
+    await expect(svc.aiConfigured()).resolves.toBe(true);
+
+    secrets.aiConfigured.mockReturnValue(false);
+    await expect(svc.aiConfigured()).resolves.toBe(false);
+    expect(detector.detect).not.toHaveBeenCalled();
+  });
+});
+
+describe('LocalSettingsService.onModuleInit', () => {
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  it('probes the selected CLI on every launch and keeps the choice', async () => {
+    const { svc, secrets, detector } = makeService({
+      LLM_PROVIDER: 'claude-code',
+    });
+    detector.detect.mockResolvedValue({ ...INSTALLED, installed: false });
+
+    svc.onModuleInit();
+    await settle();
+
+    expect(detector.detect).toHaveBeenCalledWith('claude-code');
+    expect(secrets.update).not.toHaveBeenCalled();
+  });
+
+  it('probes nothing for a key provider', async () => {
+    const { svc, detector } = makeService({ LLM_PROVIDER: 'openai' });
+
+    svc.onModuleInit();
+    await settle();
+
+    expect(detector.detect).not.toHaveBeenCalled();
+    expect(detector.detectAll).not.toHaveBeenCalled();
   });
 });
 

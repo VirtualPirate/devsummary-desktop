@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useConnectGithubToken } from "@/hooks/api/use-github-integrations"
 import { useLocalSettings } from "@/hooks/api/use-local-settings"
 import { extractErrorMessage } from "@/lib/extract-error"
@@ -78,7 +79,12 @@ export function GithubPatForm({
   // LLM — so a token pasted with no provider buys a repository full of failed
   // analyses. The backend refuses it too (`AI_NOT_CONFIGURED`); this is the half
   // that says what to do instead. Gated here rather than on the page so every
-  // place the form appears is covered by the one check.
+  // place the form appears is covered by the one check. Nothing is shown until
+  // the answer arrives, or the field flashes before the panel replaces it; a
+  // failed read falls through to the form, which the backend still refuses.
+  if (settings.isPending) {
+    return <Skeleton className="h-24 w-full max-w-md rounded-xl" />
+  }
   if (settings.data && !settings.data.data.aiConfigured) {
     return (
       <div className="w-full max-w-md space-y-3 rounded-xl border bg-muted/40 p-4 text-left">

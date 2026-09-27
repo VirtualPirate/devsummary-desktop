@@ -4,6 +4,7 @@ import { openGithubToken } from '../credentials';
 import { GithubInstallationsService } from '../services/installations.service';
 
 import { JOB } from '../../../jobs';
+import type { LocalSettingsService } from '../../../local/settings/local-settings.service';
 import type { SecretsService } from '../../../local/settings/secrets.service';
 
 /** Stands in for `SecretsService.encryptionKey()`, which is what seals the PAT. */
@@ -106,9 +107,12 @@ function makeMocks() {
   const secrets = {
     update: jest.fn(),
     encryptionKey: jest.fn(() => KEY),
-    // Connecting is gated on it; these cases are about what happens after.
-    aiConfigured: jest.fn(() => true),
   } as unknown as SecretsService;
+
+  // Connecting is gated on it; these cases are about what happens after.
+  const localSettings = {
+    aiConfigured: jest.fn(async () => true),
+  } as unknown as LocalSettingsService;
 
   return {
     installsRepo,
@@ -118,6 +122,7 @@ function makeMocks() {
     db,
     queue,
     secrets,
+    localSettings,
   };
 }
 
@@ -132,6 +137,7 @@ function makeService(overrides: Partial<ReturnType<typeof makeMocks>> = {}) {
       m.db,
       m.queue,
       m.secrets,
+      m.localSettings,
     ),
     mocks: m,
   };

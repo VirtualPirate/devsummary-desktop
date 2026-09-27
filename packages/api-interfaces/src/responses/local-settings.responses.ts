@@ -50,10 +50,9 @@ export interface LocalSettingsStatus {
   llmProvider: LlmProviderName;
   /**
    * The selected provider has what it needs to answer — a key for `openai` /
-   * `gemini`, nothing more than being selected for a CLI, which is only stored
-   * once its binary has been detected. False means every AI call would fail, so
-   * the GitHub connect form refuses to start an ingest that could not be
-   * analysed.
+   * `gemini`, a binary that still runs for a CLI. False means every AI call
+   * would fail, so the GitHub connect form refuses to start an ingest that could
+   * not be analysed.
    */
   aiConfigured: boolean;
   desktopNotifications: boolean;

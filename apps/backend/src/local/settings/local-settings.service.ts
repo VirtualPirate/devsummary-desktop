@@ -60,7 +60,26 @@ export class LocalSettingsService implements OnModuleInit {
    * anyway, and the settings screen reads the result on its next status call.
    */
   onModuleInit(): void {
+    void this.checkSelectedAgentCli();
     void this.autoSelectAgentCli();
+  }
+
+  /**
+   * Every launch: the selected CLI was proved when it was stored, which may be
+   * long ago. Probing it now puts a fresh answer in the detector's cache before
+   * the first status call or GitHub connect asks, and says so in the log when it
+   * has gone — the setting stays the user's, so nothing is switched.
+   */
+  private async checkSelectedAgentCli(): Promise<void> {
+    const provider = this.provider();
+    if (!isAgentProvider(provider)) return;
+
+    const cli = await this.detector.detect(provider);
+    if (!cli.installed) {
+      this.logger.warn(
+        `${cli.displayName} is the AI provider but is not installed; every AI call will fail until it is. ${cli.installHint}`,
+      );
+    }
   }
 
   /**
@@ -94,10 +113,26 @@ export class LocalSettingsService implements OnModuleInit {
     return LLM_PROVIDERS.find((p) => p === stored) ?? 'openai';
   }
 
+  /**
+   * Whether an AI call can be made right now — what the GitHub connect gate
+   * reads, on both sides. `SecretsService.aiConfigured` is the credential half;
+   * for an agent CLI this adds that the binary still runs. It was proved when
+   * the provider was stored, but an uninstall since would leave the gate open
+   * and every analysis failing. Same `detect` (and 60 s cache) the job's spawn
+   * reads, so the two cannot disagree for longer than that.
+   */
+  async aiConfigured(): Promise<boolean> {
+    if (!this.secrets.aiConfigured()) return false;
+    const provider = this.provider();
+    if (!isAgentProvider(provider)) return true;
+    return (await this.detector.detect(provider)).installed;
+  }
+
   async status(): Promise<LocalSettingsStatus> {
     const llmProvider = this.provider();
     return {
       ...this.secrets.status(),
+      aiConfigured: await this.aiConfigured(),
       llmProvider,
       desktopNotifications: await this.settings.desktopNotificationsEnabled(),
       // `DATA_DIR` itself — the `userData` root — not the `data/` child that
